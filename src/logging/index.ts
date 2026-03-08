@@ -49,12 +49,3 @@ export const log = {
     emit({ ts: new Date().toISOString(), level: "error", tag, msg, ...errorCtx });
   },
 };
-
-export function logHandlerError(tag: string, filePath: string, error: unknown): void {
-  if (error instanceof Error && error.message.includes("Executable not found")) {
-    log.debug(tag, "External tool not available", { file: filePath, tool: error.message });
-    return;
-  }
-
-  log.error(tag, "Handler failed", error, { file: filePath });
-}

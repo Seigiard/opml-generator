@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { log } from "../logging/index.ts";
-export { COVER_MAX_SIZE, THUMBNAIL_MAX_SIZE } from "../constants.ts";
+export { COVER_MAX_SIZE } from "../constants.ts";
 
 export async function saveBufferAsImage(buffer: Buffer, destPath: string, maxSize: number): Promise<boolean> {
   try {

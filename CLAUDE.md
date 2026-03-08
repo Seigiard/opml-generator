@@ -22,7 +22,7 @@ bun run test
 npx knip  # check unused exports/deps
 ```
 
-Update `PLAN.md`, `CLAUDE.md`, or `@ARCHITECTURE.md` if architecture changed.
+Update `CLAUDE.md` or `ARCHITECTURE.md` if architecture changed.
 
 ## Development Workflow
 
@@ -32,23 +32,24 @@ Gracefully shutdown after tests.
 ```bash
 docker compose -f docker-compose.dev.yml up          # start
 docker compose -f docker-compose.dev.yml logs -f     # logs
-curl http://localhost:8080/feed.xml                  # test
+curl http://localhost:8080/feed.opml                 # test OPML
+curl http://localhost:8080/data/Author/Book/feed.xml # test podcast RSS
 curl -u admin:secret http://localhost:8080/resync    # force resync
 ```
 
 ## Environment Variables
 
-| Variable             | Default  | Description                                       |
-| -------------------- | -------- | ------------------------------------------------- |
-| `FILES`              | `/books` | Source books directory                            |
-| `DATA`               | `/data`  | Generated metadata cache                          |
-| `PORT`               | `3000`   | Internal Bun server port                          |
-| `LOG_LEVEL`          | `info`   | debug \| info \| warn \| error                    |
-| `DEV_MODE`           | `false`  | Enable Bun --watch hot reload                     |
-| `ADMIN_USER`         | -        | /resync Basic Auth username                       |
-| `ADMIN_TOKEN`        | -        | /resync Basic Auth password                       |
-| `RATE_LIMIT_MB`      | `0`      | Download rate limit MB/s (0 = off)                |
-| `RECONCILE_INTERVAL` | `1800`   | Periodic reconciliation seconds (0 = off, min 60) |
+| Variable             | Default       | Description                                       |
+| -------------------- | ------------- | ------------------------------------------------- |
+| `FILES`              | `/audiobooks` | Source audiobooks directory                       |
+| `DATA`               | `/data`       | Generated metadata cache                          |
+| `PORT`               | `3000`        | Internal Bun server port                          |
+| `LOG_LEVEL`          | `info`        | debug \| info \| warn \| error                    |
+| `DEV_MODE`           | `false`       | Enable Bun --watch hot reload                     |
+| `ADMIN_USER`         | -             | /resync Basic Auth username                       |
+| `ADMIN_TOKEN`        | -             | /resync Basic Auth password                       |
+| `RATE_LIMIT_MB`      | `0`           | Streaming rate limit MB/s (0 = off)               |
+| `RECONCILE_INTERVAL` | `1800`        | Periodic reconciliation seconds (0 = off, min 60) |
 
 ## Testing
 
@@ -78,13 +79,14 @@ test/
 ├── setup.ts             # Global test setup
 ├── helpers/             # Mock services, assertions, fs utils
 ├── unit/                # Pure logic, no external deps
-│   ├── utils/
-│   └── effect/handlers/
-├── integration/         # Requires docker (ImageMagick, poppler, etc.)
-│   ├── formats/         # Format handler tests
+│   ├── audio/           # ID3 reader, cover finder tests
+│   ├── rss/             # RSS + OPML generator tests
+│   ├── utils/           # Image processing tests
+│   └── effect/handlers/ # Handler unit tests
+├── integration/         # Requires docker (ImageMagick, ffmpeg)
 │   └── effect/          # Queue + cascade flow tests
 └── e2e/                 # Full system tests
-    ├── nginx.test.ts    # nginx routing + auth
+    ├── nginx.test.ts    # nginx routing, OPML, range requests
     └── event-logging.test.ts  # Event lifecycle tracing
 ```
 
@@ -94,38 +96,41 @@ test/
 src/
 ├── server.ts        # HTTP server + initial sync + DI setup
 ├── config.ts        # Environment configuration
-├── constants.ts     # File constants (feed.xml, entry.xml, etc.)
+├── constants.ts     # File constants (feed.xml, entry.xml, feed.opml, etc.)
 ├── scanner.ts       # File scanning, sync planning
-├── types.ts         # Shared types (MIME_TYPES, BOOK_EXTENSIONS)
+├── types.ts         # Shared types (MIME_TYPES, AUDIO_EXTENSIONS)
 ├── watcher.sh       # inotifywait → POST /events
+├── audio/           # Audio metadata extraction
+│   ├── types.ts     # AudioMetadata interface
+│   ├── id3-reader.ts # music-metadata via parseBuffer() (NOT parseFile)
+│   └── cover.ts     # Folder cover art finder
+├── rss/             # Feed generation
+│   ├── types.ts     # PodcastInfo, EpisodeInfo, OpmlOutline
+│   ├── podcast-rss.ts # Podcast RSS 2.0 with iTunes namespace
+│   └── opml.ts      # OPML 2.0 feed aggregation
 ├── effect/          # EffectTS event handling
 │   ├── types.ts     # RawBooksEvent, RawDataEvent, EventType
 │   ├── services.ts  # DI services
 │   ├── consumer.ts  # Event loop
 │   ├── adapters/    # Raw → typed event conversion
-│   │   ├── books-adapter.ts    # /books watcher events
+│   │   ├── books-adapter.ts    # /audiobooks watcher events
 │   │   ├── data-adapter.ts     # /data watcher events
 │   │   └── sync-plan-adapter.ts # Initial sync → events
-│   └── handlers/    # book-sync, folder-sync, etc.
-├── formats/         # FormatHandler implementations
-│   ├── types.ts     # FormatHandler, BookMetadata
-│   ├── index.ts     # Handler registry
-│   ├── utils.ts     # XML parsing utilities
-│   └── *.ts         # epub, fb2, mobi, pdf, comic, txt, djvu
+│   └── handlers/    # audio-sync, folder-sync, opml-sync, etc.
 ├── logging/         # Structured logging
 │   ├── types.ts     # LogLevel, LogContext
-│   ├── logger.ts    # Flat JSON logger to stdout
-│   └── index.ts     # Exports
-└── utils/           # archive, image, process, processor, opds
+│   └── index.ts     # Flat JSON logger to stdout
+└── utils/           # image, processor
 ```
 
 ## Architecture: Dual Server
 
 ```
-nginx:80 (external)          Bun:3000 (localhost only)
-├── /opds → /feed.xml        ├── POST /events/books ← books watcher
-├── /static/* → /app/static  ├── POST /events/data ← data watcher
-├── /resync → auth → proxy   └── POST /resync ← nginx
+nginx:80 (external)              Bun:3000 (localhost only)
+├── / → /feed.opml               ├── POST /events/books ← audiobooks watcher
+├── /audiobooks/* → static       ├── POST /events/data ← data watcher
+├── /static/* → /app/static      └── POST /resync ← nginx
+├── /resync → auth → proxy
 └── /* → /data/*
 ```
 
@@ -135,6 +140,24 @@ nginx:80 (external)          Bun:3000 (localhost only)
 2. **Queue** (`EventQueueService`) — typed events only
 3. **Consumer** (`consumer.ts`) — gets handler via `HandlerRegistry.get()`
 4. **Handlers** (`handlers/*.ts`) — return `EventType[]` for cascades
+
+### Cascade Chain
+
+```
+AudioFileCreated (audiobooks watcher → books-adapter)
+  → audio-sync: read ID3, write entry.xml + folder-level cover.jpg → returns []
+
+  (data watcher detects entry.xml close_write)
+  → EntryXmlChanged (data-adapter)
+    → parentMetaSync → returns [FolderMetaSyncRequested]
+      → folder-meta-sync: read entry.xml files → write feed.xml + _entry.xml
+        → returns [FeedXmlCreated] if feed.xml is new
+        → returns [FeedXmlDeleted] if last episode removed
+        → returns [] if content update only
+
+  FeedXmlCreated (from folder-meta-sync cascade return)
+    → opml-sync: collect feed.xml paths → write feed.opml → returns []
+```
 
 ### DI Services
 
@@ -183,54 +206,60 @@ await Effect.runPromise(Effect.provide(effect1, LiveLayer));
 await Effect.runPromise(Effect.provide(effect2, LiveLayer)); // different queue!
 ```
 
-**Mirror structure** — /data mirrors /books:
+**Mirror structure** — /data mirrors /audiobooks:
 
-- Book → folder with `entry.xml`, `cover.jpg`, `thumb.jpg`, `file` (symlink)
-- Folder → `feed.xml` + `_entry.xml` (for parent)
+- Audio file → folder with `entry.xml` (cached episode metadata)
+- Folder with episodes → `feed.xml` (podcast RSS) + `cover.jpg` + `_entry.xml` (for parent)
+- Root → `feed.opml` (OPML aggregation)
 
-## Adding New Format Handler
+## Supported Audio Formats
 
-1. Create `src/formats/{format}.ts` implementing FormatHandler interface
-2. Export `registration: FormatHandlerRegistration`
-3. Import and add to registrations array in `src/formats/index.ts`
+| Format | Extensions | MIME Type  | Notes                                   |
+| ------ | ---------- | ---------- | --------------------------------------- |
+| MP3    | .mp3       | audio/mpeg |                                         |
+| M4A    | .m4a       | audio/mp4  |                                         |
+| M4B    | .m4b       | audio/mp4  | Treated as single episode (no chapters) |
+| OGG    | .ogg       | audio/ogg  |                                         |
 
-### Handler Interface
+### M4B Limitation
 
-```typescript
-interface FormatHandler {
-  getMetadata(): BookMetadata;       // Sync extraction
-  getCover(): Promise<Buffer | null>; // Async cover extraction
-}
+M4B files contain an entire audiobook with internal chapter markers. This generator treats each M4B as a single episode — chapter extraction is out of scope. Split M4B files beforehand using OpenAudible, ffmpeg, or mp4chaps.
 
-interface FormatHandlerRegistration {
-  extensions: string[];               // ["epub", "epub3"]
-  create: FormatHandlerFactory;       // async factory function
-}
+## Podcast RSS Generation
+
+Each folder with audio files produces a `feed.xml` (podcast RSS 2.0):
+
+```xml
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>Album Name</title>
+    <itunes:author>Artist</itunes:author>
+    <itunes:type>serial</itunes:type>
+    <item>
+      <title>Chapter 1</title>
+      <enclosure url="https://host/audiobooks/Author/Book/01.mp3"
+                 length="12345678" type="audio/mpeg"/>
+      <itunes:episode>1</itunes:episode>
+    </item>
+  </channel>
+</rss>
 ```
 
-### Supported Formats
+### Episode Ordering
 
-| Format | Extensions         | Dependencies      |
-| ------ | ------------------ | ----------------- |
-| EPUB   | .epub              | unzip             |
-| FB2    | .fb2, .fbz         | unzip (fbz)       |
-| MOBI   | .mobi, .azw, .azw3 | -                 |
-| PDF    | .pdf               | poppler-utils     |
-| DJVU   | .djvu              | djvulibre         |
-| Comics | .cbz, .cbr, .cb7   | node-7z, unrar-js |
-| Text   | .txt               | -                 |
+- Primary: ID3 disc + track number → sort by `(disc, track, filename)` tuple
+- Fallback: natural sort by filename
+- Episode numbers persisted in `entry.xml` — stable across incremental updates
+- Full renumber only on explicit `/resync`
 
-## opds-ts Usage
+## music-metadata + Bun
+
+`parseFile()` hangs in Bun. Always use `parseBuffer()`:
 
 ```typescript
-import { Entry, Feed } from "opds-ts/v1.2";
-
-const entry = new Entry(id, title)
-  .setAuthor(author)
-  .addImage(coverUrl)
-  .addAcquisition(downloadUrl, mimeType, "open-access");
-
-const feed = new Feed(id, title).setKind("navigation").addSelfLink(href, "navigation");
+import { parseBuffer } from "music-metadata";
+const buf = new Uint8Array(await Bun.file(filePath).arrayBuffer());
+const metadata = await parseBuffer(buf, { path: filePath });
 ```
 
 ## Troubleshooting
@@ -243,14 +272,15 @@ Always use shared runtime: `const runtime = ManagedRuntime.make(LiveLayer)`
 ### Infinite Loop in Watchers
 
 - data watcher excludes `.jsonl` files
-- feed.xml is NOT watched (only entry.xml and \_entry.xml)
+- feed.xml and feed.opml writes are classified as `Ignored` by data adapter
+- Only `entry.xml` and `_entry.xml` produce actionable events
 - Check watcher.sh exclusion patterns
 
 ### Tests Failing
 
 - Always run tests in Docker: `bun run test`
-- Integration tests require ImageMagick, poppler-utils, djvulibre
-- Check test fixtures exist in test/fixtures/
+- Integration tests require ImageMagick, ffmpeg
+- Check test fixtures exist in test/fixtures/audio/
 
 ### Resync Not Working
 
@@ -263,5 +293,5 @@ Always use shared runtime: `const runtime = ManagedRuntime.make(LiveLayer)`
 Docker healthcheck uses `wget` (NOT `curl` — not in alpine image):
 
 ```bash
-wget -q --spider http://127.0.0.1/feed.xml
+wget -q --spider http://127.0.0.1/feed.opml
 ```

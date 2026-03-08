@@ -1,6 +1,6 @@
-# OPDS Generator
+# OPML Generator
 
-Static OPDS 1.2 catalog generator from your file structure.
+Podcast RSS and OPML feed generator for locally stored audiobooks and podcasts.
 
 ## Philosophy
 
@@ -9,30 +9,28 @@ Static OPDS 1.2 catalog generator from your file structure.
 - Files are never modified, renamed, or moved
 - No database or proprietary storage format
 - Metadata is cached separately in `/data`, mirroring your file structure
-- Delete, add, or reorganize files anytime — the catalog updates automatically
+- Delete, add, or reorganize files anytime — feeds update automatically
 - Minimal dependencies, maximum simplicity
 
 ## Features
 
-- Automatic directory scanning with file watching
-- Metadata extraction from EPUB, FB2, MOBI/AZW, PDF
-- Cover extraction from EPUB, FB2, MOBI, CBZ, CBR, CB7, ZIP, PDF
-- Auto-detection of ZIP content type (comic or fb2)
-- Mirror architecture for easy orphan cleanup
-- Extensible format handlers
+- Each folder with audio files becomes a podcast RSS 2.0 feed (with iTunes extensions)
+- Root OPML file aggregates all podcast feeds
+- ID3 metadata extraction (title, artist, album, track, duration, cover art)
+- Folder-level cover art (embedded or standalone image files)
+- Stable episode numbering across incremental updates
+- HTTP Range request support for seeking/streaming
+- File watching with automatic feed regeneration
+- Full resync via authenticated `/resync` endpoint
 
-## Supported Formats
+## Supported Audio Formats
 
-| Format          | Metadata                                     | Cover |
-| --------------- | -------------------------------------------- | ----- |
-| EPUB            | title, author, description, series           | ✓     |
-| FB2/FBZ         | title, author, description, series, genre    | ✓     |
-| MOBI/AZW/AZW3   | title, author, publisher, subjects           | ✓     |
-| CBZ/CBR/CB7/CBT | title, author, series (ComicInfo.xml, CoMet) | ✓     |
-| ZIP             | auto-detect (comic/fb2)                      | ✓     |
-| PDF             | title, author, pages (pdfinfo)               | ✓     |
-| DJVU            | title, author, keywords, pages (djvused)     | ✓     |
-| TXT             | filename                                     | -     |
+| Format | Extensions | MIME Type  | Notes                                   |
+| ------ | ---------- | ---------- | --------------------------------------- |
+| MP3    | .mp3       | audio/mpeg |                                         |
+| M4A    | .m4a       | audio/mp4  |                                         |
+| M4B    | .m4b       | audio/mp4  | Treated as single episode (no chapters) |
+| OGG    | .ogg       | audio/ogg  |                                         |
 
 ## Quick Start with Docker
 
@@ -42,13 +40,13 @@ Static OPDS 1.2 catalog generator from your file structure.
 
 ```yaml
 services:
-  opds:
-    image: ghcr.io/seigiard/opds-generator:latest
+  opml:
+    image: ghcr.io/seigiard/opml-generator:latest
     ports:
       - "8080:80"
     volumes:
-      - /path/to/your/books:/books:ro
-      - opds-data:/data
+      - /path/to/your/audiobooks:/audiobooks:ro
+      - opml-data:/data
     environment:
       # Optional: enable /resync endpoint with Basic Auth
       # - ADMIN_USER=admin
@@ -57,113 +55,125 @@ services:
     restart: unless-stopped
 
 volumes:
-  opds-data:
+  opml-data:
 ```
 
 2. Run:
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
-3. Open http://localhost:8080/opds
+3. Open http://localhost:8080/feed.opml — add individual podcast `feed.xml` URLs to your podcast app.
 
 ### Docker Run
 
 ```bash
 docker run -d \
-  --name opds \
+  --name opml \
   -p 8080:80 \
-  -v /path/to/your/books:/books:ro \
-  -v opds-data:/data \
-  ghcr.io/seigiard/opds-generator:latest
+  -v /path/to/your/audiobooks:/audiobooks:ro \
+  -v opml-data:/data \
+  ghcr.io/seigiard/opml-generator:latest
 ```
 
 ### Build from Source
 
 ```bash
-git clone https://github.com/Seigiard/opds-generator.git
-cd opds-generator
-docker-compose up -d --build
+git clone https://github.com/Seigiard/opml-generator.git
+cd opml-generator
+docker compose up -d --build
 ```
 
 ## Environment Variables
 
-| Variable        | Default  | Description                           |
-| --------------- | -------- | ------------------------------------- |
-| `FILES`         | `/books` | Path to your books directory          |
-| `DATA`          | `/data`  | Path for cache and metadata           |
-| `PORT`          | `3000`   | Internal Bun server port              |
-| `DEV_MODE`      | `false`  | Enable hot reload for Bun             |
-| `ADMIN_USER`    | -        | Username for /resync Basic Auth       |
-| `ADMIN_TOKEN`   | -        | Password for /resync Basic Auth       |
-| `RATE_LIMIT_MB` | `0`      | Download rate limit in MB/s (0 = off) |
+| Variable             | Default       | Description                                       |
+| -------------------- | ------------- | ------------------------------------------------- |
+| `FILES`              | `/audiobooks` | Path to your audiobooks directory                 |
+| `DATA`               | `/data`       | Path for cache and metadata                       |
+| `PORT`               | `3000`        | Internal Bun server port                          |
+| `DEV_MODE`           | `false`       | Enable hot reload for Bun                         |
+| `ADMIN_USER`         | -             | Username for /resync Basic Auth                   |
+| `ADMIN_TOKEN`        | -             | Password for /resync Basic Auth                   |
+| `RATE_LIMIT_MB`      | `0`           | Streaming rate limit in MB/s (0 = off)            |
+| `RECONCILE_INTERVAL` | `1800`        | Periodic reconciliation seconds (0 = off, min 60) |
 
 ## API
 
-| Endpoint           | Description                                     |
-| ------------------ | ----------------------------------------------- |
-| `GET /`            | Redirect to /feed.xml                           |
-| `GET /opds`        | Redirect to /feed.xml                           |
-| `GET /feed.xml`    | Root catalog (OPDS feed)                        |
-| `GET /{path}/`     | Subcatalog (serves feed.xml as directory index) |
-| `GET /{book}/file` | Download book file (symlink)                    |
-| `GET /static/*`    | Static files                                    |
-| `GET /resync`      | Trigger full resync (requires Basic Auth)       |
+| Endpoint                    | Description                                 |
+| --------------------------- | ------------------------------------------- |
+| `GET /`                     | Redirect to /feed.opml                      |
+| `GET /feed.opml`            | Root OPML (aggregates all podcast feeds)    |
+| `GET /data/{path}/feed.xml` | Individual podcast RSS feed                 |
+| `GET /audiobooks/{path}`    | Stream audio file (supports Range requests) |
+| `GET /static/*`             | Static assets                               |
+| `POST /resync`              | Trigger full resync (requires Basic Auth)   |
 
-Note: nginx serves static files from `/data`. Returns 503 with `Retry-After: 5` if feed.xml doesn't exist yet (initial sync in progress).
+Returns 503 with `Retry-After: 5` if `feed.opml` doesn't exist yet (initial sync in progress).
 
 ## Directory Structure
 
 ```
-/books/                    # Your books (mounted read-only)
-├── fiction/
-│   └── Foundation.epub
-└── comics/
-    └── Batman.cbz
+/audiobooks/                    # Your audiobooks (mounted read-only)
+├── Author/
+│   └── Book Title/
+│       ├── 01 - Chapter One.mp3
+│       ├── 02 - Chapter Two.mp3
+│       └── cover.jpg
+└── Another Author/
+    └── Podcast/
+        ├── episode1.mp3
+        └── episode2.ogg
 
-/data/                     # Mirror cache (auto-generated)
-├── feed.xml               # Root feed
-├── fiction/
-│   ├── feed.xml           # Subcatalog feed
-│   ├── _entry.xml         # Entry for parent feed
-│   └── Foundation.epub/
-│       ├── entry.xml
-│       ├── cover.jpg
-│       ├── thumb.jpg
-│       └── file           # Symlink to /books/fiction/Foundation.epub
-└── comics/
-    ├── feed.xml
-    ├── _entry.xml
-    └── Batman.cbz/
-        ├── entry.xml
-        ├── cover.jpg
-        ├── thumb.jpg
-        └── file           # Symlink to /books/comics/Batman.cbz
+/data/                          # Mirror cache (auto-generated)
+├── feed.opml                   # Root OPML aggregation
+├── Author/
+│   ├── _entry.xml              # Folder entry for parent
+│   └── Book Title/
+│       ├── feed.xml            # Podcast RSS 2.0 feed
+│       ├── cover.jpg           # Cover art (1400px max)
+│       ├── _entry.xml          # Folder entry for parent
+│       ├── 01 - Chapter One.mp3/
+│       │   └── entry.xml       # Cached episode metadata
+│       └── 02 - Chapter Two.mp3/
+│           └── entry.xml
+└── Another Author/
+    └── Podcast/
+        ├── feed.xml
+        ├── episode1.mp3/
+        │   └── entry.xml
+        └── episode2.ogg/
+            └── entry.xml
 ```
+
+## Episode Ordering
+
+Episodes are ordered using a `(disc, track, filename)` sort tuple:
+
+1. **ID3 disc + track number** (primary) — from embedded metadata
+2. **Natural sort by filename** (fallback) — when no ID3 tags present
+
+Episode numbers are persisted in `entry.xml` and remain stable across incremental updates. New files get `max(existing) + 1`. Full renumber only on `/resync`.
+
+## M4B Limitation
+
+M4B files contain an entire audiobook with internal chapter markers. This generator treats each M4B as a single episode — chapter extraction is out of scope. Split M4B files beforehand using OpenAudible, ffmpeg, or mp4chaps.
 
 ## Development
 
 ```bash
-# Install dependencies
-bun install
-
-# Run dev server with hot reload
-bun run dev
+# Start dev server with hot reload
+docker compose -f docker-compose.dev.yml up
 
 # Run tests (in Docker)
 bun run test
 
-# Lint
-bun run lint:fix
+# Run e2e tests
+bun run test:e2e
 
-# Production
-FILES=/books DATA=/data bun run start
+# Lint + format
+bun run lint:fix && bun run format
 ```
-
-## OPDS Specification
-
-https://specs.opds.io/opds-1.2
 
 ## License
 

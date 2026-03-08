@@ -2,12 +2,11 @@ import { describe, test, expect, beforeAll } from "bun:test";
 
 const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:8080";
 
-// Wait for server to be ready
 async function waitForServer(maxWaitMs = 30000): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < maxWaitMs) {
     try {
-      const response = await fetch(`${BASE_URL}/feed.xml`);
+      const response = await fetch(`${BASE_URL}/feed.opml`);
       if (response.status === 200) return;
     } catch {
       // Connection refused
@@ -17,7 +16,6 @@ async function waitForServer(maxWaitMs = 30000): Promise<void> {
   throw new Error("Server not ready");
 }
 
-// Check if /resync is enabled
 async function isResyncEnabled(): Promise<boolean> {
   const response = await fetch(`${BASE_URL}/resync`);
   return response.status === 401;
@@ -29,32 +27,20 @@ describe("nginx integration", () => {
   });
 
   describe("redirects", () => {
-    test("GET / redirects to /feed.xml", async () => {
+    test("GET / redirects to /feed.opml", async () => {
       const response = await fetch(`${BASE_URL}/`, { redirect: "manual" });
       expect(response.status).toBe(302);
-      expect(response.headers.get("location")).toBe("/feed.xml");
-    });
-
-    test("GET /opds redirects to /feed.xml", async () => {
-      const response = await fetch(`${BASE_URL}/opds`, { redirect: "manual" });
-      expect(response.status).toBe(302);
-      expect(response.headers.get("location")).toBe("/feed.xml");
+      expect(response.headers.get("location")).toBe("/feed.opml");
     });
   });
 
-  describe("feed.xml", () => {
-    test("GET /feed.xml returns 200 with XML content", async () => {
-      const response = await fetch(`${BASE_URL}/feed.xml`);
+  describe("feed.opml", () => {
+    test("GET /feed.opml returns 200 with XML content", async () => {
+      const response = await fetch(`${BASE_URL}/feed.opml`);
       expect(response.status).toBe(200);
-      const contentType = response.headers.get("content-type");
-      expect(contentType).toContain("xml");
-    });
-
-    test("response includes charset utf-8", async () => {
-      const response = await fetch(`${BASE_URL}/feed.xml`);
-      expect(response.status).toBe(200);
-      const contentType = response.headers.get("content-type") || "";
-      expect(contentType.toLowerCase()).toContain("utf-8");
+      const text = await response.text();
+      expect(text).toContain("<?xml");
+      expect(text).toContain("<opml");
     });
   });
 
@@ -89,21 +75,40 @@ describe("nginx integration", () => {
   });
 
   describe("initial sync", () => {
-    test("creates root feed.xml with valid OPDS structure", async () => {
-      const response = await fetch(`${BASE_URL}/feed.xml`);
+    test("creates root feed.opml with valid OPML structure", async () => {
+      const response = await fetch(`${BASE_URL}/feed.opml`);
       expect(response.status).toBe(200);
 
-      const feedContent = await response.text();
-      expect(feedContent).toContain('<?xml version="1.0"');
-      expect(feedContent).toContain("<feed");
-      expect(feedContent).toContain('xmlns="http://www.w3.org/2005/Atom"');
-      expect(feedContent).toContain("kind=navigation");
-      expect(feedContent).toContain('rel="self"');
-      expect(feedContent).toContain("</feed>");
+      const content = await response.text();
+      expect(content).toContain('<?xml version="1.0"');
+      expect(content).toContain("<opml");
+      expect(content).toContain('version="2.0"');
+      expect(content).toContain("<head>");
+      expect(content).toContain("<body>");
     });
   });
 
-  // /resync tests last - they trigger async operations that affect other tests
+  describe("audio file serving", () => {
+    test("GET /audiobooks/ path returns audio content or 404", async () => {
+      const response = await fetch(`${BASE_URL}/audiobooks/nonexistent.mp3`);
+      expect([200, 404]).toContain(response.status);
+    });
+
+    test("Range request returns 206 for existing audio", async () => {
+      const listResponse = await fetch(`${BASE_URL}/audiobooks/Test%20Author/Test%20Audiobook/01%20-%20Chapter%20One.mp3`);
+      if (listResponse.status !== 200) {
+        console.log("Skipping: test audio file not found");
+        return;
+      }
+
+      const rangeResponse = await fetch(`${BASE_URL}/audiobooks/Test%20Author/Test%20Audiobook/01%20-%20Chapter%20One.mp3`, {
+        headers: { Range: "bytes=0-1023" },
+      });
+      expect(rangeResponse.status).toBe(206);
+      expect(rangeResponse.headers.get("content-range")).toBeTruthy();
+    });
+  });
+
   describe("/resync endpoint", () => {
     test("GET /resync without auth returns 401 (when enabled)", async () => {
       const enabled = await isResyncEnabled();
@@ -128,7 +133,6 @@ describe("nginx integration", () => {
       expect(response.status).toBe(401);
     });
 
-    // This test triggers resync - keep it last
     test("GET /resync with correct auth returns 202 (when enabled)", async () => {
       const enabled = await isResyncEnabled();
       if (!enabled) {

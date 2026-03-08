@@ -67,20 +67,17 @@ const RealFileSystemService = Layer.succeed(FileSystemService, {
 const TestLayer = Layer.mergeAll(TestConfigService, TestLoggerService, RealFileSystemService);
 
 function makePodcastRss(title: string): string {
-  return generatePodcastRss(
-    { title, author: "Test Author" },
-    [
-      {
-        title: "Episode 1",
-        guid: "ep1",
-        pubDate: "2024-01-15T10:00:00.000Z",
-        enclosureUrl: "/test/ep1.mp3",
-        enclosureLength: 1000,
-        enclosureType: "audio/mpeg",
-        episodeNumber: 1,
-      },
-    ],
-  );
+  return generatePodcastRss({ title, author: "Test Author" }, [
+    {
+      title: "Episode 1",
+      guid: "ep1",
+      pubDate: "2024-01-15T10:00:00.000Z",
+      enclosureUrl: "/test/ep1.mp3",
+      enclosureLength: 1000,
+      enclosureType: "audio/mpeg",
+      episodeNumber: 1,
+    },
+  ]);
 }
 
 const NAVIGATION_FEED = `<?xml version="1.0" encoding="UTF-8"?>

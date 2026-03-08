@@ -50,11 +50,7 @@ async function walkDirectory(dir: string, dataRoot: string, feeds: DiscoveredFee
   }
 }
 
-async function parsePodcastFeed(
-  feedPath: string,
-  feedDir: string,
-  dataRoot: string,
-): Promise<DiscoveredFeed | null> {
+async function parsePodcastFeed(feedPath: string, feedDir: string, dataRoot: string): Promise<DiscoveredFeed | null> {
   try {
     const content = await Bun.file(feedPath).text();
     const parsed = xmlParser.parse(content);
@@ -71,9 +67,7 @@ async function parsePodcastFeed(
   }
 }
 
-export const opmlSync = (
-  event: EventType,
-): Effect.Effect<readonly EventType[], Error, ConfigService | LoggerService | FileSystemService> =>
+export const opmlSync = (event: EventType): Effect.Effect<readonly EventType[], Error, ConfigService | LoggerService | FileSystemService> =>
   Effect.gen(function* () {
     if (event._tag !== "FeedXmlCreated" && event._tag !== "FeedXmlDeleted") return [];
 

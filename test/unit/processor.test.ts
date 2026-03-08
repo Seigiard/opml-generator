@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { encodeUrlPath, formatFileSize, formatFolderDescription, normalizeFilenameTitle } from "../../src/utils/processor.ts";
+import { encodeUrlPath, naturalSort, normalizeFilenameTitle } from "../../src/utils/processor.ts";
 
 describe("processor", () => {
   describe("encodeUrlPath", () => {
@@ -22,34 +22,6 @@ describe("processor", () => {
 
     test("encodes parentheses", () => {
       expect(encodeUrlPath("Author (2024)/Book.epub")).toBe("Author%20(2024)/Book.epub");
-    });
-  });
-
-  describe("formatFileSize", () => {
-    test("formats bytes", () => {
-      expect(formatFileSize(0)).toBe("0 B");
-      expect(formatFileSize(1)).toBe("1 B");
-      expect(formatFileSize(512)).toBe("512 B");
-      expect(formatFileSize(1023)).toBe("1023 B");
-    });
-
-    test("formats kilobytes", () => {
-      expect(formatFileSize(1024)).toBe("1.0 KB");
-      expect(formatFileSize(1536)).toBe("1.5 KB");
-      expect(formatFileSize(10240)).toBe("10.0 KB");
-      expect(formatFileSize(1024 * 1024 - 1)).toBe("1024.0 KB");
-    });
-
-    test("formats megabytes", () => {
-      expect(formatFileSize(1024 * 1024)).toBe("1.0 MB");
-      expect(formatFileSize(1024 * 1024 * 1.5)).toBe("1.5 MB");
-      expect(formatFileSize(1024 * 1024 * 10)).toBe("10.0 MB");
-      expect(formatFileSize(1024 * 1024 * 100)).toBe("100.0 MB");
-    });
-
-    test("handles exact boundaries", () => {
-      expect(formatFileSize(1024)).toBe("1.0 KB");
-      expect(formatFileSize(1024 * 1024)).toBe("1.0 MB");
     });
   });
 
@@ -106,24 +78,21 @@ describe("processor", () => {
     });
   });
 
-  describe("formatFolderDescription", () => {
-    test("returns undefined for empty folder", () => {
-      expect(formatFolderDescription(0, 0)).toBeUndefined();
+  describe("naturalSort", () => {
+    test("sorts strings alphabetically", () => {
+      expect(["b", "a", "c"].sort(naturalSort)).toEqual(["a", "b", "c"]);
     });
 
-    test("returns book count only when no folders", () => {
-      expect(formatFolderDescription(0, 1)).toBe("📚 1");
-      expect(formatFolderDescription(0, 502)).toBe("📚 502");
+    test("sorts numbers naturally", () => {
+      expect(["10", "2", "1"].sort(naturalSort)).toEqual(["1", "2", "10"]);
     });
 
-    test("returns folder count only when no books", () => {
-      expect(formatFolderDescription(1, 0)).toBe("🗂 1");
-      expect(formatFolderDescription(5, 0)).toBe("🗂 5");
+    test("handles mixed content", () => {
+      expect(["track10", "track2", "track1"].sort(naturalSort)).toEqual(["track1", "track2", "track10"]);
     });
 
-    test("returns combined count when both present", () => {
-      expect(formatFolderDescription(1, 1)).toBe("🗂 1 · 📚 1");
-      expect(formatFolderDescription(5, 502)).toBe("🗂 5 · 📚 502");
+    test("is case-insensitive", () => {
+      expect(["B", "a", "C"].sort(naturalSort)).toEqual(["a", "B", "C"]);
     });
   });
 });
