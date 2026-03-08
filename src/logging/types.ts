@@ -39,6 +39,10 @@ export interface LogContext {
   entries_count?: number;
   subfolders?: number;
   audio_files?: number;
+  episodes?: number;
+  episode?: number;
+  feeds?: number;
+  trigger?: string;
 
   // Error context
   error?: string;

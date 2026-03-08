@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { join, basename, dirname, relative, extname } from "node:path";
 import { XMLBuilder } from "fast-xml-parser";
 import { MIME_TYPES } from "../../types.ts";
+import type { AudioMetadata } from "../../audio/types.ts";
 import { readAudioMetadata, extractEmbeddedCover } from "../../audio/id3-reader.ts";
 import { findFolderCover } from "../../audio/cover.ts";
 import { saveBufferAsImage, COVER_MAX_SIZE } from "../../utils/image.ts";
@@ -49,7 +50,7 @@ export const audioSync = (
       catch: (e) => e as Error,
     }).pipe(
       Effect.catchAll(() =>
-        Effect.succeed({
+        Effect.succeed<AudioMetadata>({
           title: basename(name, extname(name)),
         }),
       ),
