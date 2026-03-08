@@ -1,5 +1,5 @@
 services:
-  opds:
+  opml:
     build:
       context: .
       target: production
@@ -8,12 +8,12 @@ services:
     volumes:
       - ./src:/app/src:ro
       - ./static:/app/static:ro
-      - ./files:/books:ro
+      - ./files:/audiobooks:ro
       - ./data:/data
       - ./nginx.conf.template:/app/nginx.conf.template:ro
       - ./entrypoint.sh:/app/entrypoint.sh:ro
     environment:
-      - FILES=/books
+      - FILES=/audiobooks
       - DATA=/data
       - PORT=3000
       - DEV_MODE=true
@@ -22,7 +22,7 @@ services:
       # - ADMIN_TOKEN=secret
       # - RECONCILE_INTERVAL=1800
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/feed.xml"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/feed.opml"]
       interval: 10s
       timeout: 5s
       retries: 3

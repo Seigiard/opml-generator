@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-BOOKS_DIR="${FILES:-/books}"
+BOOKS_DIR="${FILES:-/audiobooks}"
 DATA_DIR="${DATA:-/data}"
 BUN_PORT="${PORT:-3000}"
 SERVER_URL="http://127.0.0.1:$BUN_PORT"

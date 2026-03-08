@@ -1,25 +1,25 @@
 services:
-  opds:
+  opml:
     build:
       context: .
       target: production
     ports:
       - "8080:80"
     volumes:
-      - ./files:/books
-      - opds-data:/data
+      - ./files:/audiobooks
+      - opml-data:/data
     environment:
-      - FILES=/books
+      - FILES=/audiobooks
       - DATA=/data
       - PORT=3000
       - ADMIN_USER=admin
       - ADMIN_TOKEN=secret
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/feed.xml"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/feed.opml"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 30s
 
 volumes:
-  opds-data:
+  opml-data:

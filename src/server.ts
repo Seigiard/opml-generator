@@ -2,9 +2,9 @@ import { Effect, Fiber, ManagedRuntime, Schedule } from "effect";
 import { Schema } from "@effect/schema";
 import { mkdir, rm, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { Feed } from "opds-ts/v1.2";
 import { config } from "./config.ts";
-import { FEED_FILE } from "./constants.ts";
+import { OPML_FILE } from "./constants.ts";
+import { generateOpml } from "./rss/opml.ts";
 import { log } from "./logging/index.ts";
 import { RawBooksEvent, RawDataEvent } from "./effect/types.ts";
 import { adaptBooksEvent } from "./effect/adapters/books-adapter.ts";
@@ -36,23 +36,13 @@ const doSync = Effect.gen(function* () {
     catch: (e) => e as Error,
   });
 
-  // Seed feed.xml so nginx serves 200 while books are processing
+  // Seed feed.opml so nginx serves 200 while audio files are processing
   yield* Effect.tryPromise({
     try: async () => {
-      const feedPath = join(config.dataPath, FEED_FILE);
-      if (!(await Bun.file(feedPath).exists())) {
-        const seed = new Feed("urn:opds:catalog:root", "Catalog")
-          .addSelfLink(`/${FEED_FILE}`, "navigation")
-          .addNavigationLink("start", `/${FEED_FILE}`)
-          .setKind("navigation");
-        const xml = seed
-          .toXml({ prettyPrint: true })
-          .replace(
-            '<?xml version="1.0" encoding="utf-8"?>',
-            `<?xml version="1.0" encoding="utf-8"?>\n<?xml-stylesheet href="/static/layout.xsl" type="text/xsl"?>`,
-          );
-        await Bun.write(feedPath, xml);
-        log.info("InitialSync", "Seed feed.xml created");
+      const opmlPath = join(config.dataPath, OPML_FILE);
+      if (!(await Bun.file(opmlPath).exists())) {
+        await Bun.write(opmlPath, generateOpml("Podcasts", []));
+        log.info("InitialSync", "Seed feed.opml created");
       }
     },
     catch: (e) => e as Error,

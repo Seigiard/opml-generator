@@ -41,7 +41,7 @@ function loadConfig(): Config {
   const port = parsePort(process.env.PORT || "3000");
 
   return {
-    filesPath: requireEnv("FILES", "./files"),
+    filesPath: requireEnv("FILES", "./audiobooks"),
     dataPath: requireEnv("DATA", "./data"),
     port,
     devMode: process.env.DEV_MODE === "true",
