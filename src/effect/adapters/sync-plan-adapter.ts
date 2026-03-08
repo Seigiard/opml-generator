@@ -20,7 +20,7 @@ export function adaptSyncPlan(plan: SyncPlan, filesPath: string): EventType[] {
 
   for (const path of plan.toDelete) {
     const { parent, name } = parsePath(filesPath, path);
-    events.push({ _tag: "BookDeleted", parent, name });
+    events.push({ _tag: "AudioFileDeleted", parent, name });
   }
 
   for (const folder of plan.folders) {
@@ -30,7 +30,7 @@ export function adaptSyncPlan(plan: SyncPlan, filesPath: string): EventType[] {
 
   for (const file of plan.toProcess) {
     const { parent, name } = parsePath(filesPath, file.relativePath);
-    events.push({ _tag: "BookCreated", parent, name });
+    events.push({ _tag: "AudioFileCreated", parent, name });
   }
 
   return events;

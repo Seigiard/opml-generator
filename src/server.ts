@@ -62,15 +62,15 @@ const doSync = Effect.gen(function* () {
     try: () => scanFiles(config.filesPath),
     catch: (e) => e as Error,
   });
-  log.info("InitialSync", "Books found", { books_found: files.length });
+  log.info("InitialSync", "Audio files found", { audio_files_found: files.length });
 
   const plan = yield* Effect.tryPromise({
     try: () => createSyncPlan(files, config.dataPath),
     catch: (e) => e as Error,
   });
   log.info("InitialSync", "Sync plan created", {
-    books_process: plan.toProcess.length,
-    books_delete: plan.toDelete.length,
+    audio_files_process: plan.toProcess.length,
+    audio_files_delete: plan.toDelete.length,
     folders_count: plan.folders.length,
   });
 

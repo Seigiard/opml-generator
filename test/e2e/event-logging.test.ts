@@ -150,7 +150,7 @@ describe("Event Logging E2E", () => {
   });
 
   describe("Phase 2: Adding books", () => {
-    test("add book1 triggers BookCreated event", async () => {
+    test("add book1 triggers AudioFileCreated event", async () => {
       const before = getDockerTimestamp();
 
       // Copy PDF to test folder inside container
@@ -159,12 +159,12 @@ describe("Event Logging E2E", () => {
 
       const logs = await getLogsSince(before);
 
-      // Should have BookCreated event
-      const bookCreatedLogs = findEvents(logs, "BookCreated", "test-events-book1.pdf");
+      // Should have AudioFileCreated event
+      const bookCreatedLogs = findEvents(logs, "AudioFileCreated", "test-events-book1.pdf");
       expect(bookCreatedLogs.length).toBeGreaterThan(0);
 
       // Should have handler events
-      const handlerLogs = findHandlerEvents(logs, "BookCreated", "test-events-book1.pdf");
+      const handlerLogs = findHandlerEvents(logs, "AudioFileCreated", "test-events-book1.pdf");
       expect(handlerLogs.some((e) => e.event_type === "handler_start")).toBe(true);
       expect(handlerLogs.some((e) => e.event_type === "handler_complete")).toBe(true);
     });
@@ -175,7 +175,7 @@ describe("Event Logging E2E", () => {
       expect(entryExists).toBe(true);
     });
 
-    test("add book2 triggers BookCreated event", async () => {
+    test("add book2 triggers AudioFileCreated event", async () => {
       const before = getDockerTimestamp();
 
       // Copy another PDF inside container
@@ -184,8 +184,8 @@ describe("Event Logging E2E", () => {
 
       const logs = await getLogsSince(before);
 
-      // Should have BookCreated event
-      const bookCreatedLogs = findEvents(logs, "BookCreated", "test-events-book2.pdf");
+      // Should have AudioFileCreated event
+      const bookCreatedLogs = findEvents(logs, "AudioFileCreated", "test-events-book2.pdf");
       expect(bookCreatedLogs.length).toBeGreaterThan(0);
     });
 
@@ -199,7 +199,7 @@ describe("Event Logging E2E", () => {
   });
 
   describe("Phase 3: Book operations", () => {
-    test("move book1 to root triggers BookDeleted + BookCreated", async () => {
+    test("move book1 to root triggers AudioFileDeleted + AudioFileCreated", async () => {
       const before = getDockerTimestamp();
 
       // Move book1 from test-events/ to root inside container
@@ -208,16 +208,16 @@ describe("Event Logging E2E", () => {
 
       const logs = await getLogsSince(before);
 
-      // Should have BookDeleted from folder
-      const deletedLogs = findEvents(logs, "BookDeleted", "test-events-book1.pdf");
+      // Should have AudioFileDeleted from folder
+      const deletedLogs = findEvents(logs, "AudioFileDeleted", "test-events-book1.pdf");
       expect(deletedLogs.length).toBeGreaterThan(0);
 
-      // Should have BookCreated in root
-      const createdLogs = findEvents(logs, "BookCreated", "test-events-book1.pdf");
+      // Should have AudioFileCreated in root
+      const createdLogs = findEvents(logs, "AudioFileCreated", "test-events-book1.pdf");
       expect(createdLogs.length).toBeGreaterThan(0);
     });
 
-    test("rename book1 to book3 triggers BookDeleted + BookCreated", async () => {
+    test("rename book1 to book3 triggers AudioFileDeleted + AudioFileCreated", async () => {
       const before = getDockerTimestamp();
 
       // Rename in root inside container
@@ -226,16 +226,16 @@ describe("Event Logging E2E", () => {
 
       const logs = await getLogsSince(before);
 
-      // Should have BookDeleted for book1
-      const deletedLogs = findEvents(logs, "BookDeleted", "test-events-book1.pdf");
+      // Should have AudioFileDeleted for book1
+      const deletedLogs = findEvents(logs, "AudioFileDeleted", "test-events-book1.pdf");
       expect(deletedLogs.length).toBeGreaterThan(0);
 
-      // Should have BookCreated for book3
-      const createdLogs = findEvents(logs, "BookCreated", "test-events-book3.pdf");
+      // Should have AudioFileCreated for book3
+      const createdLogs = findEvents(logs, "AudioFileCreated", "test-events-book3.pdf");
       expect(createdLogs.length).toBeGreaterThan(0);
     });
 
-    test("copy book3 to book1 triggers BookCreated", async () => {
+    test("copy book3 to book1 triggers AudioFileCreated", async () => {
       const before = getDockerTimestamp();
 
       // Copy back inside container
@@ -244,12 +244,12 @@ describe("Event Logging E2E", () => {
 
       const logs = await getLogsSince(before);
 
-      // Should have BookCreated for book1
-      const createdLogs = findEvents(logs, "BookCreated", "test-events-book1.pdf");
+      // Should have AudioFileCreated for book1
+      const createdLogs = findEvents(logs, "AudioFileCreated", "test-events-book1.pdf");
       expect(createdLogs.length).toBeGreaterThan(0);
     });
 
-    test("delete book1 and book3 triggers BookDeleted", async () => {
+    test("delete book1 and book3 triggers AudioFileDeleted", async () => {
       const before = getDockerTimestamp();
 
       // Delete both books inside container
@@ -258,9 +258,9 @@ describe("Event Logging E2E", () => {
 
       const logs = await getLogsSince(before);
 
-      // Should have BookDeleted for both
-      const deleted1 = findEvents(logs, "BookDeleted", "test-events-book1.pdf");
-      const deleted3 = findEvents(logs, "BookDeleted", "test-events-book3.pdf");
+      // Should have AudioFileDeleted for both
+      const deleted1 = findEvents(logs, "AudioFileDeleted", "test-events-book1.pdf");
+      const deleted3 = findEvents(logs, "AudioFileDeleted", "test-events-book3.pdf");
       expect(deleted1.length).toBeGreaterThan(0);
       expect(deleted3.length).toBeGreaterThan(0);
     });
@@ -268,7 +268,7 @@ describe("Event Logging E2E", () => {
 
   describe("Phase 4: Folder operations", () => {
     test(
-      "copy folder triggers FolderCreated + BookCreated for contents",
+      "copy folder triggers FolderCreated + AudioFileCreated for contents",
       async () => {
         const before = getDockerTimestamp();
 
@@ -282,8 +282,8 @@ describe("Event Logging E2E", () => {
         const folderCreated = findEvents(logs, "FolderCreated", `${TEST_FOLDER}-copy`);
         expect(folderCreated.length).toBeGreaterThan(0);
 
-        // Should have BookCreated for book2 (the only book left in folder)
-        const bookCreated = findEvents(logs, "BookCreated", "test-events-book2.pdf");
+        // Should have AudioFileCreated for book2 (the only book left in folder)
+        const bookCreated = findEvents(logs, "AudioFileCreated", "test-events-book2.pdf");
         expect(bookCreated.length).toBeGreaterThan(0);
       },
       { timeout: 15000 },
@@ -324,7 +324,7 @@ describe("Event Logging E2E", () => {
 
   describe("Phase 5: Cleanup", () => {
     test(
-      "delete folder with contents triggers FolderDeleted + BookDeleted",
+      "delete folder with contents triggers FolderDeleted + AudioFileDeleted",
       async () => {
         const before = getDockerTimestamp();
 
@@ -338,8 +338,8 @@ describe("Event Logging E2E", () => {
         const folderDeleted = findEvents(logs, "FolderDeleted", TEST_FOLDER);
         expect(folderDeleted.length).toBeGreaterThan(0);
 
-        // Should have BookDeleted for remaining books
-        const bookDeleted = logs.filter((e) => e.event_tag === "BookDeleted");
+        // Should have AudioFileDeleted for remaining books
+        const bookDeleted = logs.filter((e) => e.event_tag === "AudioFileDeleted");
         expect(bookDeleted.length).toBeGreaterThan(0);
       },
       { timeout: 15000 },

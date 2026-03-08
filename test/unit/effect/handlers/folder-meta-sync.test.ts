@@ -87,7 +87,7 @@ describe("folderMetaSync handler", () => {
   });
 
   test("returns empty array for non-FolderMetaSyncRequested events", async () => {
-    const event: EventType = { _tag: "BookCreated", parent: DATA_DIR, name: "book.epub" };
+    const event: EventType = { _tag: "AudioFileCreated", parent: DATA_DIR, name: "chapter01.mp3" };
     const cascades = await Effect.runPromise(Effect.provide(folderMetaSync(event), TestLayer));
 
     expect(cascades).toEqual([]);

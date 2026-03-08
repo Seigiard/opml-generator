@@ -3,11 +3,11 @@ import { dirname, join, relative } from "node:path";
 import { ConfigService, LoggerService, FileSystemService } from "../services.ts";
 import type { EventType } from "../types.ts";
 
-export const bookCleanup = (
+export const audioCleanup = (
   event: EventType,
 ): Effect.Effect<readonly EventType[], Error, ConfigService | LoggerService | FileSystemService> =>
   Effect.gen(function* () {
-    if (event._tag !== "BookDeleted") return [];
+    if (event._tag !== "AudioFileDeleted") return [];
     const { parent, name } = event;
     const config = yield* ConfigService;
     const logger = yield* LoggerService;
@@ -15,22 +15,21 @@ export const bookCleanup = (
 
     const filePath = join(parent, name);
     const relativePath = relative(config.filesPath, filePath);
-    const bookDataDir = join(config.dataPath, relativePath);
+    const dataDir = join(config.dataPath, relativePath);
 
-    yield* logger.info("BookCleanup", "Removing", { path: relativePath });
+    yield* logger.info("AudioCleanup", "Removing", { path: relativePath });
 
-    yield* fs.rm(bookDataDir, { recursive: true }).pipe(
+    yield* fs.rm(dataDir, { recursive: true }).pipe(
       Effect.catchAll((error) => {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          return logger.debug("BookCleanup", "Already removed", { path: relativePath });
+          return logger.debug("AudioCleanup", "Already removed", { path: relativePath });
         }
         return Effect.fail(error);
       }),
     );
 
-    yield* logger.info("BookCleanup", "Done", { path: relativePath });
+    yield* logger.info("AudioCleanup", "Done", { path: relativePath });
 
-    // Cascade: regenerate parent folder's feed.xml
-    const parentDataDir = dirname(bookDataDir);
+    const parentDataDir = dirname(dataDir);
     return [{ _tag: "FolderMetaSyncRequested", path: parentDataDir }] as const;
   });

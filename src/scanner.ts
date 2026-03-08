@@ -1,7 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { join, extname, relative } from "node:path";
 import type { FileInfo, FolderInfo } from "./types.ts";
-import { BOOK_EXTENSIONS } from "./types.ts";
+import { AUDIO_EXTENSIONS } from "./types.ts";
 import { ENTRY_FILE, FOLDER_ENTRY_FILE } from "./constants.ts";
 
 export async function scanFiles(rootPath: string): Promise<FileInfo[]> {
@@ -18,7 +18,7 @@ export async function scanFiles(rootPath: string): Promise<FileInfo[]> {
       } else if (entry.isFile()) {
         const ext = extname(entry.name).slice(1).toLowerCase();
 
-        if (BOOK_EXTENSIONS.includes(ext)) {
+        if (AUDIO_EXTENSIONS.includes(ext)) {
           const fileStat = await stat(fullPath);
           files.push({
             path: fullPath,
@@ -51,13 +51,13 @@ export function buildFolderStructure(files: FileInfo[]): FolderInfo[] {
     }
   }
 
-  // Count books per folder (direct children only)
-  const bookCounts = new Map<string, number>();
+  // Count audio files per folder (direct children only)
+  const audioFileCounts = new Map<string, number>();
   for (const file of files) {
     const parts = file.relativePath.split("/");
     parts.pop();
     const folderPath = parts.join("/");
-    bookCounts.set(folderPath, (bookCounts.get(folderPath) ?? 0) + 1);
+    audioFileCounts.set(folderPath, (audioFileCounts.get(folderPath) ?? 0) + 1);
   }
 
   const folders: FolderInfo[] = [];
@@ -75,7 +75,7 @@ export function buildFolderStructure(files: FileInfo[]): FolderInfo[] {
       path,
       name: path.split("/").pop() || "Catalog",
       subfolders,
-      bookCount: bookCounts.get(path) ?? 0,
+      audioFileCount: audioFileCounts.get(path) ?? 0,
     });
   }
 
@@ -96,10 +96,10 @@ async function scanDataMirror(dataPath: string): Promise<Set<string>> {
         const entryPath = join(dirPath, entry.name);
         const entryRelPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
 
-        const hasBookEntry = await Bun.file(join(entryPath, ENTRY_FILE)).exists();
+        const hasAudioEntry = await Bun.file(join(entryPath, ENTRY_FILE)).exists();
         const hasFolderEntry = await Bun.file(join(entryPath, FOLDER_ENTRY_FILE)).exists();
 
-        if (hasBookEntry) {
+        if (hasAudioEntry) {
           paths.add(entryRelPath);
         } else if (hasFolderEntry) {
           paths.add(entryRelPath);

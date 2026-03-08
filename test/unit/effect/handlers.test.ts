@@ -3,11 +3,10 @@ import { Effect, Layer } from "effect";
 import { ConfigService, LoggerService, FileSystemService } from "../../../src/effect/services.ts";
 import { folderCleanup } from "../../../src/effect/handlers/folder-cleanup.ts";
 import { folderSync } from "../../../src/effect/handlers/folder-sync.ts";
-import { bookCleanup } from "../../../src/effect/handlers/book-cleanup.ts";
+import { audioCleanup } from "../../../src/effect/handlers/audio-cleanup.ts";
 import type { EventType } from "../../../src/effect/types.ts";
 import type { LogContext } from "../../../src/logging/types.ts";
 
-// Mock tracking
 interface MockFs {
   mkdirCalls: Array<{ path: string; options?: { recursive?: boolean } }>;
   rmCalls: Array<{ path: string; options?: { recursive?: boolean } }>;
@@ -57,7 +56,7 @@ const mockFs = createMockFs();
 const mockLogger = createMockLogger();
 
 const TestConfigService = Layer.succeed(ConfigService, {
-  filesPath: "/test/books",
+  filesPath: "/test/audiobooks",
   dataPath: "/test/data",
   port: 8080,
 });
@@ -113,7 +112,6 @@ const TestFileSystemService = Layer.succeed(FileSystemService, {
 
 const TestLayer = Layer.mergeAll(TestConfigService, TestLoggerService, TestFileSystemService);
 
-// Helper to create events
 const folderDeletedEvent = (parent: string, name: string): EventType => ({
   _tag: "FolderDeleted",
   parent,
@@ -126,8 +124,8 @@ const folderCreatedEvent = (parent: string, name: string): EventType => ({
   name,
 });
 
-const bookDeletedEvent = (parent: string, name: string): EventType => ({
-  _tag: "BookDeleted",
+const audioFileDeletedEvent = (parent: string, name: string): EventType => ({
+  _tag: "AudioFileDeleted",
   parent,
   name,
 });
@@ -140,7 +138,7 @@ describe("Effect Handlers", () => {
 
   describe("folderCleanup", () => {
     test("removes data directory for deleted folder", async () => {
-      const effect = folderCleanup(folderDeletedEvent("/test/books/Fiction/", "Author"));
+      const effect = folderCleanup(folderDeletedEvent("/test/audiobooks/Fiction/", "Author"));
 
       await Effect.runPromise(Effect.provide(effect, TestLayer));
 
@@ -150,7 +148,7 @@ describe("Effect Handlers", () => {
     });
 
     test("logs the folder being removed", async () => {
-      const effect = folderCleanup(folderDeletedEvent("/test/books/Fiction/", "Author"));
+      const effect = folderCleanup(folderDeletedEvent("/test/audiobooks/Fiction/", "Author"));
 
       await Effect.runPromise(Effect.provide(effect, TestLayer));
 
@@ -158,7 +156,7 @@ describe("Effect Handlers", () => {
     });
 
     test("handles nested folder paths correctly", async () => {
-      const effect = folderCleanup(folderDeletedEvent("/test/books/Fiction/SciFi/", "Isaac Asimov"));
+      const effect = folderCleanup(folderDeletedEvent("/test/audiobooks/Fiction/SciFi/", "Isaac Asimov"));
 
       await Effect.runPromise(Effect.provide(effect, TestLayer));
 
@@ -168,7 +166,7 @@ describe("Effect Handlers", () => {
 
   describe("folderSync", () => {
     test("creates data directory for new folder", async () => {
-      const effect = folderSync(folderCreatedEvent("/test/books/", "Fiction"));
+      const effect = folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction"));
 
       await Effect.runPromise(Effect.provide(effect, TestLayer));
 
@@ -176,7 +174,7 @@ describe("Effect Handlers", () => {
     });
 
     test("creates _entry.xml for non-root folders", async () => {
-      const effect = folderSync(folderCreatedEvent("/test/books/", "Fiction"));
+      const effect = folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction"));
 
       await Effect.runPromise(Effect.provide(effect, TestLayer));
 
@@ -186,7 +184,7 @@ describe("Effect Handlers", () => {
     });
 
     test("does not create _entry.xml for root folder", async () => {
-      const effect = folderSync(folderCreatedEvent("/test/books/", ""));
+      const effect = folderSync(folderCreatedEvent("/test/audiobooks/", ""));
 
       await Effect.runPromise(Effect.provide(effect, TestLayer));
 
@@ -195,7 +193,7 @@ describe("Effect Handlers", () => {
     });
 
     test("includes subsection link in _entry.xml", async () => {
-      const effect = folderSync(folderCreatedEvent("/test/books/", "Fiction"));
+      const effect = folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction"));
 
       await Effect.runPromise(Effect.provide(effect, TestLayer));
 
@@ -204,7 +202,7 @@ describe("Effect Handlers", () => {
     });
 
     test("returns cascade event to generate root feed.xml", async () => {
-      const effect = folderSync(folderCreatedEvent("/test/books/", ""));
+      const effect = folderSync(folderCreatedEvent("/test/audiobooks/", ""));
 
       const cascades = await Effect.runPromise(Effect.provide(effect, TestLayer));
 
@@ -216,7 +214,7 @@ describe("Effect Handlers", () => {
     });
 
     test("returns cascade event to generate folder feed.xml", async () => {
-      const effect = folderSync(folderCreatedEvent("/test/books/", "Fiction"));
+      const effect = folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction"));
 
       const cascades = await Effect.runPromise(Effect.provide(effect, TestLayer));
 
@@ -228,27 +226,27 @@ describe("Effect Handlers", () => {
     });
   });
 
-  describe("bookCleanup", () => {
-    test("removes data directory for deleted book", async () => {
-      const effect = bookCleanup(bookDeletedEvent("/test/books/Fiction/", "book.epub"));
+  describe("audioCleanup", () => {
+    test("removes data directory for deleted audio file", async () => {
+      const effect = audioCleanup(audioFileDeletedEvent("/test/audiobooks/Fiction/", "chapter01.mp3"));
 
       await Effect.runPromise(Effect.provide(effect, TestLayer));
 
       expect(mockFs.rmCalls).toHaveLength(1);
-      expect(mockFs.rmCalls[0]!.path).toBe("/test/data/Fiction/book.epub");
+      expect(mockFs.rmCalls[0]!.path).toBe("/test/data/Fiction/chapter01.mp3");
       expect(mockFs.rmCalls[0]!.options?.recursive).toBe(true);
     });
 
-    test("logs the book being removed", async () => {
-      const effect = bookCleanup(bookDeletedEvent("/test/books/Fiction/", "book.epub"));
+    test("logs the audio file being removed", async () => {
+      const effect = audioCleanup(audioFileDeletedEvent("/test/audiobooks/Fiction/", "chapter01.mp3"));
 
       await Effect.runPromise(Effect.provide(effect, TestLayer));
 
-      expect(mockLogger.infoCalls.some((c) => c.tag === "BookCleanup" && c.msg.includes("Removing"))).toBe(true);
+      expect(mockLogger.infoCalls.some((c) => c.tag === "AudioCleanup" && c.msg.includes("Removing"))).toBe(true);
     });
 
     test("returns cascade event to regenerate parent feed", async () => {
-      const effect = bookCleanup(bookDeletedEvent("/test/books/Fiction/", "book.epub"));
+      const effect = audioCleanup(audioFileDeletedEvent("/test/audiobooks/Fiction/", "chapter01.mp3"));
 
       const cascades = await Effect.runPromise(Effect.provide(effect, TestLayer));
 
@@ -262,7 +260,7 @@ describe("Effect Handlers", () => {
 
   describe("folderCleanup cascade", () => {
     test("returns cascade event to regenerate parent feed for nested folders", async () => {
-      const effect = folderCleanup(folderDeletedEvent("/test/books/Fiction/", "SciFi"));
+      const effect = folderCleanup(folderDeletedEvent("/test/audiobooks/Fiction/", "SciFi"));
 
       const cascades = await Effect.runPromise(Effect.provide(effect, TestLayer));
 
@@ -274,7 +272,7 @@ describe("Effect Handlers", () => {
     });
 
     test("returns empty cascades for top-level folder deletion", async () => {
-      const effect = folderCleanup(folderDeletedEvent("/test/books/", "Fiction"));
+      const effect = folderCleanup(folderDeletedEvent("/test/audiobooks/", "Fiction"));
 
       const cascades = await Effect.runPromise(Effect.provide(effect, TestLayer));
 

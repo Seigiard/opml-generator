@@ -29,16 +29,16 @@ export interface LogContext {
   cascade_tags?: string[];
 
   // Sync context
-  books_found?: number;
-  books_process?: number;
-  books_delete?: number;
+  audio_files_found?: number;
+  audio_files_process?: number;
+  audio_files_delete?: number;
   folders_count?: number;
 
   // Result context
   has_cover?: boolean;
   entries_count?: number;
   subfolders?: number;
-  books?: number;
+  audio_files?: number;
 
   // Error context
   error?: string;

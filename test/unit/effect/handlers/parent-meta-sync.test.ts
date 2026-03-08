@@ -52,7 +52,7 @@ describe("parentMetaSync handler", () => {
   });
 
   test("returns empty array for non-EntryXmlChanged events", async () => {
-    const event: EventType = { _tag: "BookCreated", parent: "/files", name: "book.epub" };
+    const event: EventType = { _tag: "AudioFileCreated", parent: "/files", name: "chapter01.mp3" };
     const cascades = await Effect.runPromise(Effect.provide(parentMetaSync(event), TestLayer));
 
     expect(cascades).toEqual([]);

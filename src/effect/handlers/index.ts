@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { HandlerRegistry } from "../services.ts";
-import { bookSync } from "./book-sync.ts";
-import { bookCleanup } from "./book-cleanup.ts";
+import { audioSync } from "./audio-sync.ts";
+import { audioCleanup } from "./audio-cleanup.ts";
 import { folderSync } from "./folder-sync.ts";
 import { folderCleanup } from "./folder-cleanup.ts";
 import { folderMetaSync } from "./folder-meta-sync.ts";
@@ -11,8 +11,8 @@ import { folderEntryXmlChanged } from "./folder-entry-xml-changed.ts";
 export const registerHandlers = Effect.gen(function* () {
   const registry = yield* HandlerRegistry;
 
-  registry.register("BookCreated", bookSync);
-  registry.register("BookDeleted", bookCleanup);
+  registry.register("AudioFileCreated", audioSync);
+  registry.register("AudioFileDeleted", audioCleanup);
   registry.register("FolderCreated", folderSync);
   registry.register("FolderDeleted", folderCleanup);
   registry.register("EntryXmlChanged", parentMetaSync);

@@ -3,7 +3,7 @@ import { Effect, Layer } from "effect";
 import { ConfigService, LoggerService, FileSystemService } from "../../../src/effect/services.ts";
 import { folderSync } from "../../../src/effect/handlers/folder-sync.ts";
 import { folderCleanup } from "../../../src/effect/handlers/folder-cleanup.ts";
-import { bookCleanup } from "../../../src/effect/handlers/book-cleanup.ts";
+import { audioCleanup } from "../../../src/effect/handlers/audio-cleanup.ts";
 import type { EventType } from "../../../src/effect/types.ts";
 
 interface MockFs {
@@ -40,7 +40,7 @@ const mockFs = createMockFs();
 const mockLogger = createMockLogger();
 
 const TestConfigService = Layer.succeed(ConfigService, {
-  filesPath: "/test/books",
+  filesPath: "/test/audiobooks",
   dataPath: "/test/data",
   port: 8080,
 });
@@ -81,7 +81,6 @@ const TestFileSystemService = Layer.succeed(FileSystemService, {
 
 const TestLayer = Layer.mergeAll(TestConfigService, TestLoggerService, TestFileSystemService);
 
-// Helper to create events
 const folderCreatedEvent = (parent: string, name: string): EventType => ({
   _tag: "FolderCreated",
   parent,
@@ -94,8 +93,8 @@ const folderDeletedEvent = (parent: string, name: string): EventType => ({
   name,
 });
 
-const bookDeletedEvent = (parent: string, name: string): EventType => ({
-  _tag: "BookDeleted",
+const audioFileDeletedEvent = (parent: string, name: string): EventType => ({
+  _tag: "AudioFileDeleted",
   parent,
   name,
 });
@@ -108,63 +107,63 @@ describe("Initial Sync - Folder and Cleanup Handlers", () => {
 
   describe("folderSync during initial sync", () => {
     test("creates folder data directory", async () => {
-      await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/books/", "Fiction")), TestLayer));
+      await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction")), TestLayer));
       expect(mockFs.mkdirCalls.some((c) => c.path === "/test/data/Fiction")).toBe(true);
     });
 
     test("generates _entry.xml for folder", async () => {
-      await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/books/", "Fiction")), TestLayer));
+      await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction")), TestLayer));
       const entryWrite = mockFs.writeCalls.find((c) => c.path.endsWith("_entry.xml"));
       expect(entryWrite).toBeDefined();
       expect(entryWrite?.content).toContain("<entry");
     });
 
     test("processes nested folder paths correctly", async () => {
-      await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/books/Fiction/", "SciFi")), TestLayer));
+      await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/audiobooks/Fiction/", "SciFi")), TestLayer));
       expect(mockFs.mkdirCalls.some((c) => c.path === "/test/data/Fiction/SciFi")).toBe(true);
     });
   });
 
   describe("folderCleanup during initial sync", () => {
     test("removes orphan folder directory", async () => {
-      await Effect.runPromise(Effect.provide(folderCleanup(folderDeletedEvent("/test/books/", "OldFolder")), TestLayer));
+      await Effect.runPromise(Effect.provide(folderCleanup(folderDeletedEvent("/test/audiobooks/", "OldFolder")), TestLayer));
       expect(mockFs.rmCalls).toHaveLength(1);
       expect(mockFs.rmCalls[0]!.path).toBe("/test/data/OldFolder");
     });
   });
 
-  describe("bookCleanup during initial sync", () => {
-    test("removes orphan book directory", async () => {
-      await Effect.runPromise(Effect.provide(bookCleanup(bookDeletedEvent("/test/books/Fiction/", "deleted.epub")), TestLayer));
+  describe("audioCleanup during initial sync", () => {
+    test("removes orphan audio file directory", async () => {
+      await Effect.runPromise(Effect.provide(audioCleanup(audioFileDeletedEvent("/test/audiobooks/Fiction/", "deleted.mp3")), TestLayer));
       expect(mockFs.rmCalls).toHaveLength(1);
-      expect(mockFs.rmCalls[0]!.path).toBe("/test/data/Fiction/deleted.epub");
+      expect(mockFs.rmCalls[0]!.path).toBe("/test/data/Fiction/deleted.mp3");
     });
   });
 
   describe("sync flow simulation", () => {
     test("processes multiple folders sequentially", async () => {
-      const folders = ["Fiction", "NonFiction", "Comics"];
+      const folders = ["Fiction", "NonFiction", "Podcasts"];
       for (const folder of folders) {
-        await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/books/", folder)), TestLayer));
+        await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/audiobooks/", folder)), TestLayer));
       }
       const entryWrites = mockFs.writeCalls.filter((c) => c.path.endsWith("_entry.xml"));
       expect(entryWrites).toHaveLength(3);
     });
 
     test("cleanup then create for folder replacement", async () => {
-      await Effect.runPromise(Effect.provide(folderCleanup(folderDeletedEvent("/test/books/", "OldFolder")), TestLayer));
-      await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/books/", "NewFolder")), TestLayer));
+      await Effect.runPromise(Effect.provide(folderCleanup(folderDeletedEvent("/test/audiobooks/", "OldFolder")), TestLayer));
+      await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/audiobooks/", "NewFolder")), TestLayer));
 
       expect(mockFs.rmCalls.some((c) => c.path.includes("OldFolder"))).toBe(true);
       expect(mockFs.mkdirCalls.some((c) => c.path.includes("NewFolder"))).toBe(true);
     });
 
     test("logs operations for each handler", async () => {
-      await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/books/", "Fiction")), TestLayer));
-      await Effect.runPromise(Effect.provide(bookCleanup(bookDeletedEvent("/test/books/Fiction/", "old.epub")), TestLayer));
+      await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction")), TestLayer));
+      await Effect.runPromise(Effect.provide(audioCleanup(audioFileDeletedEvent("/test/audiobooks/Fiction/", "old.mp3")), TestLayer));
 
       expect(mockLogger.infoCalls.some((c) => c.tag === "FolderSync")).toBe(true);
-      expect(mockLogger.infoCalls.some((c) => c.tag === "BookCleanup")).toBe(true);
+      expect(mockLogger.infoCalls.some((c) => c.tag === "AudioCleanup")).toBe(true);
     });
   });
 });

@@ -10,9 +10,9 @@ import { ConfigService, LoggerService, FileSystemService } from "../services.ts"
 import type { EventType } from "../types.ts";
 import { ENTRY_FILE, COVER_FILE, THUMB_FILE } from "../../constants.ts";
 
-export const bookSync = (event: EventType): Effect.Effect<readonly EventType[], Error, ConfigService | LoggerService | FileSystemService> =>
+export const audioSync = (event: EventType): Effect.Effect<readonly EventType[], Error, ConfigService | LoggerService | FileSystemService> =>
   Effect.gen(function* () {
-    if (event._tag !== "BookCreated") return [];
+    if (event._tag !== "AudioFileCreated") return [];
     const { parent, name } = event;
     const config = yield* ConfigService;
     const logger = yield* LoggerService;
@@ -23,7 +23,7 @@ export const bookSync = (event: EventType): Effect.Effect<readonly EventType[], 
     const relativePath = relative(config.filesPath, filePath);
     const bookDataDir = join(config.dataPath, relativePath);
 
-    yield* logger.info("BookSync", "Processing", { path: relativePath });
+    yield* logger.info("AudioSync", "Processing", { path: relativePath });
 
     // Get file stats via DI
     const fileStat = yield* fs.stat(filePath);
@@ -114,7 +114,7 @@ export const bookSync = (event: EventType): Effect.Effect<readonly EventType[], 
     // Create symlink to original file (using original filename for correct download name)
     yield* fs.symlink(filePath, join(bookDataDir, name));
 
-    yield* logger.info("BookSync", "Done", { path: relativePath, has_cover: hasCover });
+    yield* logger.info("AudioSync", "Done", { path: relativePath, has_cover: hasCover });
 
     return [];
   });
