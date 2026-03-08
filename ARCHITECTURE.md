@@ -4,8 +4,8 @@
 
 The system uses native Linux `inotifywait` to watch two directories:
 
-- `/books` — source files (books and folders)
-- `/data` — generated metadata (entry.xml, feed.xml, covers)
+- `/audiobooks` — source audio files (audiobooks organized in folders)
+- `/data` — generated metadata (entry.xml, feed.xml, feed.opml, covers)
 
 Events are sent via HTTP to the server's EffectTS queue for sequential processing.
 
@@ -14,15 +14,16 @@ Events are sent via HTTP to the server's EffectTS queue for sequential processin
 ```
 entrypoint.sh (PID 1)
 ├── nginx (background, :80 external)
-│   ├── serves /data/* (OPDS XML, covers, books)
+│   ├── serves /audiobooks/* (audio streaming with Range support)
+│   ├── serves /data/* (feed.xml, feed.opml, covers)
 │   ├── serves /static/* (CSS, XSLT)
 │   └── proxies /resync → Bun (with Basic Auth)
 ├── Bun server (background, 127.0.0.1:3000)
-│   ├── POST /events/books ← books watcher
+│   ├── POST /events/books ← audiobooks watcher
 │   ├── POST /events/data ← data watcher
 │   └── POST /resync
 └── watcher.sh (background)
-    ├── books watcher → wget → /events/books
+    ├── audiobooks watcher → wget → /events/books
     └── data watcher → wget → /events/data
 ```
 
@@ -30,12 +31,12 @@ entrypoint.sh (PID 1)
 
 Two independent inotifywait processes watch different directories:
 
-### Books Watcher (/books)
+### Audiobooks Watcher (/audiobooks)
 
 - **Watches:** CREATE, CLOSE_WRITE, DELETE, MOVED_FROM, MOVED_TO
 - **Endpoint:** POST /events/books
 - **Adapter:** `books-adapter.ts`
-- **Events:** BookCreated, BookDeleted, FolderCreated, FolderDeleted
+- **Events:** AudioFileCreated, AudioFileDeleted, FolderCreated, FolderDeleted
 
 ### Data Watcher (/data)
 
@@ -49,7 +50,7 @@ Two independent inotifywait processes watch different directories:
 
 - Separation of concerns: source files vs generated artifacts
 - Loop prevention: data changes trigger parent updates without recursive feed regeneration
-- Different event sets: books need full lifecycle, data only needs completion events
+- Different event sets: audiobooks need full lifecycle, data only needs completion events
 
 ## Layered Architecture
 
@@ -62,7 +63,7 @@ Two independent inotifywait processes watch different directories:
 │ - raw → EventType      │   data          │   createSyncPlan │
 │ - TTL deduplication    │ - entry.xml →   │ - no deduplication│
 │ - CLOSE_WRITE →        │   EntryXml-     │                  │
-│   BookCreated          │   Changed       │                  │
+│   AudioFileCreated     │   Changed       │                  │
 └────────────┬───────────┴────────┬────────┴────────┬─────────┘
              │                    │                 │
              ▼                    ▼                 ▼
@@ -89,7 +90,7 @@ Two independent inotifywait processes watch different directories:
 ┌─────────────────────────────────────────────────────────────┐
 │ HANDLERS LAYER (business logic)                             │
 ├─────────────────────────────────────────────────────────────┤
-│ bookSync, folderSync, folderMetaSync...                     │
+│ audioSync, audioCleanup, folderSync, folderCleanup...       │
 │ - (event: EventType) => Effect<EventType[]>                 │
 │ - return cascading events, NOT direct handler calls         │
 │ - DI for ConfigService, LoggerService, FileSystemService    │
@@ -102,7 +103,7 @@ Two independent inotifywait processes watch different directories:
 
 | Method | Endpoint      | Purpose                            | Schema        |
 | ------ | ------------- | ---------------------------------- | ------------- |
-| POST   | /events/books | Receive books watcher events       | RawBooksEvent |
+| POST   | /events/books | Receive audiobooks watcher events  | RawBooksEvent |
 | POST   | /events/data  | Receive data watcher events        | RawDataEvent  |
 | POST   | /resync       | Trigger full resync (clears /data) | -             |
 
@@ -110,13 +111,14 @@ All endpoints return 503 if queue not ready, 202 on success, 400 on schema valid
 
 ### Public Endpoints (nginx on :80)
 
-| Path        | Behavior                                |
-| ----------- | --------------------------------------- |
-| `/`         | Redirect → `/feed.xml`                  |
-| `/opds`     | Redirect → `/feed.xml`                  |
-| `/static/*` | Serve from `/app/static/` (1 day cache) |
-| `/resync`   | Auth → proxy to Bun (if ADMIN_USER set) |
-| `/*`        | Serve from `/data/*`                    |
+| Path             | Behavior                                        |
+| ---------------- | ----------------------------------------------- |
+| `/`              | Redirect → `/feed.opml`                         |
+| `/feed.opml`     | Root OPML aggregation                           |
+| `/audiobooks/*`  | Stream audio files (Range support)              |
+| `/static/*`      | Serve from `/app/static/` (1 day cache)         |
+| `/resync`        | Auth → proxy to Bun (if ADMIN_USER set)         |
+| `/*`             | Serve from `/data/*` (feed.xml, covers, etc.)   |
 
 ## Raw Event Schemas
 
@@ -126,8 +128,8 @@ Raw events from watcher.sh are validated using @effect/schema:
 
 ```typescript
 {
-  parent: string;  // "/books/Fiction/"
-  name: string;    // "book.epub"
+  parent: string;  // "/audiobooks/Author/Book/"
+  name: string;    // "01-chapter.mp3"
   events: string;  // "CREATE,ISDIR" or "CLOSE_WRITE"
 }
 ```
@@ -136,7 +138,7 @@ Raw events from watcher.sh are validated using @effect/schema:
 
 ```typescript
 {
-  parent: string;  // "/data/Fiction/book.epub/"
+  parent: string;  // "/data/Author/Book/01-chapter.mp3/"
   name: string;    // "entry.xml"
   events: string;  // "CLOSE_WRITE" or "MOVED_TO"
 }
@@ -148,18 +150,18 @@ Raw events from watcher.sh are validated using @effect/schema:
 
 - CREATE + ISDIR → FolderCreated
 - CREATE (file) → Ignored (waits for CLOSE_WRITE)
-- CLOSE_WRITE → BookCreated (if valid extension)
+- CLOSE_WRITE → AudioFileCreated (if valid audio extension)
 - DELETE + ISDIR → FolderDeleted
-- DELETE (file) → BookDeleted (if valid extension)
-- MOVED_FROM → Deleted (folder or book)
-- MOVED_TO → Created (folder or book)
+- DELETE (file) → AudioFileDeleted (if valid audio extension)
+- MOVED_FROM → Deleted (folder or audio file)
+- MOVED_TO → Created (folder or audio file)
 - Unknown → Ignored
 
 ### Data Adapter (Effect.Match based)
 
 - entry.xml → EntryXmlChanged
-- \_entry.xml → FolderEntryXmlChanged
-- Other files → Ignored
+- _entry.xml → FolderEntryXmlChanged
+- feed.xml, feed.opml, other files → Ignored
 
 ### Deduplication
 
@@ -174,7 +176,7 @@ Raw events from watcher.sh are validated using @effect/schema:
 | ---------------------- | ------------------------------------------------------ |
 | `ConfigService`        | filesPath, dataPath, baseUrl, port                     |
 | `LoggerService`        | info, warn, error, debug (structured JSON to stdout)   |
-| `FileSystemService`    | mkdir, rm, readdir, stat, atomicWrite, symlink, unlink |
+| `FileSystemService`    | mkdir, rm, readdir, stat, atomicWrite                  |
 | `DeduplicationService` | TTL-based (500ms window) event filtering               |
 | `EventQueueService`    | enqueue, enqueueMany, size, take                       |
 | `HandlerRegistry`      | Map<tag, handler> — decouples consumer from handlers   |
@@ -183,38 +185,34 @@ Raw events from watcher.sh are validated using @effect/schema:
 
 ```typescript
 type EventType =
-  | { _tag: "BookCreated"; parent: string; name: string }
-  | { _tag: "BookDeleted"; parent: string; name: string }
+  | { _tag: "AudioFileCreated"; parent: string; name: string }
+  | { _tag: "AudioFileDeleted"; parent: string; name: string }
   | { _tag: "FolderCreated"; parent: string; name: string }
   | { _tag: "FolderDeleted"; parent: string; name: string }
   | { _tag: "EntryXmlChanged"; parent: string }
   | { _tag: "FolderEntryXmlChanged"; parent: string }
-  | { _tag: "FolderMetaSyncRequested"; path: string }  // cascading event
+  | { _tag: "FolderMetaSyncRequested"; path: string }
+  | { _tag: "FeedXmlCreated"; path: string }
+  | { _tag: "FeedXmlDeleted"; path: string }
   | { _tag: "Ignored" };
 ```
 
-## Cascading Events
+## Cascade Chain
 
-Handlers return `EventType[]` instead of calling other handlers directly:
-
-```typescript
-// parent-meta-sync.ts
-export const parentMetaSync = (event: EventType) =>
-  Effect.gen(function* () {
-    if (event._tag !== "EntryXmlChanged") return [];
-    // ... compute parentDataDir
-    return [{ _tag: "FolderMetaSyncRequested", path: parentDataDir }];
-  });
 ```
+AudioFileCreated (audiobooks watcher → books-adapter)
+  → audio-sync: read ID3, write entry.xml + folder-level cover.jpg → returns []
 
-Consumer enqueues returned events to queue end (FIFO):
+  (data watcher detects entry.xml close_write)
+  → EntryXmlChanged (data-adapter)
+    → parentMetaSync → returns [FolderMetaSyncRequested]
+      → folder-meta-sync: read entry.xml files → write feed.xml + _entry.xml
+        → returns [FeedXmlCreated] if feed.xml is new
+        → returns [FeedXmlDeleted] if last episode removed
+        → returns [] if content update only
 
-```typescript
-// consumer.ts
-const result = yield* handler(event);
-if (result.cascades.length > 0) {
-  yield* queue.enqueueMany(result.cascades);
-}
+  FeedXmlCreated (from folder-meta-sync cascade return)
+    → opml-sync: collect feed.xml paths → write feed.opml → returns []
 ```
 
 ## Event Flow
@@ -237,13 +235,14 @@ flowchart LR
     end
 
     subgraph Handlers
-        BS[bookSync]
-        BC[bookCleanup]
+        AS[audioSync]
+        AC[audioCleanup]
         FS[folderSync]
         FC[folderCleanup]
         FMS[folderMetaSync]
         PMS[parentMetaSync]
         FEXC[folderEntryXmlChanged]
+        OS[opmlSync]
     end
 
     BA --> Q
@@ -251,24 +250,27 @@ flowchart LR
     SA --> Q
     Q --> C
     C --> HR
-    HR --> BS & BC & FS & FC & FMS & PMS & FEXC
+    HR --> AS & AC & FS & FC & FMS & PMS & FEXC & OS
     PMS -.->|FolderMetaSyncRequested| Q
     FEXC -.->|FolderMetaSyncRequested x2| Q
+    FMS -.->|FeedXmlCreated/Deleted| Q
+    OS -.->|writes feed.opml| Q
 ```
 
 ## Handlers Reference
 
 | Handler                       | Trigger                 | Returns                        |
 | ----------------------------- | ----------------------- | ------------------------------ |
-| `book-sync.ts`                | BookCreated             | `[]`                           |
-| `book-cleanup.ts`             | BookDeleted             | `[FolderMetaSyncRequested]`    |
+| `audio-sync.ts`               | AudioFileCreated        | `[]`                           |
+| `audio-cleanup.ts`            | AudioFileDeleted        | `[FolderMetaSyncRequested]`    |
 | `folder-sync.ts`              | FolderCreated           | `[FolderMetaSyncRequested]`    |
-| `folder-cleanup.ts`           | FolderDeleted           | `[FolderMetaSyncRequested]`\*  |
-| `folder-meta-sync.ts`         | FolderMetaSyncRequested | `[]`                           |
+| `folder-cleanup.ts`           | FolderDeleted           | `[FolderMetaSyncRequested]`*   |
+| `folder-meta-sync.ts`         | FolderMetaSyncRequested | `[FeedXmlCreated/Deleted]` or `[]` |
 | `parent-meta-sync.ts`         | EntryXmlChanged         | `[FolderMetaSyncRequested]`    |
 | `folder-entry-xml-changed.ts` | FolderEntryXmlChanged   | `[FolderMetaSyncRequested x2]` |
+| `opml-sync.ts`                | FeedXmlCreated/Deleted  | `[]`                           |
 
-\*folder-cleanup returns `[]` for root-level folders (no parent to update)
+*folder-cleanup returns `[]` for root-level folders (no parent to update)
 
 ## Startup Sequence
 
@@ -289,7 +291,7 @@ sequenceDiagram
     B->>B: Set isReady = true
     E->>W: Start watcher.sh (background)
     W->>W: Wait for nc -z 127.0.0.1:3000
-    W->>W: Start books watcher (inotifywait)
+    W->>W: Start audiobooks watcher (inotifywait)
     W->>W: Start data watcher (inotifywait)
     B->>B: Run initialSync
     B->>Q: adaptSyncPlan → enqueueMany
@@ -298,22 +300,39 @@ sequenceDiagram
 
 ## Critical Pattern: ManagedRuntime
 
-**NEVER use Effect.runPromise(Effect.provide()) repeatedly!**
-
-Each `Effect.provide(LiveLayer)` creates NEW service instances, breaking shared state (queue, registry, deduplication).
+Each `Effect.provide(LiveLayer)` creates NEW service instances, breaking shared state (queue, registry, deduplication). Always use shared runtime:
 
 ```typescript
-// ✅ CORRECT - shared runtime
+// CORRECT — shared runtime
 const runtime = ManagedRuntime.make(LiveLayer);
-await runtime.runPromise(handleBooksEvent(body));  // ← same queue
-await runtime.runPromise(handleDataEvent(body));   // ← same queue
+await runtime.runPromise(effect1);  // same queue
+await runtime.runPromise(effect2);  // same queue
 
-// ❌ WRONG - creates new queue each time
-await Effect.runPromise(Effect.provide(handleBooksEvent(body), LiveLayer)); // queue #1
-await Effect.runPromise(Effect.provide(handleDataEvent(body), LiveLayer));  // queue #2 ≠ queue #1
+// WRONG — creates new queue each time
+await Effect.runPromise(Effect.provide(effect1, LiveLayer));  // queue #1
+await Effect.runPromise(Effect.provide(effect2, LiveLayer));  // queue #2
 ```
 
-Used in server.ts for all HTTP handlers and initialSync.
+## Mirror Structure
+
+/data mirrors /audiobooks:
+
+```
+/audiobooks/Author/Book/01.mp3
+
+/data/
+├── feed.opml                     # Root OPML aggregation
+├── Author/
+│   ├── _entry.xml                # Folder entry (for parent's feed)
+│   ├── feed.xml                  # Podcast RSS 2.0 feed
+│   ├── cover.jpg                 # Folder cover art (1400px max)
+│   └── Book/
+│       ├── _entry.xml            # Folder entry (for parent)
+│       ├── feed.xml              # Podcast RSS 2.0 feed
+│       ├── cover.jpg             # Cover art (1400px max)
+│       └── 01.mp3/
+│           └── entry.xml         # Cached episode metadata
+```
 
 ## Structured Logging
 
@@ -335,31 +354,6 @@ Each event receives unique ID for full lifecycle tracking:
 - `handler_error` — handler fails
 - `cascades_generated` — handler returns cascade events
 
-### Log Format
-
-```json
-{"ts":"2026-01-07T10:00:00.000Z","level":"info","tag":"Consumer","msg":"Handler started","event_type":"handler_start","event_id":"BookCreated:/books/test.epub:1234567890:abc12","event_tag":"BookCreated","path":"/books/test.epub"}
-```
-
-## Artifact Structure
-
-```
-/data/
-├── feed.xml                      # Root catalog feed
-├── Fiction/
-│   ├── _entry.xml                # Folder entry (for parent's feed.xml)
-│   ├── feed.xml                  # Folder's feed (lists books + subfolders)
-│   └── book.epub/
-│       ├── entry.xml             # Book entry (for parent's feed.xml)
-│       ├── cover.jpg             # Full-size cover (max 1400px)
-│       ├── thumb.jpg             # Thumbnail (max 512px)
-│       └── file                  # Symlink → /books/Fiction/book.epub
-└── Comics/
-    ├── _entry.xml
-    ├── feed.xml
-    └── ...
-```
-
 ## Loop Prevention
 
 | Event        | Watched? | Reason                                  |
@@ -367,6 +361,7 @@ Each event receives unique ID for full lifecycle tracking:
 | `entry.xml`  | Yes      | Triggers parent feed regeneration       |
 | `_entry.xml` | Yes      | Triggers own + parent feed regeneration |
 | `feed.xml`   | No       | Would cause infinite loop               |
+| `feed.opml`  | No       | Would cause infinite loop               |
 | `*.tmp`      | No       | Intermediate atomic write files         |
 | `*.jsonl`    | No       | Log files                               |
 
@@ -383,9 +378,10 @@ Each event receives unique ID for full lifecycle tracking:
 ### Special Handling
 
 - ETag support for all files
-- Rate limiting for `/*/file` downloads (if RATE_LIMIT_MB set)
-- 503 with `Retry-After: 5` if feed.xml missing (initializing)
+- Rate limiting for audio streaming (if RATE_LIMIT_MB set)
+- 503 with `Retry-After: 5` if feed.opml missing (initializing)
 - Basic Auth for /resync (if ADMIN_USER/ADMIN_TOKEN set)
+- HTTP Range requests for audio file seeking/streaming
 
 ## Resync Endpoint
 
@@ -399,9 +395,42 @@ POST /resync (proxied via nginx with Basic Auth):
 
 Resync is fire-and-forget (returns 202 immediately), logs errors.
 
+## Project Structure
+
+```
+src/
+├── server.ts        # HTTP server + initial sync + DI setup
+├── config.ts        # Environment configuration
+├── constants.ts     # File constants (feed.xml, entry.xml, feed.opml, etc.)
+├── scanner.ts       # File scanning, sync planning
+├── types.ts         # Shared types (MIME_TYPES, AUDIO_EXTENSIONS)
+├── watcher.sh       # inotifywait → POST /events
+├── audio/           # Audio metadata extraction
+│   ├── types.ts     # AudioMetadata interface
+│   ├── id3-reader.ts # music-metadata via parseBuffer() (NOT parseFile)
+│   └── cover.ts     # Folder cover art finder
+├── rss/             # Feed generation
+│   ├── types.ts     # PodcastInfo, EpisodeInfo, OpmlOutline
+│   ├── podcast-rss.ts # Podcast RSS 2.0 with iTunes namespace
+│   └── opml.ts      # OPML 2.0 feed aggregation
+├── effect/          # EffectTS event handling
+│   ├── types.ts     # RawBooksEvent, RawDataEvent, EventType
+│   ├── services.ts  # DI services
+│   ├── consumer.ts  # Event loop
+│   ├── adapters/    # Raw → typed event conversion
+│   │   ├── books-adapter.ts    # /audiobooks watcher events
+│   │   ├── data-adapter.ts     # /data watcher events
+│   │   └── sync-plan-adapter.ts # Initial sync → events
+│   └── handlers/    # audio-sync, folder-sync, opml-sync, etc.
+├── logging/         # Structured logging
+│   ├── types.ts     # LogLevel, LogContext
+│   └── index.ts     # Flat JSON logger to stdout
+└── utils/           # image, processor
+```
+
 ## Testing
 
-EffectTS DI enables easy unit testing with mock services:
+EffectTS DI enables unit testing with mock services:
 
 ```typescript
 const TestLayer = Layer.mergeAll(
@@ -410,9 +439,27 @@ const TestLayer = Layer.mergeAll(
   TestFileSystemService,
 );
 
-const event: EventType = { _tag: "BookDeleted", parent: "/test/books/", name: "book.epub" };
-const effect = bookCleanup(event);
+const event: EventType = { _tag: "AudioFileDeleted", parent: "/test/audiobooks/", name: "01.mp3" };
+const effect = audioCleanup(event);
 await Effect.runPromise(Effect.provide(effect, TestLayer));
 
 expect(mockFs.rmCalls).toHaveLength(1);
+```
+
+### Test Structure
+
+```
+test/
+├── setup.ts             # Global test setup
+├── helpers/             # Mock services, assertions, fs utils
+├── unit/                # Pure logic, no external deps
+│   ├── audio/           # ID3 reader, cover finder tests
+│   ├── rss/             # RSS + OPML generator tests
+│   ├── utils/           # Image processing tests
+│   └── effect/handlers/ # Handler unit tests
+├── integration/         # Requires docker (ImageMagick, ffmpeg)
+│   └── effect/          # Queue + cascade flow tests
+└── e2e/                 # Full system tests
+    ├── nginx.test.ts    # nginx routing, OPML, range requests
+    └── event-logging.test.ts  # Event lifecycle tracing
 ```
