@@ -137,7 +137,7 @@ export const folderMetaSync = (
     yield* logger.info("FolderMetaSync", "Generated feed.xml", {
       path: relativePath || "/",
       subfolders: readResult.folderEntries.length,
-      books: readResult.bookEntries.length,
+      audio_files: readResult.bookEntries.length,
     });
 
     // Update this folder's _entry.xml with current count (non-root only)
