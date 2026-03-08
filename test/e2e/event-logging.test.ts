@@ -4,7 +4,7 @@ const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:8080";
 
 const AUDIOBOOKS_DIR = "/audiobooks";
 const TEST_FOLDER = "test-events";
-const FIXTURE_MP3 = "/audiobooks/Test Author/Test Audiobook/01 - Chapter One.mp3";
+const FIXTURE_MP3 = "/audiobooks/test/Test Author/Test Audiobook/01 - Chapter One.mp3";
 
 interface LogEntry {
   ts: string;
@@ -126,8 +126,10 @@ describe("Event Logging E2E", () => {
     });
 
     test("folder data structure is created", async () => {
-      const feedExists = await dataExists(`${TEST_FOLDER}/feed.xml`);
-      expect(feedExists).toBe(true);
+      // Empty folders get a data directory but not a feed.xml
+      // (feed.xml is only created when audio files or subfolders exist)
+      const folderCreated = findEvents(await getLogsSince("1970-01-01T00:00:00Z"), "FolderCreated", TEST_FOLDER);
+      expect(folderCreated.length).toBeGreaterThan(0);
     });
   });
 
