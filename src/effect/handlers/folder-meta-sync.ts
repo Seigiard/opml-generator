@@ -207,8 +207,18 @@ export const folderMetaSync = (
         },
       }) as string;
 
-      yield* fs.atomicWrite(entryOutputPath, folderEntryXml);
-      yield* logger.debug("FolderMetaSync", "Updated _entry.xml", { path: relativePath });
+      const existingContent = yield* Effect.tryPromise({
+        try: async () => {
+          const file = Bun.file(entryOutputPath);
+          return (await file.exists()) ? await file.text() : null;
+        },
+        catch: () => null as never,
+      }).pipe(Effect.catchAll(() => Effect.succeed(null as string | null)));
+
+      if (existingContent !== folderEntryXml) {
+        yield* fs.atomicWrite(entryOutputPath, folderEntryXml);
+        yield* logger.debug("FolderMetaSync", "Updated _entry.xml", { path: relativePath });
+      }
     }
 
     const cascades: EventType[] = [];
