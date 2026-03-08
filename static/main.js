@@ -141,7 +141,11 @@ const Gridnav = function (listElement) {
       });
 
       checkbox.addEventListener("change", () => {
-        checkbox.checked ? trap.activate() : trap.deactivate();
+        if (checkbox.checked) {
+          trap.activate();
+        } else {
+          trap.deactivate();
+        }
       });
 
       checkbox.addEventListener("keydown", handleEnterKey(checkbox));

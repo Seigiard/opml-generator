@@ -111,14 +111,14 @@ All endpoints return 503 if queue not ready, 202 on success, 400 on schema valid
 
 ### Public Endpoints (nginx on :80)
 
-| Path             | Behavior                                        |
-| ---------------- | ----------------------------------------------- |
-| `/`              | Redirect → `/feed.opml`                         |
-| `/feed.opml`     | Root OPML aggregation                           |
-| `/audiobooks/*`  | Stream audio files (Range support)              |
-| `/static/*`      | Serve from `/app/static/` (1 day cache)         |
-| `/resync`        | Auth → proxy to Bun (if ADMIN_USER set)         |
-| `/*`             | Serve from `/data/*` (feed.xml, covers, etc.)   |
+| Path            | Behavior                                      |
+| --------------- | --------------------------------------------- |
+| `/`             | Redirect → `/feed.opml`                       |
+| `/feed.opml`    | Root OPML aggregation                         |
+| `/audiobooks/*` | Stream audio files (Range support)            |
+| `/static/*`     | Serve from `/app/static/` (1 day cache)       |
+| `/resync`       | Auth → proxy to Bun (if ADMIN_USER set)       |
+| `/*`            | Serve from `/data/*` (feed.xml, covers, etc.) |
 
 ## Raw Event Schemas
 
@@ -160,7 +160,7 @@ Raw events from watcher.sh are validated using @effect/schema:
 ### Data Adapter (Effect.Match based)
 
 - entry.xml → EntryXmlChanged
-- _entry.xml → FolderEntryXmlChanged
+- \_entry.xml → FolderEntryXmlChanged
 - feed.xml, feed.opml, other files → Ignored
 
 ### Deduplication
@@ -172,14 +172,14 @@ Raw events from watcher.sh are validated using @effect/schema:
 
 ## DI Services
 
-| Service                | Purpose                                                |
-| ---------------------- | ------------------------------------------------------ |
-| `ConfigService`        | filesPath, dataPath, baseUrl, port                     |
-| `LoggerService`        | info, warn, error, debug (structured JSON to stdout)   |
-| `FileSystemService`    | mkdir, rm, readdir, stat, atomicWrite                  |
-| `DeduplicationService` | TTL-based (500ms window) event filtering               |
-| `EventQueueService`    | enqueue, enqueueMany, size, take                       |
-| `HandlerRegistry`      | Map<tag, handler> — decouples consumer from handlers   |
+| Service                | Purpose                                              |
+| ---------------------- | ---------------------------------------------------- |
+| `ConfigService`        | filesPath, dataPath, baseUrl, port                   |
+| `LoggerService`        | info, warn, error, debug (structured JSON to stdout) |
+| `FileSystemService`    | mkdir, rm, readdir, stat, atomicWrite                |
+| `DeduplicationService` | TTL-based (500ms window) event filtering             |
+| `EventQueueService`    | enqueue, enqueueMany, size, take                     |
+| `HandlerRegistry`      | Map<tag, handler> — decouples consumer from handlers |
 
 ## Event Types
 
@@ -259,18 +259,18 @@ flowchart LR
 
 ## Handlers Reference
 
-| Handler                       | Trigger                 | Returns                        |
-| ----------------------------- | ----------------------- | ------------------------------ |
-| `audio-sync.ts`               | AudioFileCreated        | `[]`                           |
-| `audio-cleanup.ts`            | AudioFileDeleted        | `[FolderMetaSyncRequested]`    |
-| `folder-sync.ts`              | FolderCreated           | `[FolderMetaSyncRequested]`    |
-| `folder-cleanup.ts`           | FolderDeleted           | `[FolderMetaSyncRequested]`*   |
+| Handler                       | Trigger                 | Returns                            |
+| ----------------------------- | ----------------------- | ---------------------------------- |
+| `audio-sync.ts`               | AudioFileCreated        | `[]`                               |
+| `audio-cleanup.ts`            | AudioFileDeleted        | `[FolderMetaSyncRequested]`        |
+| `folder-sync.ts`              | FolderCreated           | `[FolderMetaSyncRequested]`        |
+| `folder-cleanup.ts`           | FolderDeleted           | `[FolderMetaSyncRequested]`\*      |
 | `folder-meta-sync.ts`         | FolderMetaSyncRequested | `[FeedXmlCreated/Deleted]` or `[]` |
-| `parent-meta-sync.ts`         | EntryXmlChanged         | `[FolderMetaSyncRequested]`    |
-| `folder-entry-xml-changed.ts` | FolderEntryXmlChanged   | `[FolderMetaSyncRequested x2]` |
-| `opml-sync.ts`                | FeedXmlCreated/Deleted  | `[]`                           |
+| `parent-meta-sync.ts`         | EntryXmlChanged         | `[FolderMetaSyncRequested]`        |
+| `folder-entry-xml-changed.ts` | FolderEntryXmlChanged   | `[FolderMetaSyncRequested x2]`     |
+| `opml-sync.ts`                | FeedXmlCreated/Deleted  | `[]`                               |
 
-*folder-cleanup returns `[]` for root-level folders (no parent to update)
+\*folder-cleanup returns `[]` for root-level folders (no parent to update)
 
 ## Startup Sequence
 

@@ -59,7 +59,7 @@ bun --bun tsc --noEmit  # type check (locally is fine)
 - **Healthcheck**: Docker image is Alpine without curl — use `wget`
 - **Handlers return events, never call each other** — cascade via `EventType[]` return values, consumer enqueues them
 - **data watcher ignores feed.xml/feed.opml writes** — otherwise infinite loop
-- **Only entry.xml and _entry.xml produce actionable events** from data watcher
+- **Only entry.xml and \_entry.xml produce actionable events** from data watcher
 - **M4B = single episode** — no chapter extraction, users must split beforehand
 - **Supported audio**: .mp3 (audio/mpeg), .m4a (audio/mp4), .m4b (audio/mp4), .ogg (audio/ogg)
 - **Episode ordering**: sort by `(disc, track, filename)` tuple from ID3, fallback to natural filename sort
