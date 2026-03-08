@@ -41,3 +41,4 @@ files/*
 files/test/.DS_Store
 
 docs/plans
+.worktrees
