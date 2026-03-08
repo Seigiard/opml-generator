@@ -9,3 +9,5 @@ export const COVER_FILE = "cover.jpg";
 
 export const COVER_FILENAMES = ["cover.jpg", "cover.png", "cover.webp", "folder.jpg", "folder.png"];
 export const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
+
+export const BASE_URL_PLACEHOLDER = "{{{BASE_URL}}}";

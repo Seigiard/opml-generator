@@ -11,6 +11,7 @@ services:
       - ./files:/audiobooks:ro
       - ./data:/data
       - ./nginx.conf.template:/app/nginx.conf.template:ro
+      - ./nginx-opml.js:/app/nginx-opml.js:ro
       - ./entrypoint.sh:/app/entrypoint.sh:ro
     environment:
       - FILES=/audiobooks

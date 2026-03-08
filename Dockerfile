@@ -1,5 +1,5 @@
 FROM oven/bun:1-alpine AS base
-RUN apk add --no-cache imagemagick imagemagick-jpeg inotify-tools nginx openssl ffmpeg \
+RUN apk add --no-cache imagemagick imagemagick-jpeg inotify-tools nginx nginx-mod-http-js openssl ffmpeg \
     && addgroup nginx bun
 WORKDIR /app
 
@@ -13,6 +13,7 @@ RUN bun install --frozen-lockfile --production
 COPY src ./src
 COPY static ./static
 COPY nginx.conf.template /app/nginx.conf.template
+COPY nginx-opml.js /app/nginx-opml.js
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 

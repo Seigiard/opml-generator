@@ -1,3 +1,5 @@
+load_module modules/ngx_http_js_module.so;
+
 daemon off;
 worker_processes auto;
 error_log /dev/stderr warn;
@@ -10,6 +12,8 @@ events {
 http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
+
+    js_import opml from /app/nginx-opml.js;
 
     charset utf-8;
     charset_types text/xml application/xml application/atom+xml text/x-opml;
@@ -71,9 +75,11 @@ http {
             add_header Cache-Control "public, must-revalidate";
         }
 
-        # OPML feed
+        # OPML feed — njs replaces {{{BASE_URL}}} with request origin
         location = /feed.opml {
             root /data;
+            js_header_filter opml.header_filter;
+            js_body_filter opml.body_filter;
             add_header Cache-Control "no-cache";
             error_page 404 = @check_initializing;
         }

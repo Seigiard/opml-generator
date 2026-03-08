@@ -1,6 +1,7 @@
 import { XMLBuilder } from "fast-xml-parser";
 
 import type { OpmlOutline } from "./types.ts";
+import { BASE_URL_PLACEHOLDER } from "../constants.ts";
 
 const builder = new XMLBuilder({
   ignoreAttributes: false,
@@ -15,7 +16,7 @@ export function generateOpml(title: string, feeds: OpmlOutline[]): string {
       "@_text": feed.title,
       "@_title": feed.title,
       "@_type": "rss",
-      "@_xmlUrl": feed.feedUrl,
+      "@_xmlUrl": `${BASE_URL_PLACEHOLDER}${feed.feedUrl}`,
     };
 
     if (feed.htmlUrl) {

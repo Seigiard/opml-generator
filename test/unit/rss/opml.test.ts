@@ -3,6 +3,7 @@ import { XMLParser } from "fast-xml-parser";
 
 import { generateOpml } from "../../../src/rss/opml.ts";
 import type { OpmlOutline } from "../../../src/rss/types.ts";
+import { BASE_URL_PLACEHOLDER } from "../../../src/constants.ts";
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -80,16 +81,16 @@ describe("generateOpml", () => {
     expect(outline["@_type"]).toBe("rss");
   });
 
-  test("sets outline xmlUrl from feedUrl", () => {
+  test("prepends BASE_URL placeholder to xmlUrl", () => {
     // #given
-    const feed = makeOutline({ feedUrl: "https://cdn.example.com/rss.xml" });
+    const feed = makeOutline({ feedUrl: "/Author/Book/feed.xml" });
 
     // #when
     const parsed = parser.parse(generateOpml("Feeds", [feed]));
     const outline = parsed.opml.body.outline[0];
 
     // #then
-    expect(outline["@_xmlUrl"]).toBe("https://cdn.example.com/rss.xml");
+    expect(outline["@_xmlUrl"]).toBe(`${BASE_URL_PLACEHOLDER}/Author/Book/feed.xml`);
   });
 
   test("sets outline htmlUrl when provided", () => {
