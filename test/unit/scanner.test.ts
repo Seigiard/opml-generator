@@ -68,7 +68,11 @@ describe("scanner", () => {
     });
 
     test("handles multiple subfolders", () => {
-      const files = [createFileInfo("Fiction/Track1.mp3"), createFileInfo("NonFiction/Track2.m4a"), createFileInfo("Podcasts/Episode1.ogg")];
+      const files = [
+        createFileInfo("Fiction/Track1.mp3"),
+        createFileInfo("NonFiction/Track2.m4a"),
+        createFileInfo("Podcasts/Episode1.ogg"),
+      ];
 
       const result = buildFolderStructure(files);
       const root = result.find((f) => f.path === "");

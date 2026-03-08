@@ -1,16 +1,31 @@
 import { Effect } from "effect";
-import { join, basename, relative } from "node:path";
-import { Entry } from "opds-ts/v1.2";
+import { join, basename, dirname, relative, extname } from "node:path";
+import { XMLBuilder } from "fast-xml-parser";
 import { MIME_TYPES } from "../../types.ts";
-import { getHandlerFactory } from "../../formats/index.ts";
-import type { BookMetadata } from "../../formats/types.ts";
-import { saveBufferAsImage, COVER_MAX_SIZE, THUMBNAIL_MAX_SIZE } from "../../utils/image.ts";
-import { encodeUrlPath, formatFileSize, normalizeFilenameTitle } from "../../utils/processor.ts";
+import { readAudioMetadata, extractEmbeddedCover } from "../../audio/id3-reader.ts";
+import { findFolderCover } from "../../audio/cover.ts";
+import { saveBufferAsImage, COVER_MAX_SIZE } from "../../utils/image.ts";
 import { ConfigService, LoggerService, FileSystemService } from "../services.ts";
 import type { EventType } from "../types.ts";
-import { ENTRY_FILE, COVER_FILE, THUMB_FILE } from "../../constants.ts";
+import { ENTRY_FILE, COVER_FILE } from "../../constants.ts";
 
-export const audioSync = (event: EventType): Effect.Effect<readonly EventType[], Error, ConfigService | LoggerService | FileSystemService> =>
+const xmlBuilder = new XMLBuilder({
+  ignoreAttributes: false,
+  attributeNamePrefix: "@_",
+  format: true,
+  suppressEmptyNode: true,
+});
+
+function buildEpisodeXml(fields: Record<string, unknown>): string {
+  return xmlBuilder.build({
+    "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
+    episode: fields,
+  }) as string;
+}
+
+export const audioSync = (
+  event: EventType,
+): Effect.Effect<readonly EventType[], Error, ConfigService | LoggerService | FileSystemService> =>
   Effect.gen(function* () {
     if (event._tag !== "AudioFileCreated") return [];
     const { parent, name } = event;
@@ -18,103 +33,162 @@ export const audioSync = (event: EventType): Effect.Effect<readonly EventType[],
     const logger = yield* LoggerService;
     const fs = yield* FileSystemService;
 
-    const ext = name.split(".").pop()?.toLowerCase() ?? "";
+    const ext = extname(name).slice(1).toLowerCase();
     const filePath = join(parent, name);
     const relativePath = relative(config.filesPath, filePath);
-    const bookDataDir = join(config.dataPath, relativePath);
+    const episodeDataDir = join(config.dataPath, relativePath);
+    const folderDataDir = dirname(episodeDataDir);
 
     yield* logger.info("AudioSync", "Processing", { path: relativePath });
 
-    // Get file stats via DI
     const fileStat = yield* fs.stat(filePath);
+    yield* fs.mkdir(episodeDataDir, { recursive: true });
 
-    // Create data directory
-    yield* fs.mkdir(bookDataDir, { recursive: true });
+    const metadata = yield* Effect.tryPromise({
+      try: () => readAudioMetadata(filePath),
+      catch: (e) => e as Error,
+    }).pipe(
+      Effect.catchAll(() =>
+        Effect.succeed({
+          title: basename(name, extname(name)),
+        }),
+      ),
+    );
 
-    // Extract metadata
-    const createHandler = getHandlerFactory(ext);
-    const rawFilename = basename(relativePath).replace(/\.[^.]+$/, "");
-    let title = normalizeFilenameTitle(rawFilename);
-    let author: string | undefined;
-    let description: string | undefined;
-    let hasCover = false;
+    const episodeNumber = yield* resolveEpisodeNumber(folderDataDir, episodeDataDir);
+    const pubDate = yield* resolvePubDate(metadata.date, folderDataDir, episodeNumber);
+    const mimeType = MIME_TYPES[ext] ?? "application/octet-stream";
 
-    let meta: BookMetadata = { title: "" };
+    const episodeXml = buildEpisodeXml({
+      title: metadata.title,
+      fileName: name,
+      filePath: relativePath,
+      fileSize: fileStat.size,
+      mimeType,
+      ...(metadata.duration != null && { duration: Math.floor(metadata.duration) }),
+      ...(metadata.discNumber != null && { discNumber: metadata.discNumber }),
+      ...(metadata.trackNumber != null && { trackNumber: metadata.trackNumber }),
+      episodeNumber,
+      pubDate,
+      guid: relativePath,
+    });
 
-    if (createHandler) {
-      const result = yield* Effect.tryPromise({
-        try: async () => {
-          const handler = await createHandler(filePath);
-          if (handler) {
-            const m = handler.getMetadata();
-            const cover = await handler.getCover();
-            return { metadata: m, cover };
-          }
-          return null;
-        },
+    yield* fs.atomicWrite(join(episodeDataDir, ENTRY_FILE), episodeXml);
+    yield* handleFolderCover(filePath, parent, folderDataDir);
+
+    yield* logger.info("AudioSync", "Done", { path: relativePath, episode: episodeNumber });
+    return [];
+  });
+
+const resolveEpisodeNumber = (folderDataDir: string, currentEpisodeDir: string): Effect.Effect<number, Error, FileSystemService> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystemService;
+    const siblings = yield* fs.readdir(folderDataDir).pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
+
+    let maxEpisode = 0;
+    for (const sibling of siblings) {
+      const siblingDir = join(folderDataDir, sibling);
+      if (siblingDir === currentEpisodeDir) continue;
+
+      const entryPath = join(siblingDir, ENTRY_FILE);
+      const exists = yield* fs.exists(entryPath);
+      if (!exists) continue;
+
+      const content = yield* Effect.tryPromise({
+        try: () => Bun.file(entryPath).text(),
         catch: (e) => e as Error,
-      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      }).pipe(Effect.catchAll(() => Effect.succeed("")));
 
-      if (result) {
-        meta = result.metadata;
-        if (meta.title) title = meta.title;
-        author = meta.author;
-        description = meta.description;
+      const match = content.match(/<episodeNumber>(\d+)<\/episodeNumber>/);
+      if (match) {
+        maxEpisode = Math.max(maxEpisode, Number.parseInt(match[1]!, 10));
+      }
+    }
 
-        if (result.cover) {
-          const coverPath = join(bookDataDir, COVER_FILE);
-          const thumbPath = join(bookDataDir, THUMB_FILE);
+    return maxEpisode + 1;
+  });
 
-          const coverOk = yield* Effect.tryPromise({
-            try: () => saveBufferAsImage(result.cover!, coverPath, COVER_MAX_SIZE),
-            catch: (e) => e as Error,
-          }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+const resolvePubDate = (
+  id3Date: string | undefined,
+  folderDataDir: string,
+  episodeNumber: number,
+): Effect.Effect<string, Error, FileSystemService> =>
+  Effect.gen(function* () {
+    if (id3Date) {
+      const parsed = new Date(id3Date);
+      if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+    }
 
-          if (coverOk) {
-            yield* Effect.tryPromise({
-              try: () => saveBufferAsImage(result.cover!, thumbPath, THUMBNAIL_MAX_SIZE),
-              catch: (e) => e as Error,
-            }).pipe(Effect.catchAll(() => Effect.succeed(false)));
-            hasCover = true;
-          }
+    const fs = yield* FileSystemService;
+    const siblings = yield* fs.readdir(folderDataDir).pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
+
+    let earliestMtime = Date.now();
+    for (const sibling of siblings) {
+      const siblingDir = join(folderDataDir, sibling);
+      const entryPath = join(siblingDir, ENTRY_FILE);
+      const exists = yield* fs.exists(entryPath);
+      if (!exists) continue;
+
+      const content = yield* Effect.tryPromise({
+        try: () => Bun.file(entryPath).text(),
+        catch: (e) => e as Error,
+      }).pipe(Effect.catchAll(() => Effect.succeed("")));
+
+      const match = content.match(/<pubDate>([^<]+)<\/pubDate>/);
+      if (match) {
+        const parsed = new Date(match[1]!);
+        if (!Number.isNaN(parsed.getTime())) {
+          earliestMtime = Math.min(earliestMtime, parsed.getTime());
         }
       }
     }
 
-    // Build OPDS entry
-    const encodedPath = encodeUrlPath(relativePath);
-    const mimeType = MIME_TYPES[ext] ?? "application/octet-stream";
+    const baseDate = new Date(earliestMtime);
+    const synthesized = new Date(baseDate.getTime() + (episodeNumber - 1) * 60_000);
+    return synthesized.toISOString();
+  });
 
-    const entry = new Entry(`urn:opds:book:${relativePath}`, title);
-    if (author) entry.setAuthor(author);
-    if (description) entry.setSummary(description);
-    entry.setDcMetadataField("format", ext.toUpperCase());
-    entry.setContent({ type: "text", value: formatFileSize(fileStat.size) });
+const handleFolderCover = (
+  audioFilePath: string,
+  sourceFolder: string,
+  folderDataDir: string,
+): Effect.Effect<void, never, FileSystemService | LoggerService> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystemService;
 
-    if (meta.publisher) entry.setDcMetadataField("publisher", meta.publisher);
-    if (meta.issued) entry.setDcMetadataField("issued", meta.issued);
-    if (meta.language) entry.setDcMetadataField("language", meta.language);
-    if (meta.subjects) entry.setDcMetadataField("subjects", meta.subjects);
-    if (meta.pageCount) entry.setDcMetadataField("extent", `${meta.pageCount} pages`);
-    if (meta.series) entry.setDcMetadataField("isPartOf", meta.series);
-    if (meta.rights) entry.setRights(meta.rights);
+    const coverPath = join(folderDataDir, COVER_FILE);
+    const coverExists = yield* fs.exists(coverPath);
+    if (coverExists) return;
 
-    if (hasCover) {
-      entry.addImage(`/${encodedPath}/cover.jpg`);
-      entry.addThumbnail(`/${encodedPath}/thumb.jpg`);
+    const folderCoverPath = yield* Effect.tryPromise({
+      try: () => findFolderCover(sourceFolder),
+      catch: () => null,
+    }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+
+    if (folderCoverPath) {
+      const coverBuffer = yield* Effect.tryPromise({
+        try: async () => Buffer.from(await Bun.file(folderCoverPath).arrayBuffer()),
+        catch: (e) => e as Error,
+      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+
+      if (coverBuffer) {
+        yield* Effect.tryPromise({
+          try: () => saveBufferAsImage(coverBuffer, coverPath, COVER_MAX_SIZE),
+          catch: (e) => e as Error,
+        }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+        return;
+      }
     }
 
-    const encodedFilename = encodeURIComponent(name);
-    entry.addAcquisition(`/${encodedPath}/${encodedFilename}`, mimeType, "open-access");
+    const embeddedCover = yield* Effect.tryPromise({
+      try: () => extractEmbeddedCover(audioFilePath),
+      catch: () => null,
+    }).pipe(Effect.catchAll(() => Effect.succeed(null)));
 
-    // Write entry.xml (atomic)
-    const entryXml = entry.toXml({ prettyPrint: true });
-    yield* fs.atomicWrite(join(bookDataDir, ENTRY_FILE), entryXml);
-
-    // Create symlink to original file (using original filename for correct download name)
-    yield* fs.symlink(filePath, join(bookDataDir, name));
-
-    yield* logger.info("AudioSync", "Done", { path: relativePath, has_cover: hasCover });
-
-    return [];
-  });
+    if (embeddedCover) {
+      yield* Effect.tryPromise({
+        try: () => saveBufferAsImage(embeddedCover.data, coverPath, COVER_MAX_SIZE),
+        catch: (e) => e as Error,
+      }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+    }
+  }).pipe(Effect.catchAll(() => Effect.void));

@@ -31,9 +31,7 @@ function classifyBooksEvent(raw: RawBooksEvent): EventType {
     })),
 
     Match.when({ event: "CLOSE_WRITE" }, ({ parent, name }) =>
-      isValidAudioExtension(name)
-        ? { _tag: "AudioFileCreated" as const, parent, name }
-        : { _tag: "Ignored" as const },
+      isValidAudioExtension(name) ? { _tag: "AudioFileCreated" as const, parent, name } : { _tag: "Ignored" as const },
     ),
 
     Match.when({ event: "DELETE", isDir: true }, ({ parent, name }) => ({
@@ -43,9 +41,7 @@ function classifyBooksEvent(raw: RawBooksEvent): EventType {
     })),
 
     Match.when({ event: "DELETE", isDir: false }, ({ parent, name }) =>
-      isValidAudioExtension(name)
-        ? { _tag: "AudioFileDeleted" as const, parent, name }
-        : { _tag: "Ignored" as const },
+      isValidAudioExtension(name) ? { _tag: "AudioFileDeleted" as const, parent, name } : { _tag: "Ignored" as const },
     ),
 
     Match.when({ event: "MOVED_FROM", isDir: true }, ({ parent, name }) => ({
@@ -55,9 +51,7 @@ function classifyBooksEvent(raw: RawBooksEvent): EventType {
     })),
 
     Match.when({ event: "MOVED_FROM", isDir: false }, ({ parent, name }) =>
-      isValidAudioExtension(name)
-        ? { _tag: "AudioFileDeleted" as const, parent, name }
-        : { _tag: "Ignored" as const },
+      isValidAudioExtension(name) ? { _tag: "AudioFileDeleted" as const, parent, name } : { _tag: "Ignored" as const },
     ),
 
     Match.when({ event: "MOVED_TO", isDir: true }, ({ parent, name }) => ({
@@ -67,9 +61,7 @@ function classifyBooksEvent(raw: RawBooksEvent): EventType {
     })),
 
     Match.when({ event: "MOVED_TO", isDir: false }, ({ parent, name }) =>
-      isValidAudioExtension(name)
-        ? { _tag: "AudioFileCreated" as const, parent, name }
-        : { _tag: "Ignored" as const },
+      isValidAudioExtension(name) ? { _tag: "AudioFileCreated" as const, parent, name } : { _tag: "Ignored" as const },
     ),
 
     Match.orElse(() => ({ _tag: "Ignored" as const })),

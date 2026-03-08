@@ -3,16 +3,15 @@ import { Effect, Layer } from "effect";
 import { ConfigService, LoggerService, FileSystemService } from "../../../src/effect/services.ts";
 import { audioSync } from "../../../src/effect/handlers/audio-sync.ts";
 import { folderSync } from "../../../src/effect/handlers/folder-sync.ts";
-import { folderMetaSync } from "../../../src/effect/handlers/folder-meta-sync.ts";
 import type { EventType } from "../../../src/effect/types.ts";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdir, rm, stat, readFile } from "node:fs/promises";
+import { mkdir, rm, stat, readFile, copyFile } from "node:fs/promises";
 
 const TEST_DIR = join(tmpdir(), `cascade-test-${Date.now()}`);
 const FILES_DIR = join(TEST_DIR, "files");
 const DATA_DIR = join(TEST_DIR, "data");
-const FIXTURES_DIR = join(import.meta.dir, "../../../files/test");
+const AUDIO_FIXTURES = join(import.meta.dir, "../../../test/fixtures/audio");
 
 const mockLogger = {
   calls: [] as Array<{ level: string; tag: string; msg: string }>,
@@ -84,9 +83,6 @@ const RealFileSystemService = Layer.succeed(FileSystemService, {
 
 const TestLayer = Layer.mergeAll(TestConfigService, TestLoggerService, RealFileSystemService);
 
-// NOTE: These integration tests still use EPUB fixtures with the transitional
-// audio-sync handler (which internally still uses opds-ts). Will be fully
-// rewritten when audio-sync is reimplemented in Task 5.
 describe("Cascade Flow Integration", () => {
   beforeEach(async () => {
     mockLogger.reset();
@@ -99,97 +95,62 @@ describe("Cascade Flow Integration", () => {
     await rm(TEST_DIR, { recursive: true, force: true }).catch(() => {});
   });
 
-  test("full cascade: FolderCreated → AudioFileCreated → FolderMetaSync", async () => {
-    const fictionPath = join(FILES_DIR, "Fiction");
-    await mkdir(fictionPath, { recursive: true });
+  test("FolderCreated → AudioFileCreated produces entry.xml", async () => {
+    const albumPath = join(FILES_DIR, "Author", "Album");
+    await mkdir(albumPath, { recursive: true });
 
-    const folderEvent: EventType = { _tag: "FolderCreated", parent: FILES_DIR, name: "Fiction" };
+    const folderEvent: EventType = { _tag: "FolderCreated", parent: join(FILES_DIR, "Author"), name: "Album" };
     await Effect.runPromise(Effect.provide(folderSync(folderEvent), TestLayer));
 
-    const fictionDataPath = join(DATA_DIR, "Fiction");
-    const entryXmlPath = join(fictionDataPath, "_entry.xml");
+    const albumDataPath = join(DATA_DIR, "Author", "Album");
+    const entryXmlPath = join(albumDataPath, "_entry.xml");
     const entryExists = await stat(entryXmlPath)
       .then(() => true)
       .catch(() => false);
     expect(entryExists).toBe(true);
 
-    const realEpubPath = join(FIXTURES_DIR, "Test Book - Test Author.epub");
-    const testBookPath = join(fictionPath, "Test Book - Test Author.epub");
-    const epubContent = await Bun.file(realEpubPath).arrayBuffer();
-    await Bun.write(testBookPath, epubContent);
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(albumPath, "01.mp3"));
 
-    const audioEvent: EventType = { _tag: "AudioFileCreated", parent: fictionPath, name: "Test Book - Test Author.epub" };
-    await Effect.runPromise(Effect.provide(audioSync(audioEvent), TestLayer));
+    const audioEvent: EventType = { _tag: "AudioFileCreated", parent: albumPath, name: "01.mp3" };
+    const cascades = await Effect.runPromise(Effect.provide(audioSync(audioEvent), TestLayer));
 
-    const bookDataPath = join(DATA_DIR, "Fiction", "Test Book - Test Author.epub");
-    const bookEntryPath = join(bookDataPath, "entry.xml");
-    const coverPath = join(bookDataPath, "cover.jpg");
-    const symlinkPath = join(bookDataPath, "Test Book - Test Author.epub");
+    expect(cascades).toEqual([]);
 
-    expect(
-      await stat(bookEntryPath)
-        .then(() => true)
-        .catch(() => false),
-    ).toBe(true);
-    expect(
-      await stat(coverPath)
-        .then(() => true)
-        .catch(() => false),
-    ).toBe(true);
-    expect(
-      await stat(symlinkPath)
-        .then(() => true)
-        .catch(() => false),
-    ).toBe(true);
+    const episodeDataPath = join(DATA_DIR, "Author", "Album", "01.mp3");
+    const episodeEntryPath = join(episodeDataPath, "entry.xml");
+    const episodeEntryExists = await stat(episodeEntryPath)
+      .then(() => true)
+      .catch(() => false);
+    expect(episodeEntryExists).toBe(true);
 
-    const folderMetaEvent: EventType = { _tag: "FolderMetaSyncRequested", path: fictionDataPath };
-    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaEvent), TestLayer));
-
-    const feedPath = join(fictionDataPath, "feed.xml");
-    const feedContent = await readFile(feedPath, "utf-8");
-
-    expect(feedContent).toContain("<feed");
-    expect(feedContent).toContain("Test Book");
-    expect(feedContent).toContain("Test Author");
-
-    const rootMetaEvent: EventType = { _tag: "FolderMetaSyncRequested", path: DATA_DIR };
-    await Effect.runPromise(Effect.provide(folderMetaSync(rootMetaEvent), TestLayer));
-
-    const rootFeedPath = join(DATA_DIR, "feed.xml");
-    const rootFeedContent = await readFile(rootFeedPath, "utf-8");
-
-    expect(rootFeedContent).toContain("<feed");
-    expect(rootFeedContent).toContain("Fiction");
+    const content = await readFile(episodeEntryPath, "utf-8");
+    expect(content).toContain("<episode>");
+    expect(content).toContain("<episodeNumber>1</episodeNumber>");
+    expect(content).toContain("<mimeType>audio/mpeg</mimeType>");
   });
 
-  test("cascade produces correct structure", async () => {
-    const authorPath = join(FILES_DIR, "Author");
-    await mkdir(authorPath, { recursive: true });
+  test("multiple audio files get sequential episode numbers", async () => {
+    const albumPath = join(FILES_DIR, "Author", "Album");
+    await mkdir(albumPath, { recursive: true });
 
-    const realEpubPath = join(FIXTURES_DIR, "Test Book - Test Author.epub");
-    const testBookPath = join(authorPath, "Test Book - Test Author.epub");
-    const epubContent = await Bun.file(realEpubPath).arrayBuffer();
-    await Bun.write(testBookPath, epubContent);
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(albumPath, "01.mp3"));
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(albumPath, "02.mp3"));
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(albumPath, "03.mp3"));
 
-    const folderEvent: EventType = { _tag: "FolderCreated", parent: FILES_DIR, name: "Author" };
-    await Effect.runPromise(Effect.provide(folderSync(folderEvent), TestLayer));
+    const event1: EventType = { _tag: "AudioFileCreated", parent: albumPath, name: "01.mp3" };
+    const event2: EventType = { _tag: "AudioFileCreated", parent: albumPath, name: "02.mp3" };
+    const event3: EventType = { _tag: "AudioFileCreated", parent: albumPath, name: "03.mp3" };
 
-    const audioEvent: EventType = { _tag: "AudioFileCreated", parent: authorPath, name: "Test Book - Test Author.epub" };
-    await Effect.runPromise(Effect.provide(audioSync(audioEvent), TestLayer));
+    await Effect.runPromise(Effect.provide(audioSync(event1), TestLayer));
+    await Effect.runPromise(Effect.provide(audioSync(event2), TestLayer));
+    await Effect.runPromise(Effect.provide(audioSync(event3), TestLayer));
 
-    const folderMetaEvent: EventType = { _tag: "FolderMetaSyncRequested", path: join(DATA_DIR, "Author") };
-    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaEvent), TestLayer));
+    const entry1 = await readFile(join(DATA_DIR, "Author", "Album", "01.mp3", "entry.xml"), "utf-8");
+    const entry2 = await readFile(join(DATA_DIR, "Author", "Album", "02.mp3", "entry.xml"), "utf-8");
+    const entry3 = await readFile(join(DATA_DIR, "Author", "Album", "03.mp3", "entry.xml"), "utf-8");
 
-    const rootMetaEvent: EventType = { _tag: "FolderMetaSyncRequested", path: DATA_DIR };
-    await Effect.runPromise(Effect.provide(folderMetaSync(rootMetaEvent), TestLayer));
-
-    const rootFeed = await readFile(join(DATA_DIR, "feed.xml"), "utf-8");
-    const authorFeed = await readFile(join(DATA_DIR, "Author", "feed.xml"), "utf-8");
-    const bookEntry = await readFile(join(DATA_DIR, "Author", "Test Book - Test Author.epub", "entry.xml"), "utf-8");
-
-    expect(rootFeed).toContain("Author");
-    expect(authorFeed).toContain("Test Book");
-    expect(bookEntry).toContain("Test Book");
-    expect(bookEntry).toContain("Test Author");
+    expect(entry1).toContain("<episodeNumber>1</episodeNumber>");
+    expect(entry2).toContain("<episodeNumber>2</episodeNumber>");
+    expect(entry3).toContain("<episodeNumber>3</episodeNumber>");
   });
 });

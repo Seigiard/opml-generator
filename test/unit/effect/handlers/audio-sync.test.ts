@@ -6,12 +6,12 @@ import type { EventType } from "../../../../src/effect/types.ts";
 import type { LogContext } from "../../../../src/logging/types.ts";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdir, rm, readdir, stat, readFile, lstat } from "node:fs/promises";
+import { mkdir, rm, stat, readFile, copyFile } from "node:fs/promises";
 
 const TEST_DIR = join(tmpdir(), `audio-sync-test-${Date.now()}`);
 const FILES_DIR = join(TEST_DIR, "files");
 const DATA_DIR = join(TEST_DIR, "data");
-const FIXTURES_DIR = join(import.meta.dir, "../../../../files/test");
+const FIXTURES_DIR = join(import.meta.dir, "../../../../test/fixtures/audio");
 
 const mockLogger = {
   infoCalls: [] as Array<{ tag: string; msg: string; ctx?: LogContext }>,
@@ -44,7 +44,11 @@ const TestLoggerService = Layer.succeed(LoggerService, {
 const RealFileSystemService = Layer.succeed(FileSystemService, {
   mkdir: (path, options) => Effect.promise(() => mkdir(path, options)),
   rm: (path, options) => Effect.promise(() => rm(path, options)),
-  readdir: (path) => Effect.promise(() => readdir(path)),
+  readdir: (path) =>
+    Effect.promise(async () => {
+      const fs = await import("node:fs/promises");
+      return fs.readdir(path);
+    }),
   stat: (path) =>
     Effect.promise(async () => {
       const s = await stat(path);
@@ -82,9 +86,6 @@ const audioFileCreatedEvent = (relativePath: string): EventType => {
   return { _tag: "AudioFileCreated", parent, name };
 };
 
-// NOTE: This test file will be fully rewritten in Task 5 when audio-sync handler
-// is reimplemented for audio files. Currently tests the transitional state where
-// the handler still uses opds-ts internally.
 describe("audioSync handler", () => {
   beforeEach(async () => {
     mockLogger.reset();
@@ -100,69 +101,138 @@ describe("audioSync handler", () => {
   test("returns empty array for non-AudioFileCreated events", async () => {
     const event: EventType = { _tag: "FolderCreated", parent: FILES_DIR, name: "Fiction" };
     const cascades = await Effect.runPromise(Effect.provide(audioSync(event), TestLayer));
-
     expect(cascades).toEqual([]);
   });
 
   test("creates data directory for audio file", async () => {
-    const filePath = join(FILES_DIR, "test.epub");
-    await Bun.write(filePath, "fake content");
+    const filePath = join(FILES_DIR, "track.mp3");
+    await copyFile(join(FIXTURES_DIR, "tagged.mp3"), filePath);
 
-    await Effect.runPromise(Effect.provide(audioSync(audioFileCreatedEvent("test.epub")), TestLayer));
+    await Effect.runPromise(Effect.provide(audioSync(audioFileCreatedEvent("track.mp3")), TestLayer));
 
-    const dataDir = join(DATA_DIR, "test.epub");
+    const dataDir = join(DATA_DIR, "track.mp3");
     const exists = await stat(dataDir)
       .then(() => true)
       .catch(() => false);
     expect(exists).toBe(true);
   });
 
-  test("creates entry.xml", async () => {
-    const filePath = join(FILES_DIR, "test.epub");
-    await Bun.write(filePath, "fake content");
+  test("creates entry.xml with episode format", async () => {
+    const filePath = join(FILES_DIR, "track.mp3");
+    await copyFile(join(FIXTURES_DIR, "tagged.mp3"), filePath);
 
-    await Effect.runPromise(Effect.provide(audioSync(audioFileCreatedEvent("test.epub")), TestLayer));
+    await Effect.runPromise(Effect.provide(audioSync(audioFileCreatedEvent("track.mp3")), TestLayer));
 
-    const entryPath = join(DATA_DIR, "test.epub", "entry.xml");
-    const entryContent = await readFile(entryPath, "utf-8");
+    const entryPath = join(DATA_DIR, "track.mp3", "entry.xml");
+    const content = await readFile(entryPath, "utf-8");
 
-    expect(entryContent).toContain("<entry");
-    expect(entryContent).toContain("test");
+    expect(content).toContain("<episode>");
+    expect(content).toContain("<title>");
+    expect(content).toContain("<fileName>track.mp3</fileName>");
+    expect(content).toContain("<filePath>track.mp3</filePath>");
+    expect(content).toContain("<mimeType>audio/mpeg</mimeType>");
+    expect(content).toContain("<episodeNumber>1</episodeNumber>");
+    expect(content).toContain("<pubDate>");
+    expect(content).toContain("<guid>track.mp3</guid>");
+    expect(content).toContain("<fileSize>");
   });
 
-  test("creates symlink to original file", async () => {
-    const filePath = join(FILES_DIR, "test.epub");
-    await Bun.write(filePath, "fake content");
+  test("extracts ID3 metadata into entry.xml", async () => {
+    const filePath = join(FILES_DIR, "track.mp3");
+    await copyFile(join(FIXTURES_DIR, "tagged.mp3"), filePath);
 
-    await Effect.runPromise(Effect.provide(audioSync(audioFileCreatedEvent("test.epub")), TestLayer));
+    await Effect.runPromise(Effect.provide(audioSync(audioFileCreatedEvent("track.mp3")), TestLayer));
 
-    const symlinkPath = join(DATA_DIR, "test.epub", "test.epub");
-    const linkStat = await lstat(symlinkPath);
-    expect(linkStat.isSymbolicLink()).toBe(true);
+    const content = await readFile(join(DATA_DIR, "track.mp3", "entry.xml"), "utf-8");
+
+    expect(content).toContain("<title>");
+    expect(content).toContain("<duration>");
+  });
+
+  test("handles untagged audio file gracefully", async () => {
+    const filePath = join(FILES_DIR, "untagged.mp3");
+    await copyFile(join(FIXTURES_DIR, "untagged.mp3"), filePath);
+
+    await Effect.runPromise(Effect.provide(audioSync(audioFileCreatedEvent("untagged.mp3")), TestLayer));
+
+    const content = await readFile(join(DATA_DIR, "untagged.mp3", "entry.xml"), "utf-8");
+    expect(content).toContain("<episode>");
+    expect(content).toContain("<title>");
+    expect(content).toContain("<episodeNumber>1</episodeNumber>");
+  });
+
+  test("assigns sequential episode numbers", async () => {
+    const authorDir = join(FILES_DIR, "Author", "Album");
+    await mkdir(authorDir, { recursive: true });
+
+    await copyFile(join(FIXTURES_DIR, "tagged.mp3"), join(authorDir, "01.mp3"));
+    await Effect.runPromise(Effect.provide(audioSync(audioFileCreatedEvent("Author/Album/01.mp3")), TestLayer));
+
+    await copyFile(join(FIXTURES_DIR, "tagged.mp3"), join(authorDir, "02.mp3"));
+    await Effect.runPromise(Effect.provide(audioSync(audioFileCreatedEvent("Author/Album/02.mp3")), TestLayer));
+
+    const entry1 = await readFile(join(DATA_DIR, "Author", "Album", "01.mp3", "entry.xml"), "utf-8");
+    const entry2 = await readFile(join(DATA_DIR, "Author", "Album", "02.mp3", "entry.xml"), "utf-8");
+
+    expect(entry1).toContain("<episodeNumber>1</episodeNumber>");
+    expect(entry2).toContain("<episodeNumber>2</episodeNumber>");
   });
 
   test("handles nested folder structure", async () => {
-    const nestedPath = join(FILES_DIR, "Fiction", "Author");
+    const nestedPath = join(FILES_DIR, "Author", "Album");
     await mkdir(nestedPath, { recursive: true });
-    const filePath = join(nestedPath, "file.epub");
-    await Bun.write(filePath, "fake content");
+    await copyFile(join(FIXTURES_DIR, "tagged.mp3"), join(nestedPath, "track.mp3"));
 
-    await Effect.runPromise(Effect.provide(audioSync(audioFileCreatedEvent("Fiction/Author/file.epub")), TestLayer));
+    await Effect.runPromise(Effect.provide(audioSync(audioFileCreatedEvent("Author/Album/track.mp3")), TestLayer));
 
-    const dataDir = join(DATA_DIR, "Fiction", "Author", "file.epub");
+    const dataDir = join(DATA_DIR, "Author", "Album", "track.mp3");
     const exists = await stat(dataDir)
       .then(() => true)
       .catch(() => false);
     expect(exists).toBe(true);
   });
 
-  test("logs processing info", async () => {
-    const filePath = join(FILES_DIR, "test.epub");
-    await Bun.write(filePath, "fake content");
+  test("does not create symlink", async () => {
+    const filePath = join(FILES_DIR, "track.mp3");
+    await copyFile(join(FIXTURES_DIR, "tagged.mp3"), filePath);
 
-    await Effect.runPromise(Effect.provide(audioSync(audioFileCreatedEvent("test.epub")), TestLayer));
+    await Effect.runPromise(Effect.provide(audioSync(audioFileCreatedEvent("track.mp3")), TestLayer));
+
+    const symlinkPath = join(DATA_DIR, "track.mp3", "track.mp3");
+    const exists = await stat(symlinkPath)
+      .then(() => true)
+      .catch(() => false);
+    expect(exists).toBe(false);
+  });
+
+  test("logs processing info", async () => {
+    const filePath = join(FILES_DIR, "track.mp3");
+    await copyFile(join(FIXTURES_DIR, "tagged.mp3"), filePath);
+
+    await Effect.runPromise(Effect.provide(audioSync(audioFileCreatedEvent("track.mp3")), TestLayer));
 
     expect(mockLogger.infoCalls.some((c) => c.tag === "AudioSync" && c.msg.includes("Processing"))).toBe(true);
     expect(mockLogger.infoCalls.some((c) => c.tag === "AudioSync" && c.msg.includes("Done"))).toBe(true);
+  });
+
+  test("uses ID3 date for pubDate when available", async () => {
+    const filePath = join(FILES_DIR, "track.mp3");
+    await copyFile(join(FIXTURES_DIR, "tagged.mp3"), filePath);
+
+    await Effect.runPromise(Effect.provide(audioSync(audioFileCreatedEvent("track.mp3")), TestLayer));
+
+    const content = await readFile(join(DATA_DIR, "track.mp3", "entry.xml"), "utf-8");
+    const pubDateMatch = content.match(/<pubDate>([^<]+)<\/pubDate>/);
+    expect(pubDateMatch).not.toBeNull();
+    const pubDate = new Date(pubDateMatch![1]!);
+    expect(Number.isNaN(pubDate.getTime())).toBe(false);
+  });
+
+  test("returns empty cascade array", async () => {
+    const filePath = join(FILES_DIR, "track.mp3");
+    await copyFile(join(FIXTURES_DIR, "tagged.mp3"), filePath);
+
+    const cascades = await Effect.runPromise(Effect.provide(audioSync(audioFileCreatedEvent("track.mp3")), TestLayer));
+    expect(cascades).toEqual([]);
   });
 });
