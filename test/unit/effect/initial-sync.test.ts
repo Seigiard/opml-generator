@@ -115,7 +115,7 @@ describe("Initial Sync - Folder and Cleanup Handlers", () => {
       await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction")), TestLayer));
       const entryWrite = mockFs.writeCalls.find((c) => c.path.endsWith("_entry.xml"));
       expect(entryWrite).toBeDefined();
-      expect(entryWrite?.content).toContain("<entry");
+      expect(entryWrite?.content).toContain("<folder>");
     });
 
     test("processes nested folder paths correctly", async () => {

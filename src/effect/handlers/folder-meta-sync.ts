@@ -1,12 +1,92 @@
 import { Effect } from "effect";
-import { join, relative } from "node:path";
+import { join, relative, dirname } from "node:path";
 import { readdir, stat } from "node:fs/promises";
-import { Feed, Entry } from "opds-ts/v1.2";
-import { stripXmlDeclaration, naturalSort, extractTitle, extractAuthor } from "../../utils/opds.ts";
-import { encodeUrlPath, formatFolderDescription, normalizeFilenameTitle } from "../../utils/processor.ts";
+import { XMLParser, XMLBuilder } from "fast-xml-parser";
+import { generatePodcastRss } from "../../rss/podcast-rss.ts";
+import type { EpisodeInfo, PodcastInfo } from "../../rss/types.ts";
+import { naturalSort } from "../../utils/opds.ts";
+import { encodeUrlPath, normalizeFilenameTitle } from "../../utils/processor.ts";
 import { ConfigService, LoggerService, FileSystemService } from "../services.ts";
 import type { EventType } from "../types.ts";
-import { FEED_FILE, ENTRY_FILE, FOLDER_ENTRY_FILE } from "../../constants.ts";
+import { FEED_FILE, ENTRY_FILE, FOLDER_ENTRY_FILE, COVER_FILE } from "../../constants.ts";
+
+const xmlParser = new XMLParser();
+const xmlBuilder = new XMLBuilder({
+  ignoreAttributes: false,
+  attributeNamePrefix: "@_",
+  format: true,
+  suppressEmptyNode: true,
+});
+
+interface ParsedEpisode {
+  title: string;
+  fileName: string;
+  filePath: string;
+  fileSize: number;
+  mimeType: string;
+  duration?: number;
+  discNumber?: number;
+  trackNumber?: number;
+  episodeNumber: number;
+  pubDate: string;
+  guid: string;
+}
+
+function parseEntryXml(content: string): ParsedEpisode | null {
+  try {
+    const parsed = xmlParser.parse(content);
+    const ep = parsed?.episode;
+    if (!ep) return null;
+    return {
+      title: String(ep.title ?? ""),
+      fileName: String(ep.fileName ?? ""),
+      filePath: String(ep.filePath ?? ""),
+      fileSize: Number(ep.fileSize ?? 0),
+      mimeType: String(ep.mimeType ?? "application/octet-stream"),
+      duration: ep.duration != null ? Number(ep.duration) : undefined,
+      discNumber: ep.discNumber != null ? Number(ep.discNumber) : undefined,
+      trackNumber: ep.trackNumber != null ? Number(ep.trackNumber) : undefined,
+      episodeNumber: Number(ep.episodeNumber ?? 0),
+      pubDate: String(ep.pubDate ?? ""),
+      guid: String(ep.guid ?? ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function sortEpisodes(a: ParsedEpisode, b: ParsedEpisode): number {
+  const discA = a.discNumber ?? 0;
+  const discB = b.discNumber ?? 0;
+  if (discA !== discB) return discA - discB;
+
+  const trackA = a.trackNumber ?? 0;
+  const trackB = b.trackNumber ?? 0;
+  if (trackA !== trackB) return trackA - trackB;
+
+  return naturalSort(a.fileName, b.fileName);
+}
+
+interface FolderChild {
+  title: string;
+  href: string;
+  feedCount: number;
+}
+
+function parseFolderEntryXml(content: string): FolderChild | null {
+  try {
+    const parsed = xmlParser.parse(content);
+    const folder = parsed?.folder;
+    if (!folder) return null;
+    return {
+      title: String(folder.title ?? ""),
+      href: String(folder.href ?? ""),
+      feedCount: Number(folder.feedCount ?? 0),
+    };
+  } catch {
+    return null;
+  }
+}
 
 export const folderMetaSync = (
   event: EventType,
@@ -21,7 +101,6 @@ export const folderMetaSync = (
     const normalizedDir = folderDataDir.endsWith("/") ? folderDataDir.slice(0, -1) : folderDataDir;
     const relativePath = relative(config.dataPath, normalizedDir);
 
-    // Check if source folder still exists (handles race with deletion)
     if (relativePath !== "") {
       const sourceFolder = join(config.filesPath, relativePath);
       const sourceFolderExists = yield* fs.stat(sourceFolder).pipe(
@@ -37,124 +116,160 @@ export const folderMetaSync = (
     yield* logger.info("FolderMetaSync", "Processing", { path: relativePath || "(root)" });
 
     const feedOutputPath = join(normalizedDir, FEED_FILE);
-    const rawFolderName = relativePath.split("/").pop() || "Catalog";
-    const folderName = rawFolderName === "Catalog" ? rawFolderName : normalizeFilenameTitle(rawFolderName);
-    const feedId = relativePath === "" ? "urn:opds:catalog:root" : `urn:opds:catalog:${relativePath}`;
-    const selfHref = relativePath === "" ? `/${FEED_FILE}` : `/${encodeUrlPath(relativePath)}/${FEED_FILE}`;
 
-    interface EntryWithTitle {
-      xml: string;
-      title: string;
-      author?: string;
-      dirName: string;
+    const feedExistedBefore = yield* fs.exists(feedOutputPath);
+
+    const { episodes, folders } = yield* Effect.tryPromise({
+      try: () => collectChildren(normalizedDir),
+      catch: (e) => e as Error,
+    }).pipe(Effect.catchAll(() => Effect.succeed({ episodes: [] as ParsedEpisode[], folders: [] as FolderChild[] })));
+
+    const hasEpisodes = episodes.length > 0;
+    const hasFolders = folders.length > 0;
+
+    if (!hasEpisodes && !hasFolders && feedExistedBefore) {
+      yield* fs.rm(feedOutputPath).pipe(Effect.catchAll(() => Effect.void));
+      yield* logger.info("FolderMetaSync", "Deleted empty feed.xml", { path: relativePath || "/" });
+
+      if (relativePath !== "") {
+        const entryOutputPath = join(normalizedDir, FOLDER_ENTRY_FILE);
+        const entryExists = yield* fs.exists(entryOutputPath);
+        if (entryExists) {
+          yield* fs.rm(entryOutputPath).pipe(Effect.catchAll(() => Effect.void));
+        }
+      }
+
+      return [{ _tag: "FeedXmlDeleted" as const, path: normalizedDir }];
     }
 
-    const folderEntries: EntryWithTitle[] = [];
-    const bookEntries: EntryWithTitle[] = [];
+    if (hasEpisodes) {
+      episodes.sort(sortEpisodes);
 
-    // Read directory contents
-    const readResult = yield* Effect.tryPromise({
-      try: async () => {
-        const items = await readdir(normalizedDir);
+      const rawFolderName = relativePath.split("/").pop() || "Catalog";
+      const firstEpisode = episodes[0]!;
+      const podcastTitle = firstEpisode.title
+        ? episodes.length > 1
+          ? normalizeFilenameTitle(rawFolderName)
+          : firstEpisode.title
+        : normalizeFilenameTitle(rawFolderName);
 
-        for (const item of items) {
-          if (item.startsWith("_")) continue;
-          if (item === FEED_FILE || item.endsWith(".tmp")) continue;
+      const parentRelativePath = dirname(relativePath);
+      const podcastAuthor = parentRelativePath !== "." ? parentRelativePath.split("/").pop() : undefined;
 
-          const itemPath = join(normalizedDir, item);
-          const itemStat = await stat(itemPath);
+      const coverUrl = yield* fs
+        .exists(join(normalizedDir, COVER_FILE))
+        .pipe(Effect.map((exists) => (exists ? `/${encodeUrlPath(relativePath)}/${COVER_FILE}` : undefined)));
 
-          if (itemStat.isDirectory()) {
-            const folderEntryPath = join(itemPath, FOLDER_ENTRY_FILE);
-            const bookEntryPath = join(itemPath, ENTRY_FILE);
+      const podcastInfo: PodcastInfo = {
+        title: podcastTitle,
+        author: podcastAuthor,
+        imageUrl: coverUrl,
+      };
 
-            const folderEntryFile = Bun.file(folderEntryPath);
-            const bookEntryFile = Bun.file(bookEntryPath);
+      const episodeInfos: EpisodeInfo[] = episodes.map((ep) => ({
+        title: ep.title,
+        guid: ep.guid,
+        pubDate: ep.pubDate,
+        enclosureUrl: `/${encodeUrlPath(ep.filePath)}`,
+        enclosureLength: ep.fileSize,
+        enclosureType: ep.mimeType,
+        duration: ep.duration,
+        episodeNumber: ep.episodeNumber,
+      }));
 
-            if (await folderEntryFile.exists()) {
-              const entryXml = await folderEntryFile.text();
-              const xml = stripXmlDeclaration(entryXml);
-              const title = extractTitle(xml) || item;
-              folderEntries.push({ xml, title, dirName: item });
-            } else if (await bookEntryFile.exists()) {
-              const entryXml = await bookEntryFile.text();
-              const xml = stripXmlDeclaration(entryXml);
-              const title = extractTitle(xml) || item;
-              const author = extractAuthor(xml);
-              bookEntries.push({ xml, title, author, dirName: item });
-            }
-          }
-        }
+      const rssXml = generatePodcastRss(podcastInfo, episodeInfos);
+      yield* fs.atomicWrite(feedOutputPath, rssXml);
+    } else if (hasFolders) {
+      const rawFolderName = relativePath.split("/").pop() || "Catalog";
+      const folderName = rawFolderName === "Catalog" ? rawFolderName : normalizeFilenameTitle(rawFolderName);
 
-        return { folderEntries, bookEntries };
-      },
-      catch: (e) => e as Error,
-    }).pipe(
-      Effect.catchAll((error) => {
-        logger.warn("FolderMetaSync", "Error reading folder", {
-          path: relativePath,
-          error: String(error),
-        });
-        return Effect.succeed({ folderEntries: [] as EntryWithTitle[], bookEntries: [] as EntryWithTitle[] });
-      }),
-    );
-
-    // Folders: sort by title
-    const sortByTitle = (a: EntryWithTitle, b: EntryWithTitle): number => {
-      const cmp = naturalSort(a.title, b.title);
-      return cmp !== 0 ? cmp : naturalSort(a.dirName, b.dirName);
-    };
-
-    // Books: sort by author (no author first), then by title
-    const sortByAuthorTitle = (a: EntryWithTitle, b: EntryWithTitle): number => {
-      if (!a.author && b.author) return -1;
-      if (a.author && !b.author) return 1;
-      if (a.author && b.author) {
-        const authorCmp = naturalSort(a.author, b.author);
-        if (authorCmp !== 0) return authorCmp;
-      }
-      const titleCmp = naturalSort(a.title, b.title);
-      return titleCmp !== 0 ? titleCmp : naturalSort(a.dirName, b.dirName);
-    };
-
-    readResult.folderEntries.sort(sortByTitle);
-    readResult.bookEntries.sort(sortByAuthorTitle);
-
-    const entries = [...readResult.folderEntries.map((e) => e.xml), ...readResult.bookEntries.map((e) => e.xml)];
-    const hasBooks = readResult.bookEntries.length > 0;
-    const feedKind = hasBooks ? "acquisition" : "navigation";
-
-    const feed = new Feed(feedId, folderName).addSelfLink(selfHref, feedKind).addNavigationLink("start", `/${FEED_FILE}`).setKind(feedKind);
-
-    const feedXml = feed.toXml({ prettyPrint: true });
-    const stylesheet = '<?xml-stylesheet href="/static/layout.xsl" type="text/xsl"?>';
-    const completeFeed = feedXml
-      .replace('<?xml version="1.0" encoding="utf-8"?>', `<?xml version="1.0" encoding="utf-8"?>\n${stylesheet}`)
-      .replace("</feed>", entries.join("\n") + "\n</feed>");
-
-    yield* fs.atomicWrite(feedOutputPath, completeFeed);
+      const navigationXml = buildNavigationFeed(folderName, relativePath, folders);
+      yield* fs.atomicWrite(feedOutputPath, navigationXml);
+    }
 
     yield* logger.info("FolderMetaSync", "Generated feed.xml", {
       path: relativePath || "/",
-      subfolders: readResult.folderEntries.length,
-      audio_files: readResult.bookEntries.length,
+      episodes: episodes.length,
+      subfolders: folders.length,
     });
 
-    // Update this folder's _entry.xml with current count (non-root only)
     if (relativePath !== "") {
       const entryOutputPath = join(normalizedDir, FOLDER_ENTRY_FILE);
-      const entry = new Entry(`urn:opds:catalog:${relativePath}`, folderName).addSubsection(selfHref, "navigation");
+      const rawFolderName = relativePath.split("/").pop() || "";
+      const folderName = normalizeFilenameTitle(rawFolderName);
+      const selfHref = `/${encodeUrlPath(relativePath)}/${FEED_FILE}`;
 
-      const description = formatFolderDescription(readResult.folderEntries.length, readResult.bookEntries.length);
-      if (description) {
-        entry.setSummary(description);
-      }
+      const folderEntryXml = xmlBuilder.build({
+        "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
+        folder: {
+          title: folderName,
+          href: selfHref,
+          feedCount: episodes.length + folders.length,
+        },
+      }) as string;
 
-      const entryXml = entry.toXml({ prettyPrint: true });
-      yield* fs.atomicWrite(entryOutputPath, entryXml);
-
-      yield* logger.debug("FolderMetaSync", "Updated _entry.xml count", { path: relativePath });
+      yield* fs.atomicWrite(entryOutputPath, folderEntryXml);
+      yield* logger.debug("FolderMetaSync", "Updated _entry.xml", { path: relativePath });
     }
 
-    return [];
+    const cascades: EventType[] = [];
+    if (!feedExistedBefore && (hasEpisodes || hasFolders)) {
+      cascades.push({ _tag: "FeedXmlCreated", path: normalizedDir });
+    }
+
+    return cascades;
   });
+
+async function collectChildren(dir: string): Promise<{ episodes: ParsedEpisode[]; folders: FolderChild[] }> {
+  const episodes: ParsedEpisode[] = [];
+  const folders: FolderChild[] = [];
+
+  const items = await readdir(dir);
+
+  for (const item of items) {
+    if (item.startsWith("_")) continue;
+    if (item === FEED_FILE || item.endsWith(".tmp")) continue;
+
+    const itemPath = join(dir, item);
+    const itemStat = await stat(itemPath);
+
+    if (!itemStat.isDirectory()) continue;
+
+    const episodeEntryPath = join(itemPath, ENTRY_FILE);
+    const folderEntryPath = join(itemPath, FOLDER_ENTRY_FILE);
+
+    const episodeFile = Bun.file(episodeEntryPath);
+    const folderFile = Bun.file(folderEntryPath);
+
+    if (await episodeFile.exists()) {
+      const content = await episodeFile.text();
+      const parsed = parseEntryXml(content);
+      if (parsed) episodes.push(parsed);
+    } else if (await folderFile.exists()) {
+      const content = await folderFile.text();
+      const parsed = parseFolderEntryXml(content);
+      if (parsed) folders.push(parsed);
+    }
+  }
+
+  return { episodes, folders };
+}
+
+function buildNavigationFeed(title: string, relativePath: string, folders: FolderChild[]): string {
+  folders.sort((a, b) => naturalSort(a.title, b.title));
+
+  const items = folders.map((f) => ({
+    title: f.title,
+    link: f.href,
+    description: `${f.feedCount} items`,
+  }));
+
+  return xmlBuilder.build({
+    "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
+    feed: {
+      title,
+      link: relativePath === "" ? `/${FEED_FILE}` : `/${encodeUrlPath(relativePath)}/${FEED_FILE}`,
+      item: items,
+    },
+  }) as string;
+}

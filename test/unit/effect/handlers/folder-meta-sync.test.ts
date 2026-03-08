@@ -7,10 +7,18 @@ import type { LogContext } from "../../../../src/logging/types.ts";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdir, rm, stat, readFile } from "node:fs/promises";
+import { XMLBuilder } from "fast-xml-parser";
 
-const TEST_DIR = join(tmpdir(), `opds-folder-meta-test-${Date.now()}`);
+const TEST_DIR = join(tmpdir(), `folder-meta-test-${Date.now()}`);
 const DATA_DIR = join(TEST_DIR, "data");
 const FILES_DIR = join(TEST_DIR, "files");
+
+const xmlBuilder = new XMLBuilder({
+  ignoreAttributes: false,
+  attributeNamePrefix: "@_",
+  format: true,
+  suppressEmptyNode: true,
+});
 
 const mockLogger = {
   infoCalls: [] as Array<{ tag: string; msg: string; ctx?: LogContext }>,
@@ -22,7 +30,7 @@ const mockLogger = {
 };
 
 const TestConfigService = Layer.succeed(ConfigService, {
-  filesPath: join(TEST_DIR, "files"),
+  filesPath: FILES_DIR,
   dataPath: DATA_DIR,
   port: 3000,
 });
@@ -75,11 +83,30 @@ const folderMetaSyncEvent = (path: string): EventType => ({
   path,
 });
 
+function writeEpisodeEntry(dir: string, name: string, fields: Record<string, unknown>): Promise<number> {
+  const episodeDir = join(dir, name);
+  const xml = xmlBuilder.build({
+    "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
+    episode: fields,
+  }) as string;
+  return mkdir(episodeDir, { recursive: true }).then(() => Bun.write(join(episodeDir, "entry.xml"), xml));
+}
+
+function writeFolderEntry(dir: string, name: string, title: string, href: string, feedCount: number): Promise<number> {
+  const folderDir = join(dir, name);
+  const xml = xmlBuilder.build({
+    "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
+    folder: { title, href, feedCount },
+  }) as string;
+  return mkdir(folderDir, { recursive: true }).then(() => Bun.write(join(folderDir, "_entry.xml"), xml));
+}
+
 describe("folderMetaSync handler", () => {
   beforeEach(async () => {
     mockLogger.reset();
     await rm(TEST_DIR, { recursive: true, force: true }).catch(() => {});
     await mkdir(DATA_DIR, { recursive: true });
+    await mkdir(FILES_DIR, { recursive: true });
   });
 
   afterAll(async () => {
@@ -87,276 +114,249 @@ describe("folderMetaSync handler", () => {
   });
 
   test("returns empty array for non-FolderMetaSyncRequested events", async () => {
-    const event: EventType = { _tag: "AudioFileCreated", parent: DATA_DIR, name: "chapter01.mp3" };
+    const event: EventType = { _tag: "AudioFileCreated", parent: DATA_DIR, name: "track.mp3" };
     const cascades = await Effect.runPromise(Effect.provide(folderMetaSync(event), TestLayer));
+    expect(cascades).toEqual([]);
+  });
+
+  test("generates podcast RSS feed.xml when episodes exist", async () => {
+    const albumDir = join(DATA_DIR, "Author", "Album");
+    const sourceDir = join(FILES_DIR, "Author", "Album");
+    await mkdir(albumDir, { recursive: true });
+    await mkdir(sourceDir, { recursive: true });
+
+    await writeEpisodeEntry(albumDir, "01.mp3", {
+      title: "Chapter 1",
+      fileName: "01.mp3",
+      filePath: "Author/Album/01.mp3",
+      fileSize: 5000000,
+      mimeType: "audio/mpeg",
+      duration: 300,
+      episodeNumber: 1,
+      pubDate: "2024-01-15T10:00:00.000Z",
+      guid: "Author/Album/01.mp3",
+    });
+
+    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(albumDir)), TestLayer));
+
+    const feedPath = join(albumDir, "feed.xml");
+    const content = await readFile(feedPath, "utf-8");
+
+    expect(content).toContain("<rss");
+    expect(content).toContain('xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"');
+    expect(content).toContain("<title>Chapter 1</title>");
+    expect(content).toContain("<itunes:type>serial</itunes:type>");
+    expect(content).toContain("<itunes:episode>1</itunes:episode>");
+    expect(content).toContain("audio/mpeg");
+  });
+
+  test("uses folder name as podcast title when multiple episodes", async () => {
+    const albumDir = join(DATA_DIR, "Author", "MyAlbum");
+    const sourceDir = join(FILES_DIR, "Author", "MyAlbum");
+    await mkdir(albumDir, { recursive: true });
+    await mkdir(sourceDir, { recursive: true });
+
+    await writeEpisodeEntry(albumDir, "01.mp3", {
+      title: "Track 1",
+      fileName: "01.mp3",
+      filePath: "Author/MyAlbum/01.mp3",
+      fileSize: 1000,
+      mimeType: "audio/mpeg",
+      episodeNumber: 1,
+      pubDate: "2024-01-15T10:00:00.000Z",
+      guid: "Author/MyAlbum/01.mp3",
+    });
+    await writeEpisodeEntry(albumDir, "02.mp3", {
+      title: "Track 2",
+      fileName: "02.mp3",
+      filePath: "Author/MyAlbum/02.mp3",
+      fileSize: 1000,
+      mimeType: "audio/mpeg",
+      episodeNumber: 2,
+      pubDate: "2024-01-15T10:01:00.000Z",
+      guid: "Author/MyAlbum/02.mp3",
+    });
+
+    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(albumDir)), TestLayer));
+
+    const content = await readFile(join(albumDir, "feed.xml"), "utf-8");
+    expect(content).toContain("<title>My Album</title>");
+  });
+
+  test("uses parent folder as podcast author", async () => {
+    const albumDir = join(DATA_DIR, "JohnDoe", "Album");
+    const sourceDir = join(FILES_DIR, "JohnDoe", "Album");
+    await mkdir(albumDir, { recursive: true });
+    await mkdir(sourceDir, { recursive: true });
+
+    await writeEpisodeEntry(albumDir, "01.mp3", {
+      title: "Track 1",
+      fileName: "01.mp3",
+      filePath: "JohnDoe/Album/01.mp3",
+      fileSize: 1000,
+      mimeType: "audio/mpeg",
+      episodeNumber: 1,
+      pubDate: "2024-01-15T10:00:00.000Z",
+      guid: "JohnDoe/Album/01.mp3",
+    });
+
+    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(albumDir)), TestLayer));
+
+    const content = await readFile(join(albumDir, "feed.xml"), "utf-8");
+    expect(content).toContain("<itunes:author>JohnDoe</itunes:author>");
+  });
+
+  test("sorts episodes by disc, track, then filename", async () => {
+    const albumDir = join(DATA_DIR, "Artist", "Album");
+    const sourceDir = join(FILES_DIR, "Artist", "Album");
+    await mkdir(albumDir, { recursive: true });
+    await mkdir(sourceDir, { recursive: true });
+
+    await writeEpisodeEntry(albumDir, "b.mp3", {
+      title: "Track B",
+      fileName: "b.mp3",
+      filePath: "Artist/Album/b.mp3",
+      fileSize: 1000,
+      mimeType: "audio/mpeg",
+      discNumber: 1,
+      trackNumber: 2,
+      episodeNumber: 2,
+      pubDate: "2024-01-15T10:01:00.000Z",
+      guid: "Artist/Album/b.mp3",
+    });
+    await writeEpisodeEntry(albumDir, "a.mp3", {
+      title: "Track A",
+      fileName: "a.mp3",
+      filePath: "Artist/Album/a.mp3",
+      fileSize: 1000,
+      mimeType: "audio/mpeg",
+      discNumber: 1,
+      trackNumber: 1,
+      episodeNumber: 1,
+      pubDate: "2024-01-15T10:00:00.000Z",
+      guid: "Artist/Album/a.mp3",
+    });
+
+    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(albumDir)), TestLayer));
+
+    const content = await readFile(join(albumDir, "feed.xml"), "utf-8");
+    const trackAPos = content.indexOf("Track A");
+    const trackBPos = content.indexOf("Track B");
+    expect(trackAPos).toBeLessThan(trackBPos);
+  });
+
+  test("returns FeedXmlCreated when feed.xml is new", async () => {
+    const albumDir = join(DATA_DIR, "Author", "Album");
+    const sourceDir = join(FILES_DIR, "Author", "Album");
+    await mkdir(albumDir, { recursive: true });
+    await mkdir(sourceDir, { recursive: true });
+
+    await writeEpisodeEntry(albumDir, "01.mp3", {
+      title: "Track 1",
+      fileName: "01.mp3",
+      filePath: "Author/Album/01.mp3",
+      fileSize: 1000,
+      mimeType: "audio/mpeg",
+      episodeNumber: 1,
+      pubDate: "2024-01-15T10:00:00.000Z",
+      guid: "Author/Album/01.mp3",
+    });
+
+    const cascades = await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(albumDir)), TestLayer));
+
+    expect(cascades).toEqual([{ _tag: "FeedXmlCreated", path: albumDir }]);
+  });
+
+  test("returns empty cascades when feed.xml already existed", async () => {
+    const albumDir = join(DATA_DIR, "Author", "Album");
+    const sourceDir = join(FILES_DIR, "Author", "Album");
+    await mkdir(albumDir, { recursive: true });
+    await mkdir(sourceDir, { recursive: true });
+
+    await Bun.write(join(albumDir, "feed.xml"), "<existing/>");
+
+    await writeEpisodeEntry(albumDir, "01.mp3", {
+      title: "Track 1",
+      fileName: "01.mp3",
+      filePath: "Author/Album/01.mp3",
+      fileSize: 1000,
+      mimeType: "audio/mpeg",
+      episodeNumber: 1,
+      pubDate: "2024-01-15T10:00:00.000Z",
+      guid: "Author/Album/01.mp3",
+    });
+
+    const cascades = await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(albumDir)), TestLayer));
 
     expect(cascades).toEqual([]);
   });
 
-  test("creates feed.xml in empty folder", async () => {
+  test("returns FeedXmlDeleted when all episodes removed", async () => {
+    const albumDir = join(DATA_DIR, "Author", "Album");
+    const sourceDir = join(FILES_DIR, "Author", "Album");
+    await mkdir(albumDir, { recursive: true });
+    await mkdir(sourceDir, { recursive: true });
+
+    await Bun.write(join(albumDir, "feed.xml"), "<existing/>");
+
+    const cascades = await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(albumDir)), TestLayer));
+
+    expect(cascades).toEqual([{ _tag: "FeedXmlDeleted", path: albumDir }]);
+  });
+
+  test("writes _entry.xml for non-root folders", async () => {
+    const albumDir = join(DATA_DIR, "Author", "Album");
+    const sourceDir = join(FILES_DIR, "Author", "Album");
+    await mkdir(albumDir, { recursive: true });
+    await mkdir(sourceDir, { recursive: true });
+
+    await writeEpisodeEntry(albumDir, "01.mp3", {
+      title: "Track 1",
+      fileName: "01.mp3",
+      filePath: "Author/Album/01.mp3",
+      fileSize: 1000,
+      mimeType: "audio/mpeg",
+      episodeNumber: 1,
+      pubDate: "2024-01-15T10:00:00.000Z",
+      guid: "Author/Album/01.mp3",
+    });
+
+    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(albumDir)), TestLayer));
+
+    const entryPath = join(albumDir, "_entry.xml");
+    const content = await readFile(entryPath, "utf-8");
+
+    expect(content).toContain("<folder>");
+    expect(content).toContain("<title>Album</title>");
+    expect(content).toContain("<href>/Author/Album/feed.xml</href>");
+    expect(content).toContain("<feedCount>1</feedCount>");
+  });
+
+  test("does not create _entry.xml for root folder", async () => {
     await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(DATA_DIR)), TestLayer));
 
-    const feedPath = join(DATA_DIR, "feed.xml");
-    const exists = await stat(feedPath)
+    const entryPath = join(DATA_DIR, "_entry.xml");
+    const exists = await stat(entryPath)
       .then(() => true)
       .catch(() => false);
-    expect(exists).toBe(true);
+    expect(exists).toBe(false);
   });
 
-  test("includes XML declaration and stylesheet", async () => {
-    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(DATA_DIR)), TestLayer));
-
-    const feedPath = join(DATA_DIR, "feed.xml");
-    const content = await readFile(feedPath, "utf-8");
-
-    expect(content).toContain('<?xml version="1.0"');
-    expect(content).toContain('<?xml-stylesheet href="/static/layout.xsl"');
-  });
-
-  test("sets feed as navigation type for empty folder", async () => {
-    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(DATA_DIR)), TestLayer));
-
-    const feedPath = join(DATA_DIR, "feed.xml");
-    const content = await readFile(feedPath, "utf-8");
-
-    expect(content).toContain("kind=navigation");
-  });
-
-  test("includes self link in feed", async () => {
-    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(DATA_DIR)), TestLayer));
-
-    const feedPath = join(DATA_DIR, "feed.xml");
-    const content = await readFile(feedPath, "utf-8");
-
-    expect(content).toContain('rel="self"');
-    expect(content).toContain("/feed.xml");
-  });
-
-  test("includes start link in feed", async () => {
-    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(DATA_DIR)), TestLayer));
-
-    const feedPath = join(DATA_DIR, "feed.xml");
-    const content = await readFile(feedPath, "utf-8");
-
-    expect(content).toContain('rel="start"');
-  });
-
-  test("includes folder entries from subfolders", async () => {
-    const subfolderPath = join(DATA_DIR, "Fiction");
-    await mkdir(subfolderPath, { recursive: true });
-    await Bun.write(join(subfolderPath, "_entry.xml"), '<entry xmlns="http://www.w3.org/2005/Atom"><title>Fiction</title></entry>');
+  test("generates navigation feed for folders-only directory", async () => {
+    await writeFolderEntry(DATA_DIR, "Author1", "Author One", "/Author1/feed.xml", 5);
+    await writeFolderEntry(DATA_DIR, "Author2", "Author Two", "/Author2/feed.xml", 3);
 
     await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(DATA_DIR)), TestLayer));
 
-    const feedPath = join(DATA_DIR, "feed.xml");
-    const content = await readFile(feedPath, "utf-8");
-
-    expect(content).toContain("<title>Fiction</title>");
-  });
-
-  test("includes book entries from subfolders", async () => {
-    const bookPath = join(DATA_DIR, "book.epub");
-    await mkdir(bookPath, { recursive: true });
-    await Bun.write(join(bookPath, "entry.xml"), '<entry xmlns="http://www.w3.org/2005/Atom"><title>Test Book</title></entry>');
-
-    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(DATA_DIR)), TestLayer));
-
-    const feedPath = join(DATA_DIR, "feed.xml");
-    const content = await readFile(feedPath, "utf-8");
-
-    expect(content).toContain("<title>Test Book</title>");
-  });
-
-  test("sets feed as acquisition type when books present", async () => {
-    const bookPath = join(DATA_DIR, "book.epub");
-    await mkdir(bookPath, { recursive: true });
-    await Bun.write(join(bookPath, "entry.xml"), '<entry xmlns="http://www.w3.org/2005/Atom"><title>Book</title></entry>');
-
-    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(DATA_DIR)), TestLayer));
-
-    const feedPath = join(DATA_DIR, "feed.xml");
-    const content = await readFile(feedPath, "utf-8");
-
-    expect(content).toContain("kind=acquisition");
-  });
-
-  test("sorts folder entries naturally by title", async () => {
-    const items = ["item10", "item2", "item1"];
-    for (const item of items) {
-      const itemPath = join(DATA_DIR, item);
-      await mkdir(itemPath, { recursive: true });
-      await Bun.write(join(itemPath, "_entry.xml"), `<entry xmlns="http://www.w3.org/2005/Atom"><title>${item}</title></entry>`);
-    }
-
-    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(DATA_DIR)), TestLayer));
-
-    const feedPath = join(DATA_DIR, "feed.xml");
-    const content = await readFile(feedPath, "utf-8");
-
-    const item1Pos = content.indexOf("item1</title>");
-    const item2Pos = content.indexOf("item2</title>");
-    const item10Pos = content.indexOf("item10</title>");
-
-    expect(item1Pos).toBeLessThan(item2Pos);
-    expect(item2Pos).toBeLessThan(item10Pos);
-  });
-
-  test("sorts books by author (no author first), then by title", async () => {
-    const books = [
-      { dir: "book1.epub", title: "Японская книга", author: "А. Иванова" },
-      { dir: "book2.epub", title: "Книга без автора", author: undefined },
-      { dir: "book3.epub", title: "Абсолютная книга", author: "А. Иванова" },
-      { dir: "book4.epub", title: "Басни", author: "Язепов Потап" },
-      { dir: "book5.epub", title: "Шестая книга без автора", author: undefined },
-    ];
-
-    for (const book of books) {
-      const bookPath = join(DATA_DIR, book.dir);
-      await mkdir(bookPath, { recursive: true });
-      const authorTag = book.author ? `<author><name>${book.author}</name></author>` : "";
-      await Bun.write(
-        join(bookPath, "entry.xml"),
-        `<entry xmlns="http://www.w3.org/2005/Atom"><title>${book.title}</title>${authorTag}</entry>`,
-      );
-    }
-
-    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(DATA_DIR)), TestLayer));
-
-    const feedPath = join(DATA_DIR, "feed.xml");
-    const content = await readFile(feedPath, "utf-8");
-
-    // Expected order:
-    // 1. Книга без автора (no author)
-    // 2. Шестая книга без автора (no author)
-    // 3. А. Иванова - Абсолютная книга
-    // 4. А. Иванова - Японская книга
-    // 5. Язепов Потап - Басни
-    const pos1 = content.indexOf("Книга без автора");
-    const pos2 = content.indexOf("Шестая книга без автора");
-    const pos3 = content.indexOf("Абсолютная книга");
-    const pos4 = content.indexOf("Японская книга");
-    const pos5 = content.indexOf("Басни");
-
-    expect(pos1).toBeLessThan(pos2); // No author books sorted by title
-    expect(pos2).toBeLessThan(pos3); // No author before authors
-    expect(pos3).toBeLessThan(pos4); // Same author sorted by title
-    expect(pos4).toBeLessThan(pos5); // Different authors sorted alphabetically
+    const content = await readFile(join(DATA_DIR, "feed.xml"), "utf-8");
+    expect(content).toContain("<feed>");
+    expect(content).toContain("Author One");
+    expect(content).toContain("Author Two");
   });
 
   test("logs processing info", async () => {
     await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(DATA_DIR)), TestLayer));
 
     expect(mockLogger.infoCalls.some((c) => c.tag === "FolderMetaSync" && c.msg.includes("Processing"))).toBe(true);
-    expect(mockLogger.infoCalls.some((c) => c.tag === "FolderMetaSync" && c.msg.includes("Generated"))).toBe(true);
-  });
-
-  test("handles nested folder path", async () => {
-    const nestedPath = join(DATA_DIR, "Fiction", "SciFi");
-    const sourceFolder = join(FILES_DIR, "Fiction", "SciFi");
-    await mkdir(nestedPath, { recursive: true });
-    await mkdir(sourceFolder, { recursive: true }); // Source folder must exist for check
-
-    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(nestedPath)), TestLayer));
-
-    const feedPath = join(nestedPath, "feed.xml");
-    const content = await readFile(feedPath, "utf-8");
-
-    expect(content).toContain("SciFi");
-    expect(content).toContain('href="/Fiction/SciFi/feed.xml"');
-  });
-
-  describe("_entry.xml count updates", () => {
-    test("updates _entry.xml with book count only", async () => {
-      const nestedPath = join(DATA_DIR, "Fiction");
-      const sourceFolder = join(FILES_DIR, "Fiction");
-      await mkdir(nestedPath, { recursive: true });
-      await mkdir(sourceFolder, { recursive: true });
-
-      // Add 3 books
-      for (let i = 1; i <= 3; i++) {
-        const bookPath = join(nestedPath, `book${i}.epub`);
-        await mkdir(bookPath, { recursive: true });
-        await Bun.write(join(bookPath, "entry.xml"), `<entry xmlns="http://www.w3.org/2005/Atom"><title>Book ${i}</title></entry>`);
-      }
-
-      await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(nestedPath)), TestLayer));
-
-      const entryPath = join(nestedPath, "_entry.xml");
-      const content = await readFile(entryPath, "utf-8");
-
-      expect(content).toContain("📚 3</summary>");
-    });
-
-    test("updates _entry.xml with folder count only", async () => {
-      const nestedPath = join(DATA_DIR, "Categories");
-      const sourceFolder = join(FILES_DIR, "Categories");
-      await mkdir(nestedPath, { recursive: true });
-      await mkdir(sourceFolder, { recursive: true });
-
-      // Add 2 subfolders
-      for (const name of ["SciFi", "Fantasy"]) {
-        const subPath = join(nestedPath, name);
-        await mkdir(subPath, { recursive: true });
-        await Bun.write(join(subPath, "_entry.xml"), `<entry xmlns="http://www.w3.org/2005/Atom"><title>${name}</title></entry>`);
-      }
-
-      await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(nestedPath)), TestLayer));
-
-      const entryPath = join(nestedPath, "_entry.xml");
-      const content = await readFile(entryPath, "utf-8");
-
-      expect(content).toContain("🗂 2</summary>");
-    });
-
-    test("updates _entry.xml with combined count", async () => {
-      const nestedPath = join(DATA_DIR, "Library");
-      const sourceFolder = join(FILES_DIR, "Library");
-      await mkdir(nestedPath, { recursive: true });
-      await mkdir(sourceFolder, { recursive: true });
-
-      // Add 1 subfolder
-      const subPath = join(nestedPath, "Fiction");
-      await mkdir(subPath, { recursive: true });
-      await Bun.write(join(subPath, "_entry.xml"), '<entry xmlns="http://www.w3.org/2005/Atom"><title>Fiction</title></entry>');
-
-      // Add 2 books
-      for (let i = 1; i <= 2; i++) {
-        const bookPath = join(nestedPath, `book${i}.epub`);
-        await mkdir(bookPath, { recursive: true });
-        await Bun.write(join(bookPath, "entry.xml"), `<entry xmlns="http://www.w3.org/2005/Atom"><title>Book ${i}</title></entry>`);
-      }
-
-      await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(nestedPath)), TestLayer));
-
-      const entryPath = join(nestedPath, "_entry.xml");
-      const content = await readFile(entryPath, "utf-8");
-
-      expect(content).toContain("🗂 1 · 📚 2</summary>");
-    });
-
-    test("_entry.xml has no summary for empty folder", async () => {
-      const nestedPath = join(DATA_DIR, "Empty");
-      const sourceFolder = join(FILES_DIR, "Empty");
-      await mkdir(nestedPath, { recursive: true });
-      await mkdir(sourceFolder, { recursive: true });
-
-      await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(nestedPath)), TestLayer));
-
-      const entryPath = join(nestedPath, "_entry.xml");
-      const content = await readFile(entryPath, "utf-8");
-
-      expect(content).not.toContain("<summary>");
-    });
-
-    test("does not create _entry.xml for root folder", async () => {
-      await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(DATA_DIR)), TestLayer));
-
-      const entryPath = join(DATA_DIR, "_entry.xml");
-      const exists = await stat(entryPath)
-        .then(() => true)
-        .catch(() => false);
-
-      expect(exists).toBe(false);
-    });
   });
 });

@@ -1,10 +1,17 @@
 import { Effect } from "effect";
 import { join, relative, basename } from "node:path";
-import { Entry } from "opds-ts/v1.2";
+import { XMLBuilder } from "fast-xml-parser";
 import { encodeUrlPath, normalizeFilenameTitle } from "../../utils/processor.ts";
 import { ConfigService, LoggerService, FileSystemService } from "../services.ts";
 import type { EventType } from "../types.ts";
 import { FEED_FILE, FOLDER_ENTRY_FILE } from "../../constants.ts";
+
+const xmlBuilder = new XMLBuilder({
+  ignoreAttributes: false,
+  attributeNamePrefix: "@_",
+  format: true,
+  suppressEmptyNode: true,
+});
 
 export const folderSync = (
   event: EventType,
@@ -22,19 +29,22 @@ export const folderSync = (
 
     yield* logger.info("FolderSync", "Processing", { path: relativePath || "(root)" });
 
-    // Create data directory
     yield* fs.mkdir(folderDataDir, { recursive: true });
 
-    // Create initial _entry.xml for non-root folders (count will be updated by folderMetaSync)
     if (relativePath !== "") {
       const folderName = normalizeFilenameTitle(basename(relativePath));
       const selfHref = `/${encodeUrlPath(relativePath)}/${FEED_FILE}`;
 
-      const entry = new Entry(`urn:opds:catalog:${relativePath}`, folderName).addSubsection(selfHref, "navigation");
+      const entryXml = xmlBuilder.build({
+        "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
+        folder: {
+          title: folderName,
+          href: selfHref,
+          feedCount: 0,
+        },
+      }) as string;
 
-      const entryXml = entry.toXml({ prettyPrint: true });
       yield* fs.atomicWrite(join(folderDataDir, FOLDER_ENTRY_FILE), entryXml);
-
       yield* logger.info("FolderSync", "Done", { path: relativePath });
     } else {
       yield* logger.info("FolderSync", "Root folder - no _entry.xml needed");

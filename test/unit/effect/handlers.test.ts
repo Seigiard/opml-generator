@@ -180,7 +180,8 @@ describe("Effect Handlers", () => {
 
       const entryWrite = mockFs.writeCalls.find((c) => c.path.endsWith("_entry.xml"));
       expect(entryWrite).toBeDefined();
-      expect(entryWrite?.content).toContain("<entry");
+      expect(entryWrite?.content).toContain("<folder>");
+      expect(entryWrite?.content).toContain("<title>Fiction</title>");
     });
 
     test("does not create _entry.xml for root folder", async () => {
@@ -192,13 +193,13 @@ describe("Effect Handlers", () => {
       expect(entryWrite).toBeUndefined();
     });
 
-    test("includes subsection link in _entry.xml", async () => {
+    test("includes href in _entry.xml", async () => {
       const effect = folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction"));
 
       await Effect.runPromise(Effect.provide(effect, TestLayer));
 
       const entryWrite = mockFs.writeCalls.find((c) => c.path.endsWith("_entry.xml"));
-      expect(entryWrite?.content).toContain("Fiction/feed.xml");
+      expect(entryWrite?.content).toContain("/Fiction/feed.xml");
     });
 
     test("returns cascade event to generate root feed.xml", async () => {
