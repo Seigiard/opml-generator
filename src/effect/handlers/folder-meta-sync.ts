@@ -165,7 +165,7 @@ export const folderMetaSync = (
         imageUrl: coverUrl,
       };
 
-      const episodeInfos: EpisodeInfo[] = episodes.map((ep) => ({
+      const episodeInfos: EpisodeInfo[] = episodes.map((ep, index) => ({
         title: ep.title,
         guid: ep.guid,
         pubDate: ep.pubDate,
@@ -173,7 +173,7 @@ export const folderMetaSync = (
         enclosureLength: ep.fileSize,
         enclosureType: ep.mimeType,
         duration: ep.duration,
-        episodeNumber: ep.episodeNumber,
+        episodeNumber: index + 1,
       }));
 
       const rssXml = generatePodcastRss(podcastInfo, episodeInfos);

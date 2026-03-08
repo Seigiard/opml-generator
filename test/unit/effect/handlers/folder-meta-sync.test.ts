@@ -245,6 +245,56 @@ describe("folderMetaSync handler", () => {
     expect(trackAPos).toBeLessThan(trackBPos);
   });
 
+  test("renumbers episodes by sorted order, ignoring stale episodeNumber from entry.xml", async () => {
+    const albumDir = join(DATA_DIR, "Author", "Book");
+    const sourceDir = join(FILES_DIR, "Author", "Book");
+    await mkdir(albumDir, { recursive: true });
+    await mkdir(sourceDir, { recursive: true });
+
+    // #given — entry.xml files with episodeNumbers that don't match natural filename order
+    await writeEpisodeEntry(albumDir, "Flashback_007.mp3", {
+      title: "Flashback_007",
+      fileName: "Flashback_007.mp3",
+      filePath: "Author/Book/Flashback_007.mp3",
+      fileSize: 1000,
+      mimeType: "audio/mpeg",
+      episodeNumber: 1,
+      pubDate: "2024-01-15T10:00:00.000Z",
+      guid: "Author/Book/Flashback_007.mp3",
+    });
+    await writeEpisodeEntry(albumDir, "Flashback_029.mp3", {
+      title: "Flashback_029",
+      fileName: "Flashback_029.mp3",
+      filePath: "Author/Book/Flashback_029.mp3",
+      fileSize: 1000,
+      mimeType: "audio/mpeg",
+      episodeNumber: 2,
+      pubDate: "2024-01-15T10:01:00.000Z",
+      guid: "Author/Book/Flashback_029.mp3",
+    });
+    await writeEpisodeEntry(albumDir, "Flashback_023.mp3", {
+      title: "Flashback_023",
+      fileName: "Flashback_023.mp3",
+      filePath: "Author/Book/Flashback_023.mp3",
+      fileSize: 1000,
+      mimeType: "audio/mpeg",
+      episodeNumber: 3,
+      pubDate: "2024-01-15T10:02:00.000Z",
+      guid: "Author/Book/Flashback_023.mp3",
+    });
+
+    // #when
+    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(albumDir)), TestLayer));
+
+    // #then — feed.xml should have episodes in natural filename order: 007, 023, 029
+    const content = await readFile(join(albumDir, "feed.xml"), "utf-8");
+    const pos007 = content.indexOf("Flashback_007");
+    const pos023 = content.indexOf("Flashback_023");
+    const pos029 = content.indexOf("Flashback_029");
+    expect(pos007).toBeLessThan(pos023);
+    expect(pos023).toBeLessThan(pos029);
+  });
+
   test("returns FeedXmlCreated when feed.xml is new", async () => {
     const albumDir = join(DATA_DIR, "Author", "Album");
     const sourceDir = join(FILES_DIR, "Author", "Album");
