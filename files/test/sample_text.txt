@@ -1,7 +1,0 @@
-This is a sample text file for testing the TXT format handler.
-
-It contains multiple lines of plain text without any special formatting
-or metadata. The OPDS generator should recognize this as a valid text file
-and include it in the catalog.
-
-Lorem ipsum dolor sit amet, consectetur adipiscing elit.
