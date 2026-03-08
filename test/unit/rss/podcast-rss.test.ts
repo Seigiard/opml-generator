@@ -3,6 +3,7 @@ import { XMLParser } from "fast-xml-parser";
 
 import { generatePodcastRss } from "../../../src/rss/podcast-rss.ts";
 import type { EpisodeInfo, PodcastInfo } from "../../../src/rss/types.ts";
+import { BASE_URL_PLACEHOLDER } from "../../../src/constants.ts";
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -104,7 +105,7 @@ describe("generatePodcastRss", () => {
     const parsed = parser.parse(generatePodcastRss(podcast, [makeEpisode()]));
 
     // #then
-    expect(parsed.rss.channel["itunes:image"]["@_href"]).toBe("https://cdn.example.com/art.jpg");
+    expect(parsed.rss.channel["itunes:image"]["@_href"]).toBe(`${BASE_URL_PLACEHOLDER}https://cdn.example.com/art.jpg`);
   });
 
   test("formats guid with isPermaLink=false", () => {
@@ -145,7 +146,7 @@ describe("generatePodcastRss", () => {
     const enc = parsed.rss.channel.item[0].enclosure;
 
     // #then
-    expect(enc["@_url"]).toBe("https://example.com/audio.mp3");
+    expect(enc["@_url"]).toBe(`${BASE_URL_PLACEHOLDER}https://example.com/audio.mp3`);
     expect(enc["@_length"]).toBe("9876543");
     expect(enc["@_type"]).toBe("audio/mpeg");
   });

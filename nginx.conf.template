@@ -84,10 +84,12 @@ http {
             error_page 404 = @check_initializing;
         }
 
-        # XML feeds - always validate freshness
+        # XML feeds - njs replaces {{{BASE_URL}}} with request origin
         location ~ \.xml$ {
             root /data;
             try_files $uri $uri/ =404;
+            js_header_filter opml.header_filter;
+            js_body_filter opml.body_filter;
             add_header Cache-Control "no-cache";
             error_page 404 = @check_initializing;
         }

@@ -1,6 +1,7 @@
 import { XMLBuilder } from "fast-xml-parser";
 
 import type { EpisodeInfo, PodcastInfo } from "./types.ts";
+import { BASE_URL_PLACEHOLDER } from "../constants.ts";
 
 const builder = new XMLBuilder({
   ignoreAttributes: false,
@@ -29,7 +30,7 @@ export function generatePodcastRss(podcast: PodcastInfo, episodes: EpisodeInfo[]
   }
 
   if (podcast.imageUrl) {
-    channel["itunes:image"] = { "@_href": podcast.imageUrl };
+    channel["itunes:image"] = { "@_href": `${BASE_URL_PLACEHOLDER}${podcast.imageUrl}` };
   }
 
   channel["itunes:type"] = "serial";
@@ -40,7 +41,7 @@ export function generatePodcastRss(podcast: PodcastInfo, episodes: EpisodeInfo[]
       guid: { "#text": ep.guid, "@_isPermaLink": "false" },
       pubDate: new Date(ep.pubDate).toUTCString(),
       enclosure: {
-        "@_url": ep.enclosureUrl,
+        "@_url": `${BASE_URL_PLACEHOLDER}${ep.enclosureUrl}`,
         "@_length": String(ep.enclosureLength),
         "@_type": ep.enclosureType,
       },
