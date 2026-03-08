@@ -169,7 +169,7 @@ export const folderMetaSync = (
         title: ep.title,
         guid: ep.guid,
         pubDate: ep.pubDate,
-        enclosureUrl: `/${encodeUrlPath(ep.filePath)}`,
+        enclosureUrl: encodeUrlPath(join(config.filesPath, ep.filePath)),
         enclosureLength: ep.fileSize,
         enclosureType: ep.mimeType,
         duration: ep.duration,

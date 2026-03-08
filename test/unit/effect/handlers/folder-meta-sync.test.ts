@@ -150,6 +150,34 @@ describe("folderMetaSync handler", () => {
     expect(content).toContain("audio/mpeg");
   });
 
+  test("enclosure URL includes filesPath prefix for nginx routing", async () => {
+    // #given
+    const albumDir = join(DATA_DIR, "Author", "Album");
+    const sourceDir = join(FILES_DIR, "Author", "Album");
+    await mkdir(albumDir, { recursive: true });
+    await mkdir(sourceDir, { recursive: true });
+
+    await writeEpisodeEntry(albumDir, "01.mp3", {
+      title: "Track 1",
+      fileName: "01.mp3",
+      filePath: "Author/Album/01.mp3",
+      fileSize: 1000,
+      mimeType: "audio/mpeg",
+      episodeNumber: 1,
+      pubDate: "2024-01-15T10:00:00.000Z",
+      guid: "Author/Album/01.mp3",
+    });
+
+    // #when
+    await Effect.runPromise(Effect.provide(folderMetaSync(folderMetaSyncEvent(albumDir)), TestLayer));
+
+    // #then — enclosure url must start with filesPath so nginx location /audiobooks/ matches
+    const content = await readFile(join(albumDir, "feed.xml"), "utf-8");
+    const urlMatch = content.match(/enclosure[^>]*url="([^"]+)"/);
+    expect(urlMatch).toBeTruthy();
+    expect(urlMatch![1]).toContain(`${FILES_DIR}/Author/Album/01.mp3`);
+  });
+
   test("uses folder name as podcast title when multiple episodes", async () => {
     const albumDir = join(DATA_DIR, "Author", "MyAlbum");
     const sourceDir = join(FILES_DIR, "Author", "MyAlbum");
