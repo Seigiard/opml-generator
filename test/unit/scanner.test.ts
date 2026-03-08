@@ -8,7 +8,7 @@ function createFileInfo(relativePath: string, size = 1000, mtime = Date.now()): 
     relativePath,
     size,
     mtime,
-    extension: relativePath.split(".").pop() || "epub",
+    extension: relativePath.split(".").pop() || "mp3",
   };
 }
 
@@ -23,7 +23,7 @@ describe("scanner", () => {
     });
 
     test("handles flat structure (files in root)", () => {
-      const files = [createFileInfo("book1.epub"), createFileInfo("book2.pdf")];
+      const files = [createFileInfo("track1.mp3"), createFileInfo("track2.m4a")];
 
       const result = buildFolderStructure(files);
       expect(result).toHaveLength(1);
@@ -32,7 +32,7 @@ describe("scanner", () => {
     });
 
     test("creates folder entries for nested files", () => {
-      const files = [createFileInfo("Author/Book.epub")];
+      const files = [createFileInfo("Author/Track.mp3")];
 
       const result = buildFolderStructure(files);
       expect(result).toHaveLength(2);
@@ -49,7 +49,7 @@ describe("scanner", () => {
     });
 
     test("handles deep nesting", () => {
-      const files = [createFileInfo("A/B/C/book.epub")];
+      const files = [createFileInfo("A/B/C/track.mp3")];
 
       const result = buildFolderStructure(files);
       expect(result).toHaveLength(4);
@@ -68,7 +68,7 @@ describe("scanner", () => {
     });
 
     test("handles multiple subfolders", () => {
-      const files = [createFileInfo("Fiction/Book1.epub"), createFileInfo("NonFiction/Book2.pdf"), createFileInfo("Comics/Issue1.cbz")];
+      const files = [createFileInfo("Fiction/Track1.mp3"), createFileInfo("NonFiction/Track2.m4a"), createFileInfo("Podcasts/Episode1.ogg")];
 
       const result = buildFolderStructure(files);
       const root = result.find((f) => f.path === "");
@@ -76,11 +76,11 @@ describe("scanner", () => {
       expect(root!.subfolders).toHaveLength(3);
       expect(root!.subfolders).toContain("Fiction");
       expect(root!.subfolders).toContain("NonFiction");
-      expect(root!.subfolders).toContain("Comics");
+      expect(root!.subfolders).toContain("Podcasts");
     });
 
     test("deduplicates folders from multiple files", () => {
-      const files = [createFileInfo("Author/Book1.epub"), createFileInfo("Author/Book2.epub")];
+      const files = [createFileInfo("Author/Track1.mp3"), createFileInfo("Author/Book2.epub")];
 
       const result = buildFolderStructure(files);
       expect(result).toHaveLength(2);
@@ -90,7 +90,7 @@ describe("scanner", () => {
     });
 
     test("correctly identifies direct subfolders only", () => {
-      const files = [createFileInfo("A/B/C/book.epub"), createFileInfo("A/D/book.epub")];
+      const files = [createFileInfo("A/B/C/track.mp3"), createFileInfo("A/D/track.mp3")];
 
       const result = buildFolderStructure(files);
 
@@ -102,7 +102,7 @@ describe("scanner", () => {
     });
 
     test("handles special characters in folder names", () => {
-      const files = [createFileInfo("Author (2024)/Book [Special].epub")];
+      const files = [createFileInfo("Author (2024)/Track [Special].mp3")];
 
       const result = buildFolderStructure(files);
       const folder = result.find((f) => f.path === "Author (2024)");
@@ -112,7 +112,7 @@ describe("scanner", () => {
     });
 
     test("handles unicode folder names", () => {
-      const files = [createFileInfo("Авторы/Книга.epub")];
+      const files = [createFileInfo("Авторы/Трек.mp3")];
 
       const result = buildFolderStructure(files);
       const folder = result.find((f) => f.path === "Авторы");
@@ -124,7 +124,7 @@ describe("scanner", () => {
 
   describe("computeHash", () => {
     test("returns consistent hash for same files", () => {
-      const files = [createFileInfo("book1.epub", 1000, 1700000000000), createFileInfo("book2.pdf", 2000, 1700000001000)];
+      const files = [createFileInfo("track1.mp3", 1000, 1700000000000), createFileInfo("track2.m4a", 2000, 1700000001000)];
 
       const hash1 = computeHash(files);
       const hash2 = computeHash(files);
@@ -133,7 +133,7 @@ describe("scanner", () => {
     });
 
     test("returns same hash regardless of input order", () => {
-      const file1 = createFileInfo("a/book.epub", 1000, 1700000000000);
+      const file1 = createFileInfo("a/track.mp3", 1000, 1700000000000);
       const file2 = createFileInfo("b/book.pdf", 2000, 1700000001000);
 
       const hash1 = computeHash([file1, file2]);
@@ -143,36 +143,36 @@ describe("scanner", () => {
     });
 
     test("returns different hash when file size changes", () => {
-      const file1 = createFileInfo("book.epub", 1000, 1700000000000);
-      const file2 = createFileInfo("book.epub", 2000, 1700000000000);
+      const file1 = createFileInfo("track.mp3", 1000, 1700000000000);
+      const file2 = createFileInfo("track.mp3", 2000, 1700000000000);
 
       expect(computeHash([file1])).not.toBe(computeHash([file2]));
     });
 
     test("returns different hash when file mtime changes", () => {
-      const file1 = createFileInfo("book.epub", 1000, 1700000000000);
-      const file2 = createFileInfo("book.epub", 1000, 1700000001000);
+      const file1 = createFileInfo("track.mp3", 1000, 1700000000000);
+      const file2 = createFileInfo("track.mp3", 1000, 1700000001000);
 
       expect(computeHash([file1])).not.toBe(computeHash([file2]));
     });
 
     test("returns different hash when file path changes", () => {
-      const file1 = createFileInfo("a/book.epub", 1000, 1700000000000);
-      const file2 = createFileInfo("b/book.epub", 1000, 1700000000000);
+      const file1 = createFileInfo("a/track.mp3", 1000, 1700000000000);
+      const file2 = createFileInfo("b/track.mp3", 1000, 1700000000000);
 
       expect(computeHash([file1])).not.toBe(computeHash([file2]));
     });
 
     test("returns hex string", () => {
-      const files = [createFileInfo("book.epub", 1000, 1700000000000)];
+      const files = [createFileInfo("track.mp3", 1000, 1700000000000)];
       const hash = computeHash(files);
 
       expect(/^[0-9a-f]+$/i.test(hash)).toBe(true);
     });
 
     test("ignores fractional milliseconds in mtime", () => {
-      const file1 = createFileInfo("book.epub", 1000, 1700000000000.5);
-      const file2 = createFileInfo("book.epub", 1000, 1700000000000.9);
+      const file1 = createFileInfo("track.mp3", 1000, 1700000000000.5);
+      const file2 = createFileInfo("track.mp3", 1000, 1700000000000.9);
 
       expect(computeHash([file1])).toBe(computeHash([file2]));
     });
