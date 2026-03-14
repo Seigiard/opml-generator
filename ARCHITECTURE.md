@@ -7,7 +7,7 @@ The system uses native Linux `inotifywait` to watch two directories:
 - `/audiobooks` — source audio files (audiobooks organized in folders)
 - `/data` — generated metadata (entry.xml, feed.xml, feed.opml, covers)
 
-Events are sent via HTTP to the server's EffectTS queue for sequential processing.
+Events are sent via HTTP to the server's SimpleQueue for sequential processing.
 
 ## Process Architecture
 
@@ -70,10 +70,10 @@ Two independent inotifywait processes watch different directories:
 ┌─────────────────────────────────────────────────────────────┐
 │ QUEUE LAYER                                                 │
 ├─────────────────────────────────────────────────────────────┤
-│ EventQueueService (DI)                                      │
-│ - enqueue(event: EventType)                                 │
-│ - Queue<EventType> (typed, not raw!)                        │
-│ - Single shared instance via ManagedRuntime                 │
+│ SimpleQueue<EventType>                                      │
+│ - enqueue(event) / take(signal) / enqueueMany(events)       │
+│ - Unrolled linked list — no per-take allocations            │
+│ - Single shared instance via buildContext()                  │
 └─────────────────────────┬───────────────────────────────────┘
                           │
                           ▼
@@ -81,7 +81,7 @@ Two independent inotifywait processes watch different directories:
 │ CONSUMER LAYER                                              │
 ├─────────────────────────────────────────────────────────────┤
 │ processEvent + startConsumer                                │
-│ - HandlerRegistry.get(event._tag) — DI, NOT imports         │
+│ - ctx.handlers.get(event._tag) — registry, NOT imports      │
 │ - cascading events → queue.enqueueMany()                    │
 │ - error = no cascades, log, continue                        │
 └─────────────────────────┬───────────────────────────────────┘
@@ -91,9 +91,9 @@ Two independent inotifywait processes watch different directories:
 │ HANDLERS LAYER (business logic)                             │
 ├─────────────────────────────────────────────────────────────┤
 │ audioSync, audioCleanup, folderSync, folderCleanup...       │
-│ - (event: EventType) => Effect<EventType[]>                 │
+│ - (event, deps) => Promise<Result<EventType[], Error>>      │
 │ - return cascading events, NOT direct handler calls         │
-│ - DI for ConfigService, LoggerService, FileSystemService    │
+│ - deps: HandlerDeps = Pick<AppContext, config|logger|fs>    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -122,7 +122,7 @@ All endpoints return 503 if queue not ready, 202 on success, 400 on schema valid
 
 ## Raw Event Schemas
 
-Raw events from watcher.sh are validated using @effect/schema:
+Raw events from watcher.sh are validated using inline type guards (`isRawBooksEvent`/`isRawDataEvent`):
 
 ### RawBooksEvent
 
@@ -146,7 +146,7 @@ Raw events from watcher.sh are validated using @effect/schema:
 
 ## Adapter Classification Logic
 
-### Books Adapter (Effect.Match based)
+### Books Adapter (switch statement)
 
 - CREATE + ISDIR → FolderCreated
 - CREATE (file) → Ignored (waits for CLOSE_WRITE)
@@ -157,7 +157,7 @@ Raw events from watcher.sh are validated using @effect/schema:
 - MOVED_TO → Created (folder or audio file)
 - Unknown → Ignored
 
-### Data Adapter (Effect.Match based)
+### Data Adapter (if-else)
 
 - entry.xml → EntryXmlChanged
 - \_entry.xml → FolderEntryXmlChanged
@@ -298,19 +298,14 @@ sequenceDiagram
     C->>C: Process events from queue
 ```
 
-## Critical Pattern: ManagedRuntime
+## Critical Pattern: Single AppContext
 
-Each `Effect.provide(LiveLayer)` creates NEW service instances, breaking shared state (queue, registry, deduplication). Always use shared runtime:
+All services share a single `AppContext` instance created by `buildContext()`. The context holds the queue, handler registry, dedup state, config, logger, and fs — passed explicitly to consumers and handlers.
 
 ```typescript
-// CORRECT — shared runtime
-const runtime = ManagedRuntime.make(LiveLayer);
-await runtime.runPromise(effect1);  // same queue
-await runtime.runPromise(effect2);  // same queue
-
-// WRONG — creates new queue each time
-await Effect.runPromise(Effect.provide(effect1, LiveLayer));  // queue #1
-await Effect.runPromise(Effect.provide(effect2, LiveLayer));  // queue #2
+const ctx = await buildContext();
+registerHandlers(ctx.handlers);
+const consumerTask = startConsumer(ctx, controller.signal);
 ```
 
 ## Mirror Structure
@@ -391,7 +386,7 @@ POST /resync (proxied via nginx with Basic Auth):
 2. Set isSyncing = true
 3. Clear /data directory contents (not directory itself)
 4. Run same sync logic as initialSync
-5. Effect.ensuring guarantees isSyncing = false on completion or error
+5. try/finally guarantees isSyncing = false on completion or error
 
 Resync is fire-and-forget (returns 202 immediately), logs errors.
 
@@ -413,10 +408,11 @@ src/
 │   ├── types.ts     # PodcastInfo, EpisodeInfo, OpmlOutline
 │   ├── podcast-rss.ts # Podcast RSS 2.0 with iTunes namespace
 │   └── opml.ts      # OPML 2.0 feed aggregation
-├── effect/          # EffectTS event handling
+├── context.ts       # AppContext, HandlerDeps, buildContext()
+├── queue.ts         # SimpleQueue (unrolled linked list)
+├── effect/          # Event handling (legacy directory name)
 │   ├── types.ts     # RawBooksEvent, RawDataEvent, EventType
-│   ├── services.ts  # DI services
-│   ├── consumer.ts  # Event loop
+│   ├── consumer.ts  # Async event loop with AbortController
 │   ├── adapters/    # Raw → typed event conversion
 │   │   ├── books-adapter.ts    # /audiobooks watcher events
 │   │   ├── data-adapter.ts     # /data watcher events
@@ -430,19 +426,19 @@ src/
 
 ## Testing
 
-EffectTS DI enables unit testing with mock services:
+Plain mock objects enable unit testing without framework overhead:
 
 ```typescript
-const TestLayer = Layer.mergeAll(
-  TestConfigService,
-  TestLoggerService,
-  TestFileSystemService,
-);
+const deps: HandlerDeps = {
+  config: { filesPath: "/audiobooks", dataPath: "/data", port: 3000, reconcileInterval: 1800 },
+  logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
+  fs: { mkdir: async () => {}, rm: async () => {}, ... },
+};
 
-const event: EventType = { _tag: "AudioFileDeleted", parent: "/test/audiobooks/", name: "01.mp3" };
-const effect = audioCleanup(event);
-await Effect.runPromise(Effect.provide(effect, TestLayer));
+const event: EventType = { _tag: "AudioFileDeleted", parent: "/audiobooks/", name: "01.mp3" };
+const result = await audioCleanup(event, deps);
 
+expect(result.isOk()).toBe(true);
 expect(mockFs.rmCalls).toHaveLength(1);
 ```
 

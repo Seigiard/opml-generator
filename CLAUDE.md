@@ -55,7 +55,6 @@ bun --bun tsc --noEmit  # type check (locally is fine)
 ## Constraints & Gotchas
 
 - **music-metadata**: `parseFile()` hangs in Bun — always use `parseBuffer()`
-- **ManagedRuntime**: each `Effect.provide(LiveLayer)` creates NEW service instances (new queue, new registry). Always use shared `ManagedRuntime.make(LiveLayer)` — see `server.ts`
 - **Healthcheck**: Docker image is Alpine without curl — use `wget`
 - **Handlers return events, never call each other** — cascade via `EventType[]` return values, consumer enqueues them
 - **data watcher ignores feed.xml/feed.opml writes** — otherwise infinite loop
@@ -83,8 +82,9 @@ bun --bun tsc --noEmit  # type check (locally is fine)
 
 - **/data mirrors /audiobooks**: audio file → folder with `entry.xml`; folder with episodes → `feed.xml` + `cover.jpg` + `_entry.xml`; root → `feed.opml`
 - **Dual server**: nginx:80 (external, static files, auth) + Bun:3000 (internal, events, resync)
-- **Event-driven via EffectTS**: adapters classify inotify events → queue → consumer → handlers → cascade events
-- **DI via Effect services**: ConfigService, LoggerService, FileSystemService, DeduplicationService, EventQueueService, HandlerRegistry
+- **Event-driven via async/neverthrow**: adapters classify inotify events → SimpleQueue → consumer → handlers → cascade events
+- **DI via AppContext + Pick<>**: `buildContext()` creates plain service objects; handlers receive `HandlerDeps = Pick<AppContext, "config" | "logger" | "fs">` at compile time
+- **Structured shutdown**: AbortController signals consumer + reconciliation to stop; `server.stop()` halts HTTP first
 - **Resync is fire-and-forget**: returns 202, clears /data, re-runs initial sync
 - **Flat JSON logging** to stdout — no file-based logging
 
