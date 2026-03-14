@@ -1,35 +1,36 @@
-import { Effect } from "effect";
+import { ok, err } from "neverthrow";
+import type { Result } from "neverthrow";
 import { dirname, join, relative } from "node:path";
-import { ConfigService, LoggerService, FileSystemService } from "../services.ts";
+import type { HandlerDeps } from "../../context.ts";
 import type { EventType } from "../types.ts";
 
-export const audioCleanup = (
+export async function audioCleanup(
   event: EventType,
-): Effect.Effect<readonly EventType[], Error, ConfigService | LoggerService | FileSystemService> =>
-  Effect.gen(function* () {
-    if (event._tag !== "AudioFileDeleted") return [];
-    const { parent, name } = event;
-    const config = yield* ConfigService;
-    const logger = yield* LoggerService;
-    const fs = yield* FileSystemService;
+  deps: HandlerDeps,
+): Promise<Result<readonly EventType[], Error>> {
+  if (event._tag !== "AudioFileDeleted") return ok([]);
 
-    const filePath = join(parent, name);
-    const relativePath = relative(config.filesPath, filePath);
-    const dataDir = join(config.dataPath, relativePath);
+  const { parent, name } = event;
+  const { config, logger, fs } = deps;
 
-    yield* logger.info("AudioCleanup", "Removing", { path: relativePath });
+  const filePath = join(parent, name);
+  const relativePath = relative(config.filesPath, filePath);
+  const dataDir = join(config.dataPath, relativePath);
 
-    yield* fs.rm(dataDir, { recursive: true }).pipe(
-      Effect.catchAll((error) => {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          return logger.debug("AudioCleanup", "Already removed", { path: relativePath });
-        }
-        return Effect.fail(error);
-      }),
-    );
+  logger.info("AudioCleanup", "Removing", { path: relativePath });
 
-    yield* logger.info("AudioCleanup", "Done", { path: relativePath });
+  try {
+    await fs.rm(dataDir, { recursive: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      logger.debug("AudioCleanup", "Already removed", { path: relativePath });
+    } else {
+      return err(error as Error);
+    }
+  }
 
-    const parentDataDir = dirname(dataDir);
-    return [{ _tag: "FolderMetaSyncRequested", path: parentDataDir }] as const;
-  });
+  logger.info("AudioCleanup", "Done", { path: relativePath });
+
+  const parentDataDir = dirname(dataDir);
+  return ok([{ _tag: "FolderMetaSyncRequested", path: parentDataDir }] as const);
+}
