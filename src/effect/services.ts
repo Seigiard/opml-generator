@@ -62,17 +62,30 @@ export class EventQueueService extends Context.Tag("EventQueueService")<
   }
 >() {}
 
-// Handler type for registry
-export type EventHandler = (
+// Effect handler type (original)
+export type EffectHandler = (
   event: EventType,
 ) => Effect.Effect<readonly EventType[], Error, ConfigService | LoggerService | FileSystemService>;
+
+// Async handler type (neverthrow migration target)
+export type AsyncHandler = (
+  event: EventType,
+  deps: import("../context.ts").HandlerDeps,
+) => Promise<import("neverthrow").Result<readonly EventType[], Error>>;
+
+// Unified handler for coexistence during migration
+export type UnifiedHandler =
+  | { kind: "effect"; handler: EffectHandler }
+  | { kind: "async"; handler: AsyncHandler };
 
 // Handler Registry Service
 export class HandlerRegistry extends Context.Tag("HandlerRegistry")<
   HandlerRegistry,
   {
-    readonly get: (tag: string) => EventHandler | undefined;
-    readonly register: (tag: string, handler: EventHandler) => void;
+    readonly get: (tag: string) => UnifiedHandler | undefined;
+    readonly register: (tag: string, handler: UnifiedHandler) => void;
+    readonly registerEffect: (tag: string, handler: EffectHandler) => void;
+    readonly registerAsync: (tag: string, handler: AsyncHandler) => void;
   }
 >() {}
 
@@ -205,13 +218,19 @@ const LiveEventQueueService = Layer.effect(
 
 // Handler Registry - mutable map for handler registration
 const handlerRegistryState = {
-  handlers: new Map<string, EventHandler>(),
+  handlers: new Map<string, UnifiedHandler>(),
 };
 
 const LiveHandlerRegistry = Layer.succeed(HandlerRegistry, {
   get: (tag: string) => handlerRegistryState.handlers.get(tag),
-  register: (tag: string, handler: EventHandler) => {
+  register: (tag: string, handler: UnifiedHandler) => {
     handlerRegistryState.handlers.set(tag, handler);
+  },
+  registerEffect: (tag: string, handler: EffectHandler) => {
+    handlerRegistryState.handlers.set(tag, { kind: "effect", handler });
+  },
+  registerAsync: (tag: string, handler: AsyncHandler) => {
+    handlerRegistryState.handlers.set(tag, { kind: "async", handler });
   },
 });
 

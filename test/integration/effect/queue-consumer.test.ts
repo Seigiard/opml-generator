@@ -37,7 +37,7 @@ describe("Queue and Consumer Integration", () => {
     await runtime.runPromise(
       Effect.gen(function* () {
         const registry = yield* HandlerRegistry;
-        registry.register("FolderMetaSyncRequested", (event: EventType) =>
+        registry.registerEffect("FolderMetaSyncRequested", (event: EventType) =>
           Effect.sync(() => {
             processedEvents.push((event as { path: string }).path);
             return [] as readonly EventType[];

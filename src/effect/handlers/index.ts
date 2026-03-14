@@ -12,13 +12,13 @@ import { opmlSync } from "./opml-sync.ts";
 export const registerHandlers = Effect.gen(function* () {
   const registry = yield* HandlerRegistry;
 
-  registry.register("AudioFileCreated", audioSync);
-  registry.register("AudioFileDeleted", audioCleanup);
-  registry.register("FolderCreated", folderSync);
-  registry.register("FolderDeleted", folderCleanup);
-  registry.register("EntryXmlChanged", parentMetaSync);
-  registry.register("FolderEntryXmlChanged", folderEntryXmlChanged);
-  registry.register("FolderMetaSyncRequested", folderMetaSync);
-  registry.register("FeedXmlCreated", opmlSync);
-  registry.register("FeedXmlDeleted", opmlSync);
+  registry.registerEffect("AudioFileCreated", audioSync);
+  registry.registerEffect("AudioFileDeleted", audioCleanup);
+  registry.registerEffect("FolderCreated", folderSync);
+  registry.registerEffect("FolderDeleted", folderCleanup);
+  registry.registerEffect("EntryXmlChanged", parentMetaSync);
+  registry.registerEffect("FolderEntryXmlChanged", folderEntryXmlChanged);
+  registry.registerEffect("FolderMetaSyncRequested", folderMetaSync);
+  registry.registerEffect("FeedXmlCreated", opmlSync);
+  registry.registerEffect("FeedXmlDeleted", opmlSync);
 });
