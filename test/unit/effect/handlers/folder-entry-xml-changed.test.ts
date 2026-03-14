@@ -15,6 +15,7 @@ const TestConfigService = Layer.succeed(ConfigService, {
   filesPath: "/files",
   dataPath: "/data",
   port: 3000,
+  reconcileInterval: 1800,
 });
 
 const TestLoggerService = Layer.succeed(LoggerService, {

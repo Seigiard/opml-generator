@@ -43,6 +43,7 @@ const TestConfigService = Layer.succeed(ConfigService, {
   filesPath: "/test/audiobooks",
   dataPath: "/test/data",
   port: 8080,
+  reconcileInterval: 1800,
 });
 
 const TestLoggerService = Layer.succeed(LoggerService, {

@@ -12,6 +12,7 @@ export class ConfigService extends Context.Tag("ConfigService")<
     readonly filesPath: string;
     readonly dataPath: string;
     readonly port: number;
+    readonly reconcileInterval: number;
   }
 >() {}
 
@@ -81,6 +82,7 @@ const LiveConfigService = Layer.succeed(ConfigService, {
   filesPath: config.filesPath,
   dataPath: config.dataPath,
   port: config.port,
+  reconcileInterval: config.reconcileInterval,
 });
 
 const LiveLoggerService = Layer.succeed(LoggerService, {
