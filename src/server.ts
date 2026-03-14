@@ -7,6 +7,7 @@ import { OPML_FILE } from "./constants.ts";
 import { generateOpml } from "./rss/opml.ts";
 import { log } from "./logging/index.ts";
 import { RawBooksEvent, RawDataEvent } from "./effect/types.ts";
+import type { RawBooksEvent as RawBooksEventType, RawDataEvent as RawDataEventType } from "./effect/types.ts";
 import { adaptBooksEvent } from "./effect/adapters/books-adapter.ts";
 import { adaptDataEvent } from "./effect/adapters/data-adapter.ts";
 import { adaptSyncPlan } from "./effect/adapters/sync-plan-adapter.ts";
@@ -14,6 +15,25 @@ import { startConsumer } from "./effect/consumer.ts";
 import { registerHandlers } from "./effect/handlers/index.ts";
 import { EventQueueService, LiveLayer } from "./effect/services.ts";
 import { scanFiles, createSyncPlan } from "./scanner.ts";
+import type { DeduplicationService } from "./context.ts";
+
+const bridgeDedup: DeduplicationService = (() => {
+  const seen = new Map<string, number>();
+  return {
+    shouldProcess(key: string): boolean {
+      const now = Date.now();
+      const lastSeen = seen.get(key);
+      if (lastSeen && now - lastSeen < 500) return false;
+      seen.set(key, now);
+      if (seen.size > 1000) {
+        for (const [k, t] of seen) {
+          if (now - t > 5000) seen.delete(k);
+        }
+      }
+      return true;
+    },
+  };
+})();
 
 // Shared runtime - single instance of all services
 const runtime = ManagedRuntime.make(LiveLayer);
@@ -159,7 +179,7 @@ const handleBooksEvent = (body: unknown) =>
     }
 
     const raw = parseResult.right;
-    const event = yield* adaptBooksEvent(raw);
+    const event = adaptBooksEvent(raw as RawBooksEventType, bridgeDedup);
     if (event === null) {
       return { status: 202, message: "Deduplicated" };
     }
@@ -180,7 +200,7 @@ const handleDataEvent = (body: unknown) =>
     }
 
     const raw = parseResult.right;
-    const event = yield* adaptDataEvent(raw);
+    const event = adaptDataEvent(raw as RawDataEventType, bridgeDedup);
     if (event === null) {
       return { status: 202, message: "Deduplicated" };
     }

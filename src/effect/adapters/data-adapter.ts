@@ -1,27 +1,18 @@
-import { Effect, Match } from "effect";
 import { log } from "../../logging/index.ts";
 import type { RawDataEvent, EventType } from "../types.ts";
-import { DeduplicationService } from "../services.ts";
+import type { DeduplicationService } from "../../context.ts";
 import { ENTRY_FILE, FOLDER_ENTRY_FILE } from "../../constants.ts";
 
-// Classify data watcher event using Effect Match
 function classifyDataEvent(raw: RawDataEvent): EventType {
-  return Match.value(raw.name).pipe(
-    Match.when(ENTRY_FILE, () => ({
-      _tag: "EntryXmlChanged" as const,
-      parent: raw.parent,
-    })),
-
-    Match.when(FOLDER_ENTRY_FILE, () => ({
-      _tag: "FolderEntryXmlChanged" as const,
-      parent: raw.parent,
-    })),
-
-    Match.orElse(() => ({ _tag: "Ignored" as const })),
-  );
+  if (raw.name === ENTRY_FILE) {
+    return { _tag: "EntryXmlChanged", parent: raw.parent };
+  }
+  if (raw.name === FOLDER_ENTRY_FILE) {
+    return { _tag: "FolderEntryXmlChanged", parent: raw.parent };
+  }
+  return { _tag: "Ignored" };
 }
 
-// Generate deduplication key for an event
 function getEventKey(event: EventType): string {
   switch (event._tag) {
     case "EntryXmlChanged":
@@ -34,38 +25,32 @@ function getEventKey(event: EventType): string {
   }
 }
 
-// Adapt data watcher event to typed EventType with deduplication
-export const adaptDataEvent = (raw: RawDataEvent) =>
-  Effect.gen(function* () {
-    const dedup = yield* DeduplicationService;
+export function adaptDataEvent(raw: RawDataEvent, dedup: DeduplicationService): EventType | null {
+  const eventType = classifyDataEvent(raw);
+  const path = `${raw.parent}/${raw.name}`;
+  const eventId = `raw:data:${path}:${Date.now()}`;
 
-    const eventType = classifyDataEvent(raw);
-    const path = `${raw.parent}/${raw.name}`;
-    const eventId = `raw:data:${path}:${Date.now()}`;
+  if (eventType._tag === "Ignored") {
+    log.debug("Adapter", "Event ignored", {
+      event_type: "event_ignored",
+      event_id: eventId,
+      event_tag: "Ignored",
+      path,
+    });
+    return null;
+  }
 
-    if (eventType._tag === "Ignored") {
-      // Log ignored event
-      log.debug("Adapter", "Event ignored", {
-        event_type: "event_ignored",
-        event_id: eventId,
-        event_tag: "Ignored",
-        path,
-      });
-      return null;
-    }
+  const key = getEventKey(eventType);
+  const shouldProcess = dedup.shouldProcess(key);
 
-    const key = getEventKey(eventType);
-    const shouldProcess = yield* dedup.shouldProcess(key);
+  if (!shouldProcess) {
+    log.debug("Adapter", "Event deduplicated", {
+      event_type: "event_deduplicated",
+      event_id: eventId,
+      event_tag: eventType._tag,
+      path,
+    });
+  }
 
-    if (!shouldProcess) {
-      // Log deduplicated event
-      log.debug("Adapter", "Event deduplicated", {
-        event_type: "event_deduplicated",
-        event_id: eventId,
-        event_tag: eventType._tag,
-        path,
-      });
-    }
-
-    return shouldProcess ? eventType : null;
-  });
+  return shouldProcess ? eventType : null;
+}
