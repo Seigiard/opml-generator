@@ -87,9 +87,13 @@ Before any migration work, capture baseline RSS in Docker:
 docker compose -f docker-compose.test.yml run --rm test bun test test/integration/effect/queue-consumer.test.ts
 ```
 
-Record: RSS at start, RSS after 500 events, delta per event. Compare against opds-generator's 3.4 KB/event baseline. This validates the motivation and provides a comparison point for post-migration measurement (commit 16).
+Record: RSS at start, RSS after 500 events, delta per event. Compare against opds-generator's 3.4 KB/event baseline.
 
-SimpleQueue was already validated at < 1 KB/event in opds-generator's Docker environment (same Bun runtime, same mimalloc allocator). The Step 0 measurement here confirms the same pattern holds for opml-generator's event workload.
+**Go/no-go criterion**: if RSS delta > 2 KB/event with Effect Queue (similar to opds-generator's 3.4 KB), proceed — migration is motivated. If RSS delta < 1 KB/event already (suggesting mimalloc behaves differently here), the memory motivation is weak — proceed only for alignment/simplicity reasons, with team agreement.
+
+SimpleQueue was validated at < 1 KB/event in opds-generator's Docker environment (same Bun runtime, same mimalloc allocator). The Step 0 measurement confirms the same pattern holds for opml-generator's event workload.
+
+**Post-migration gate (commit 17)**: RSS delta per event must not exceed 1.2x the pre-migration baseline at equivalent event count. If it does, investigate before merging — the migration should improve RSS, not degrade it.
 
 ## Effect Feature Audit: No Advanced Features in Handlers
 
@@ -592,6 +596,7 @@ opml-generator already has test helpers — no porting needed:
     Tests: REWRITE folder-meta-sync.test.ts part 2 (RSS gen, _entry.xml diff)
 12. refactor: migrate adapters (books, data)
     Tests: REWRITE events.test.ts → split into books-adapter.test.ts + data-adapter.test.ts
+    Gate: run bun run test:e2e (early E2E smoke test — all handlers + adapters now async)
 13. refactor: migrate consumer to async/AbortController (removes UnifiedHandler)
     Tests: REWRITE queue-consumer.test.ts + cascade-flow.test.ts
 14. refactor: migrate server.ts — buildContext, AbortController, type guards
@@ -601,11 +606,15 @@ opml-generator already has test helpers — no porting needed:
 16. chore: verify zero Effect imports, remove effect + @effect/schema, delete services.ts
     Tests: grep gate verification
 17. test: full verification suite + post-migration RSS measurement
-    Compare RSS delta against Step 0 baseline. If Bun.gc(true) not needed, remove.
-18. docs: update CLAUDE.md + architecture docs
+    Compare RSS delta against Step 0 baseline (must not exceed 1.2x).
+    If Bun.gc(true) not needed post-migration, remove.
+18. docs: update CLAUDE.md + ARCHITECTURE.md (remove stale EffectTS references:
+    ManagedRuntime, Effect.Match, Layer.mergeAll, @effect/schema)
 ```
 
-Each commit (3-14) includes both the source migration AND its tests, ensuring `bun test` passes after every commit.
+Each commit (3-15) includes both the source migration AND its tests.
+
+**CI gate per commit**: `bun --bun tsc --noEmit && bun run test` must pass after every commit. E2E smoke test (`bun run test:e2e`) runs at commit 12 (after all handlers + adapters migrated) and again at commit 17 (final verification).
 
 ## Post-Migration Verification (Commit 16)
 
