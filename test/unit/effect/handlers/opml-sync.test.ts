@@ -1,12 +1,11 @@
 import { describe, test, expect, beforeEach, afterAll } from "bun:test";
-import { Effect, Layer } from "effect";
-import { ConfigService, LoggerService, FileSystemService } from "../../../../src/effect/services.ts";
 import { opmlSync } from "../../../../src/effect/handlers/opml-sync.ts";
+import type { HandlerDeps } from "../../../../src/context.ts";
 import type { EventType } from "../../../../src/effect/types.ts";
 import type { LogContext } from "../../../../src/logging/types.ts";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdir, rm, stat, readFile } from "node:fs/promises";
+import { mkdir, rm, stat, readFile, readdir, rename } from "node:fs/promises";
 import { generatePodcastRss } from "../../../../src/rss/podcast-rss.ts";
 
 const TEST_DIR = join(tmpdir(), `opml-sync-test-${Date.now()}`);
@@ -20,52 +19,48 @@ const mockLogger = {
   },
 };
 
-const TestConfigService = Layer.succeed(ConfigService, {
-  filesPath: FILES_DIR,
-  dataPath: DATA_DIR,
-  port: 3000,
-  reconcileInterval: 1800,
-});
-
-const TestLoggerService = Layer.succeed(LoggerService, {
-  info: (tag, msg, ctx) =>
-    Effect.sync(() => {
-      mockLogger.infoCalls.push({ tag, msg, ctx });
-    }),
-  warn: () => Effect.void,
-  error: () => Effect.void,
-  debug: () => Effect.void,
-});
-
-const RealFileSystemService = Layer.succeed(FileSystemService, {
-  mkdir: (path, options) => Effect.promise(() => mkdir(path, options)),
-  rm: (path, options) => Effect.promise(() => rm(path, options)),
-  readdir: (path) =>
-    Effect.promise(async () => {
-      const fs = await import("node:fs/promises");
-      return fs.readdir(path);
-    }),
-  stat: (path) =>
-    Effect.promise(async () => {
-      const s = await stat(path);
-      return { isDirectory: () => s.isDirectory(), size: s.size };
-    }),
-  exists: (path) =>
-    Effect.promise(async () => {
-      try {
-        await stat(path);
-        return true;
-      } catch {
-        return false;
-      }
-    }),
-  writeFile: (path, content) => Effect.promise(() => Bun.write(path, content)),
-  atomicWrite: (path, content) => Effect.promise(() => Bun.write(path, content)),
-  symlink: () => Effect.void,
-  unlink: () => Effect.void,
-});
-
-const TestLayer = Layer.mergeAll(TestConfigService, TestLoggerService, RealFileSystemService);
+function realDeps(): HandlerDeps {
+  return {
+    config: { filesPath: FILES_DIR, dataPath: DATA_DIR, port: 3000, reconcileInterval: 1800 },
+    logger: {
+      info: (tag, msg, ctx) => {
+        mockLogger.infoCalls.push({ tag, msg, ctx });
+      },
+      warn: () => {},
+      error: () => {},
+      debug: () => {},
+    },
+    fs: {
+      mkdir: async (path, options) => {
+        await mkdir(path, options);
+      },
+      rm: (path, options) => rm(path, options),
+      readdir: (path) => readdir(path),
+      stat: async (path) => {
+        const s = await stat(path);
+        return { isDirectory: () => s.isDirectory(), size: s.size };
+      },
+      exists: async (path) => {
+        try {
+          await stat(path);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      writeFile: async (path, content) => {
+        await Bun.write(path, content);
+      },
+      atomicWrite: async (path, content) => {
+        const tmpPath = `${path}.tmp`;
+        await Bun.write(tmpPath, content);
+        await rename(tmpPath, path);
+      },
+      symlink: async () => {},
+      unlink: async () => {},
+    },
+  };
+}
 
 function makePodcastRss(title: string): string {
   return generatePodcastRss({ title, author: "Test Author" }, [
@@ -80,12 +75,6 @@ function makePodcastRss(title: string): string {
     },
   ]);
 }
-
-const NAVIGATION_FEED = `<?xml version="1.0" encoding="UTF-8"?>
-<feed>
-  <title>Navigation</title>
-  <item><title>Subfolder</title></item>
-</feed>`;
 
 describe("opmlSync handler", () => {
   beforeEach(async () => {
@@ -102,12 +91,11 @@ describe("opmlSync handler", () => {
   test("returns empty array for unrelated events", async () => {
     // #given
     const event: EventType = { _tag: "AudioFileCreated", parent: DATA_DIR, name: "track.mp3" };
-
     // #when
-    const cascades = await Effect.runPromise(Effect.provide(opmlSync(event), TestLayer));
-
+    const result = await opmlSync(event, realDeps());
     // #then
-    expect(cascades).toEqual([]);
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toEqual([]);
   });
 
   test("generates feed.opml with discovered podcast feeds", async () => {
@@ -115,14 +103,11 @@ describe("opmlSync handler", () => {
     const albumDir = join(DATA_DIR, "Author", "Album");
     await mkdir(albumDir, { recursive: true });
     await Bun.write(join(albumDir, "feed.xml"), makePodcastRss("My Audiobook"));
-
     // #when
     const event: EventType = { _tag: "FeedXmlCreated", path: albumDir };
-    await Effect.runPromise(Effect.provide(opmlSync(event), TestLayer));
-
+    await opmlSync(event, realDeps());
     // #then
-    const opmlPath = join(DATA_DIR, "feed.opml");
-    const content = await readFile(opmlPath, "utf-8");
+    const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
     expect(content).toContain("<opml");
     expect(content).toContain('version="2.0"');
     expect(content).toContain("My Audiobook");
@@ -130,16 +115,14 @@ describe("opmlSync handler", () => {
   });
 
   test("handles FeedXmlDeleted event", async () => {
-    // #given — empty data dir, no feeds
+    // #given
     const event: EventType = { _tag: "FeedXmlDeleted", path: join(DATA_DIR, "Author", "Album") };
-
     // #when
-    const cascades = await Effect.runPromise(Effect.provide(opmlSync(event), TestLayer));
-
+    const result = await opmlSync(event, realDeps());
     // #then
-    expect(cascades).toEqual([]);
-    const opmlPath = join(DATA_DIR, "feed.opml");
-    const content = await readFile(opmlPath, "utf-8");
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toEqual([]);
+    const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
     expect(content).toContain("<opml");
   });
 
@@ -149,12 +132,10 @@ describe("opmlSync handler", () => {
     const navDir = join(DATA_DIR, "Author");
     await mkdir(podcastDir, { recursive: true });
     await Bun.write(join(podcastDir, "feed.xml"), makePodcastRss("Real Podcast"));
-    await Bun.write(join(navDir, "feed.xml"), NAVIGATION_FEED);
-
+    await Bun.write(join(navDir, "feed.xml"), `<?xml version="1.0"?><feed><title>Navigation</title></feed>`);
     // #when
     const event: EventType = { _tag: "FeedXmlCreated", path: podcastDir };
-    await Effect.runPromise(Effect.provide(opmlSync(event), TestLayer));
-
+    await opmlSync(event, realDeps());
     // #then
     const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
     expect(content).toContain("Real Podcast");
@@ -169,28 +150,23 @@ describe("opmlSync handler", () => {
     await mkdir(dir2, { recursive: true });
     await Bun.write(join(dir1, "feed.xml"), makePodcastRss("Alpha Book"));
     await Bun.write(join(dir2, "feed.xml"), makePodcastRss("Beta Book"));
-
     // #when
     const event: EventType = { _tag: "FeedXmlCreated", path: dir1 };
-    await Effect.runPromise(Effect.provide(opmlSync(event), TestLayer));
-
+    await opmlSync(event, realDeps());
     // #then
     const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
     expect(content).toContain("Alpha Book");
     expect(content).toContain("Beta Book");
-
     const alphaPos = content.indexOf("Alpha Book");
     const betaPos = content.indexOf("Beta Book");
     expect(alphaPos).toBeLessThan(betaPos);
   });
 
   test("writes valid OPML with no feeds when data is empty", async () => {
-    // #given — empty data dir
+    // #given
     const event: EventType = { _tag: "FeedXmlCreated", path: DATA_DIR };
-
     // #when
-    await Effect.runPromise(Effect.provide(opmlSync(event), TestLayer));
-
+    await opmlSync(event, realDeps());
     // #then
     const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
     expect(content).toContain("<opml");
@@ -205,11 +181,9 @@ describe("opmlSync handler", () => {
     await mkdir(badDir, { recursive: true });
     await Bun.write(join(goodDir, "feed.xml"), makePodcastRss("Good Feed"));
     await Bun.write(join(badDir, "feed.xml"), "<<<not valid xml>>>");
-
     // #when
     const event: EventType = { _tag: "FeedXmlCreated", path: goodDir };
-    await Effect.runPromise(Effect.provide(opmlSync(event), TestLayer));
-
+    await opmlSync(event, realDeps());
     // #then
     const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
     expect(content).toContain("Good Feed");
@@ -220,22 +194,19 @@ describe("opmlSync handler", () => {
     const albumDir = join(DATA_DIR, "Author", "Album");
     await mkdir(albumDir, { recursive: true });
     await Bun.write(join(albumDir, "feed.xml"), makePodcastRss("Test"));
-
     // #when
     const event: EventType = { _tag: "FeedXmlCreated", path: albumDir };
-    const cascades = await Effect.runPromise(Effect.provide(opmlSync(event), TestLayer));
-
+    const result = await opmlSync(event, realDeps());
     // #then
-    expect(cascades).toEqual([]);
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toEqual([]);
   });
 
   test("logs OPML generation info", async () => {
     // #given
     const event: EventType = { _tag: "FeedXmlCreated", path: DATA_DIR };
-
     // #when
-    await Effect.runPromise(Effect.provide(opmlSync(event), TestLayer));
-
+    await opmlSync(event, realDeps());
     // #then
     expect(mockLogger.infoCalls.some((c) => c.tag === "OpmlSync" && c.msg === "Regenerating OPML")).toBe(true);
     expect(mockLogger.infoCalls.some((c) => c.tag === "OpmlSync" && c.msg === "OPML generated")).toBe(true);

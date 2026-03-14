@@ -1,10 +1,10 @@
-import { Effect } from "effect";
+import { ok, err } from "neverthrow";
+import type { Result } from "neverthrow";
 import { join, relative } from "node:path";
-import { readdir, stat } from "node:fs/promises";
 import { XMLParser } from "fast-xml-parser";
 import { generateOpml } from "../../rss/opml.ts";
 import { encodeUrlPath } from "../../utils/processor.ts";
-import { ConfigService, LoggerService, FileSystemService } from "../services.ts";
+import type { HandlerDeps, FileSystemService } from "../../context.ts";
 import type { EventType } from "../types.ts";
 import { FEED_FILE, OPML_FILE } from "../../constants.ts";
 import type { OpmlOutline } from "../../rss/types.ts";
@@ -16,16 +16,16 @@ interface DiscoveredFeed {
   feedUrl: string;
 }
 
-async function collectPodcastFeeds(dataRoot: string): Promise<DiscoveredFeed[]> {
+async function collectPodcastFeeds(dataRoot: string, fs: FileSystemService): Promise<DiscoveredFeed[]> {
   const feeds: DiscoveredFeed[] = [];
-  await walkDirectory(dataRoot, dataRoot, feeds);
+  await walkDirectory(dataRoot, dataRoot, feeds, fs);
   return feeds;
 }
 
-async function walkDirectory(dir: string, dataRoot: string, feeds: DiscoveredFeed[]): Promise<void> {
+async function walkDirectory(dir: string, dataRoot: string, feeds: DiscoveredFeed[], fs: FileSystemService): Promise<void> {
   let items: string[];
   try {
-    items = await readdir(dir);
+    items = await fs.readdir(dir);
   } catch {
     return;
   }
@@ -40,9 +40,9 @@ async function walkDirectory(dir: string, dataRoot: string, feeds: DiscoveredFee
     }
 
     try {
-      const itemStat = await stat(itemPath);
+      const itemStat = await fs.stat(itemPath);
       if (itemStat.isDirectory()) {
-        await walkDirectory(itemPath, dataRoot, feeds);
+        await walkDirectory(itemPath, dataRoot, feeds, fs);
       }
     } catch {
       continue;
@@ -67,33 +67,39 @@ async function parsePodcastFeed(feedPath: string, feedDir: string, dataRoot: str
   }
 }
 
-export const opmlSync = (event: EventType): Effect.Effect<readonly EventType[], Error, ConfigService | LoggerService | FileSystemService> =>
-  Effect.gen(function* () {
-    if (event._tag !== "FeedXmlCreated" && event._tag !== "FeedXmlDeleted") return [];
+export async function opmlSync(
+  event: EventType,
+  deps: HandlerDeps,
+): Promise<Result<readonly EventType[], Error>> {
+  if (event._tag !== "FeedXmlCreated" && event._tag !== "FeedXmlDeleted") return ok([]);
 
-    const config = yield* ConfigService;
-    const logger = yield* LoggerService;
-    const fs = yield* FileSystemService;
+  const { config, logger, fs } = deps;
 
-    yield* logger.info("OpmlSync", "Regenerating OPML", { trigger: event._tag });
+  logger.info("OpmlSync", "Regenerating OPML", { trigger: event._tag });
 
-    const feeds = yield* Effect.tryPromise({
-      try: () => collectPodcastFeeds(config.dataPath),
-      catch: (e) => e as Error,
-    }).pipe(Effect.catchAll(() => Effect.succeed([] as DiscoveredFeed[])));
+  let feeds: DiscoveredFeed[];
+  try {
+    feeds = await collectPodcastFeeds(config.dataPath, fs);
+  } catch {
+    feeds = [];
+  }
 
-    feeds.sort((a, b) => a.title.localeCompare(b.title));
+  feeds.sort((a, b) => a.title.localeCompare(b.title));
 
-    const outlines: OpmlOutline[] = feeds.map((f) => ({
-      title: f.title,
-      feedUrl: f.feedUrl,
-    }));
+  const outlines: OpmlOutline[] = feeds.map((f) => ({
+    title: f.title,
+    feedUrl: f.feedUrl,
+  }));
 
-    const opmlXml = generateOpml("Audiobooks", outlines);
-    const opmlPath = join(config.dataPath, OPML_FILE);
+  const opmlXml = generateOpml("Audiobooks", outlines);
+  const opmlPath = join(config.dataPath, OPML_FILE);
 
-    yield* fs.atomicWrite(opmlPath, opmlXml);
+  try {
+    await fs.atomicWrite(opmlPath, opmlXml);
+  } catch (error) {
+    return err(error as Error);
+  }
 
-    yield* logger.info("OpmlSync", "OPML generated", { feeds: feeds.length });
-    return [];
-  });
+  logger.info("OpmlSync", "OPML generated", { feeds: feeds.length });
+  return ok([]);
+}
