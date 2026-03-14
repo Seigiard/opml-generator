@@ -36,18 +36,36 @@ Eliminate both `effect` and `@effect/schema` dependencies entirely.
 
 | Area | Files | ~Lines |
 |---|---|---|
-| src/effect/ + server.ts | 16 | ~1,674 |
-| Existing tests (migrate) | 2 | ~167 |
-| **New tests (write)** | **~14** | **~1,200** |
-| **Total** | **~32** | **~3,041** |
+| src/effect/ + server.ts | 15 | ~1,674 |
+| Existing tests (rewrite) | 10 | ~2,147 |
+| **New tests (write)** | **~5** | **~400** |
+| **Total** | **~30** | **~4,221** |
 
-### Current Test Gap
+### Existing Test Files
 
-opml-generator has only **2 test files**:
-- `test/unit/utils/image.test.ts` (no Effect, unchanged)
-- `test/integration/effect/queue-consumer.test.ts` (Effect, must rewrite)
+**10 Effect-dependent test files** (~2,147 lines) must be rewritten:
 
-Each migrated handler will get a **new unit test file** modeled after opds-generator's test patterns.
+| Test File | Lines | Action |
+|---|---|---|
+| `test/unit/effect/handlers/parent-meta-sync.test.ts` | 96 | REWRITE (Effect layers → mock deps) |
+| `test/unit/effect/handlers/folder-entry-xml-changed.test.ts` | 121 | REWRITE |
+| `test/unit/effect/handlers/audio-sync.test.ts` | 238 | REWRITE |
+| `test/unit/effect/handlers/opml-sync.test.ts` | 242 | REWRITE |
+| `test/unit/effect/handlers/folder-meta-sync.test.ts` | 440 | REWRITE |
+| `test/unit/effect/events.test.ts` | 299 | REWRITE (adapter event classification tests) |
+| `test/unit/effect/handlers.test.ts` | 283 | REWRITE (handler integration tests) |
+| `test/unit/effect/initial-sync.test.ts` | 169 | REWRITE (sync plan → queue) |
+| `test/integration/effect/cascade-flow.test.ts` | 156 | REWRITE (end-to-end cascade) |
+| `test/integration/effect/queue-consumer.test.ts` | 103 | REWRITE (SimpleQueue + AbortController) |
+
+**New test files** (~5) for handlers without existing tests:
+- `test/unit/effect/handlers/audio-cleanup.test.ts`
+- `test/unit/effect/handlers/folder-cleanup.test.ts`
+- `test/unit/effect/handlers/folder-sync.test.ts`
+- `test/unit/effect/adapters/books-adapter.test.ts` (if `events.test.ts` doesn't cover)
+- `test/unit/effect/reconciliation.test.ts`
+
+**14 non-Effect test files** (unchanged): audio, rss, scanner, processor, image, e2e, helpers.
 
 ## Non-Goals
 
@@ -68,29 +86,29 @@ Complete enumeration of all Effect APIs used in the codebase.
 
 | Module | API | Count | Replacement |
 |---|---|---|---|
-| Effect | `gen` | 16 | `async function` |
-| Effect | `tryPromise` | 14 | `try/catch` or `ResultAsync.fromPromise` |
-| Effect | `catchAll` | 14 | `try/catch` |
-| Effect | `sync` | 7 | direct synchronous call |
-| Effect | `succeed` | 6 | `return ok(value)` |
-| Effect | `map` | 6 | direct value transform |
-| Effect | `asVoid` / `void` | 8 | (removed, no equivalent needed) |
+| Effect | `gen` | 26 | `async function` |
+| Effect | `tryPromise` | 25 | `try/catch` or `ResultAsync.fromPromise` |
+| Effect | `catchAll` | 22 | `try/catch` |
+| Effect | `succeed` | 15 | `return ok(value)` |
+| Effect | `asVoid` / `void` | 10 | (removed, no equivalent needed) |
+| Effect | `sync` | 9 | direct synchronous call |
+| Effect | `map` | 4 | direct value transform |
 | Effect | `ensuring` | 3 | `try/finally` |
 | Effect | `fail` | 2 | `return err(error)` |
+| Effect | `repeat` | 1 | completion-aware async loop |
 | Effect | `forEach` | 1 | `for...of` |
 | Fiber | `RuntimeFiber` (type) | 2 | `Promise<void>` |
 | Fiber | `interrupt` | 2 | `controller.abort()` |
-| ManagedRuntime | `make` | 1 | `buildContext()` |
+| ManagedRuntime | `make` | 2 | `buildContext()` |
 | ManagedRuntime | `runPromise` / `runFork` | 7 | direct `await` / `startConsumer()` |
 | Schedule | `spaced` | 1 | completion-aware async loop |
 | Queue | `unbounded/offer/take/size` | 5 | `SimpleQueue` class |
 | Context | `Tag` | 6 | `AppContext` interface fields |
-| Layer | `succeed/effect/mergeAll` | 7 | `buildContext()` factory |
-| Match | `value/when/orElse` | 6 | `switch` / `if-else` |
-| Schema | `Struct/String` | 2 | inline type guards |
-| Schema | `decodeUnknownEither` | 2 | `isRawBooksEvent()` / `isRawDataEvent()` |
+| Layer | `succeed/effect/mergeAll` | 8 | `buildContext()` factory |
+| Match | `value/when/orElse` | 15 | `switch` / `if-else` |
+| Schema | `Struct/String/decodeUnknownEither` | 10 | inline type guards |
 
-**Files importing Effect/Schema**: 16 src files + 1 test file = 17 total.
+**Files importing Effect/Schema**: 15 src files + 10 test files = 25 total.
 **sync-plan-adapter.ts**: Zero Effect/Schema imports (37 lines, pure TypeScript). No changes needed.
 
 ## Design
@@ -414,13 +432,15 @@ Matches `Schedule.spaced` semantics: waits for previous execution to complete be
 
 #### Graceful Shutdown
 
+**Behavioral improvement**: the current shutdown handler does NOT call `server.stop()` — it only interrupts fibers and disposes the runtime. The new version explicitly stops accepting HTTP requests first, preventing new events from arriving during shutdown.
+
 ```typescript
 const SHUTDOWN_TIMEOUT_MS = 8_000;
 
 process.on("SIGTERM", async () => {
-  server.stop();
-  controller.abort();
-  await Promise.race([
+  server.stop();          // 1. Stop accepting HTTP requests (NEW)
+  controller.abort();     // 2. Signal consumer + reconciliation to stop
+  await Promise.race([    // 3. Wait for in-flight work with timeout
     Promise.allSettled([consumerTask, reconcileTask]),
     new Promise(resolve => setTimeout(resolve, SHUTDOWN_TIMEOUT_MS)),
   ]);
@@ -446,7 +466,7 @@ After server.ts migration:
 
 ### Test Strategy
 
-Each handler migration includes a **new unit test file** modeled after opds-generator's test patterns.
+Each handler migration rewrites the existing test file (or creates a new one if none exists). Tests use plain mock objects instead of Effect layers.
 
 #### Test Pattern (from opds-generator)
 
@@ -482,67 +502,69 @@ describe("handlerName handler", () => {
     expect(result.isOk()).toBe(true);
     expect(result._unsafeUnwrap()).toEqual([]);
   });
-
-  test("description of behavior", async () => {
-    // #given / #when / #then
-  });
 });
 ```
 
-#### New Test Files Per Commit
+#### Test Files Per Commit
 
-| Commit | New Test File | Tests |
-|---|---|---|
-| 3 | `test/unit/effect/handlers/parent-meta-sync.test.ts` | wrong event → [], cascade to parent, cascade to root, trailing slash |
-| 4 | `test/unit/effect/handlers/folder-entry-xml-changed.test.ts` | wrong event → [], two cascades, root parent handling |
-| 5 | `test/unit/effect/handlers/audio-cleanup.test.ts` | rm + cascade, ENOENT suppression |
-| 6 | `test/unit/effect/handlers/folder-cleanup.test.ts` | rm + conditional cascade, ENOENT suppression, root = no cascade |
-| 7 | `test/unit/effect/handlers/folder-sync.test.ts` | mkdir + atomicWrite, root = no _entry.xml, cascade |
-| 8 | `test/unit/effect/handlers/opml-sync.test.ts` | wrong event → [], OPML generation, empty feeds |
-| 9 | `test/unit/effect/handlers/audio-sync.test.ts` | metadata extraction, episode numbering, cover handling |
-| 10 | `test/unit/effect/handlers/folder-meta-sync.test.ts` | episodes sorting, folders navigation, empty = delete feed, _entry.xml diff |
-| 11 | `test/unit/effect/adapters/books-adapter.test.ts` | classify all event types, dedup filtering |
-| 11 | `test/unit/effect/adapters/data-adapter.test.ts` | classify entry.xml, _entry.xml, ignored |
-| 12 | `test/integration/effect/queue-consumer.test.ts` | Rewrite: SimpleQueue + AbortController, cascade processing |
-| 14 | `test/unit/effect/reconciliation.test.ts` | skips during sync, skips with pending queue, runs when idle |
+| Commit | Test File | Action | Key Tests |
+|---|---|---|---|
+| 3 | `handlers/parent-meta-sync.test.ts` | REWRITE (96 lines) | wrong event → [], cascade to parent, cascade to root, trailing slash |
+| 4 | `handlers/folder-entry-xml-changed.test.ts` | REWRITE (121 lines) | wrong event → [], two cascades, root parent |
+| 5 | `handlers/audio-cleanup.test.ts` | **NEW** | rm + cascade, ENOENT suppression |
+| 6 | `handlers/folder-cleanup.test.ts` | **NEW** | rm + conditional cascade, ENOENT, root |
+| 7 | `handlers/folder-sync.test.ts` | **NEW** | mkdir + atomicWrite, root, cascade |
+| 8 | `handlers/opml-sync.test.ts` | REWRITE (242 lines) | OPML generation, empty feeds |
+| 9 | `handlers/audio-sync.test.ts` | REWRITE (238 lines) | metadata, episode numbering, cover |
+| 10 | `handlers/folder-meta-sync.test.ts` | REWRITE (440 lines) | sort, navigation, empty, _entry.xml diff |
+| 11 | `adapters/books-adapter.test.ts` | SPLIT from `events.test.ts` | classify all event types, dedup |
+| 11 | `adapters/data-adapter.test.ts` | SPLIT from `events.test.ts` | classify entry.xml, _entry.xml, ignored |
+| 12 | `queue-consumer.test.ts` | REWRITE (103 lines) | SimpleQueue + AbortController, cascade |
+| 12 | `cascade-flow.test.ts` | REWRITE (156 lines) | end-to-end cascade processing |
+| 13 | `initial-sync.test.ts` | REWRITE (169 lines) | sync plan → queue (no ManagedRuntime) |
+| 13 | `handlers.test.ts` | REWRITE (283 lines) | handler integration (no Effect layers) |
+| 14 | `reconciliation.test.ts` | **NEW** | skip during sync, skip with queue, run when idle |
 
-#### Test Helpers (new)
+#### Test Helpers (already exist)
 
-Port from opds-generator:
-- `test/helpers/fs-helpers.ts` — `createTempDir`, `cleanupTempDir`, `createFileStructure`, `assertFileExists`
-- `test/setup.ts` — global beforeAll/afterAll cleanup
+opml-generator already has test helpers — no porting needed:
+- `test/helpers/fs-helpers.ts` (61 lines)
+- `test/helpers/assertions.ts` (77 lines)
+- `test/helpers/mock-tools.ts` (104 lines)
+- `test/helpers/image-compare.ts` (40 lines)
+- `test/setup.ts` (13 lines)
 
 ## Commit Plan
 
 ```
- 1. feat: add context.ts, queue.ts, test helpers, neverthrow dep
-    Tests: queue unit tests (from opds-generator), test setup
+ 1. feat: add context.ts, queue.ts, neverthrow dep
+    Tests: queue unit tests (ported from opds-generator)
  2. feat: add UnifiedHandler adapter to registry (Effect + async coexist)
     Tests: adapter type tests
  3. refactor: migrate parent-meta-sync handler
-    Tests: NEW unit tests (wrong event, cascade to parent, cascade to root, trailing slash)
+    Tests: REWRITE parent-meta-sync.test.ts (96 lines → mock deps)
  4. refactor: migrate folder-entry-xml-changed handler
-    Tests: NEW unit tests (wrong event, two cascades, root parent)
+    Tests: REWRITE folder-entry-xml-changed.test.ts (121 lines → mock deps)
  5. refactor: migrate audio-cleanup handler
-    Tests: NEW unit tests (rm + cascade, ENOENT suppression)
+    Tests: NEW audio-cleanup.test.ts
  6. refactor: migrate folder-cleanup handler
-    Tests: NEW unit tests (rm + conditional cascade, ENOENT, root)
+    Tests: NEW folder-cleanup.test.ts
  7. refactor: migrate folder-sync handler
-    Tests: NEW unit tests (mkdir + atomicWrite, root, cascade)
+    Tests: NEW folder-sync.test.ts
  8. refactor: migrate opml-sync handler
-    Tests: NEW unit tests (OPML generation, empty feeds)
+    Tests: REWRITE opml-sync.test.ts (242 lines → mock deps)
  9. refactor: migrate audio-sync handler
-    Tests: NEW unit tests (metadata, episode numbering, cover)
+    Tests: REWRITE audio-sync.test.ts (238 lines → mock deps)
 10. refactor: migrate folder-meta-sync handler
-    Tests: NEW unit tests (sort, navigation, empty, _entry.xml diff)
-11. refactor: migrate adapters (books, data) + tests
-    Tests: NEW unit tests (classify events, dedup)
+    Tests: REWRITE folder-meta-sync.test.ts (440 lines → mock deps)
+11. refactor: migrate adapters (books, data)
+    Tests: REWRITE events.test.ts → split into books-adapter.test.ts + data-adapter.test.ts
 12. refactor: migrate consumer to async/AbortController
-    Tests: REWRITE queue-consumer.test.ts
+    Tests: REWRITE queue-consumer.test.ts + cascade-flow.test.ts
 13. refactor: migrate server.ts — buildContext, AbortController, type guards
-    Tests: verify server starts and processes events (integration)
-14. feat: fix ConfigService reconcileInterval gap + add reconciliation tests
-    Tests: NEW unit tests (skip during sync, skip with queue, run when idle)
+    Tests: REWRITE initial-sync.test.ts + handlers.test.ts (no ManagedRuntime/Layers)
+14. feat: fix ConfigService reconcileInterval gap + add reconciliation
+    Tests: NEW reconciliation.test.ts
 15. chore: verify zero Effect imports, remove effect + @effect/schema, delete services.ts
     Tests: grep gate verification
 16. test: full verification suite (tsc, fix, test:all, knip)
