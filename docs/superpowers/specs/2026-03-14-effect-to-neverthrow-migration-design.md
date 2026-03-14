@@ -93,7 +93,14 @@ Record: RSS at start, RSS after 500 events, delta per event. Compare against opd
 
 SimpleQueue was validated at < 1 KB/event in opds-generator's Docker environment (same Bun runtime, same mimalloc allocator). The Step 0 measurement confirms the same pattern holds for opml-generator's event workload.
 
-**Post-migration gate (commit 17)**: RSS delta per event must not exceed 1.2x the pre-migration baseline at equivalent event count. If it does, investigate before merging — the migration should improve RSS, not degrade it.
+**Measurement protocol**:
+1. Workload: enqueue 500 `FolderMetaSyncRequested` events to a test queue in Docker
+2. Measure `process.memoryUsage().rss` before first event and after last event completes
+3. Run `Bun.gc(true)` + wait 1s before final measurement (settle allocator)
+4. Repeat 3 times, average the delta
+5. Delta per event = (RSS_after - RSS_before) / 500
+
+**Post-migration gate (commit 17)**: RSS delta per event must not exceed 1.2x the pre-migration baseline (same protocol, same workload). If it does, investigate before merging — the migration should improve RSS, not degrade it.
 
 ## Effect Feature Audit: No Advanced Features in Handlers
 
@@ -449,11 +456,15 @@ async function startReconciliation(
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => {
+    const onAbort = () => {
       clearTimeout(timer);
       reject(signal.reason);
-    }, { once: true });
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 ```
@@ -594,12 +605,21 @@ opml-generator already has test helpers — no porting needed:
     Tests: REWRITE folder-meta-sync.test.ts part 1 (collectChildren, empty-feed)
 11b. refactor: migrate folder-meta-sync (generation + cascade)
     Tests: REWRITE folder-meta-sync.test.ts part 2 (RSS gen, _entry.xml diff)
-12. refactor: migrate adapters (books, data)
+12. refactor: migrate adapters (books, data) + server.ts adapter call sites
+    Adapters become sync functions. Server.ts call sites change simultaneously:
+    `yield* adaptBooksEvent(raw)` → `adaptBooksEvent(raw, ctx.dedup)` (sync call)
+    `yield* adaptDataEvent(raw)` → `adaptDataEvent(raw, ctx.dedup)` (sync call)
+    Server.ts handleBooksEvent/handleDataEvent remain Effect.gen wrappers until commit 14,
+    but the adapter calls inside them become plain function calls (no yield*).
+    DeduplicationService passed explicitly from server.ts (ctx.dedup available via buildContext).
     Tests: REWRITE events.test.ts → split into books-adapter.test.ts + data-adapter.test.ts
     Gate: run bun run test:e2e (early E2E smoke test — all handlers + adapters now async)
 13. refactor: migrate consumer to async/AbortController (removes UnifiedHandler)
     Tests: REWRITE queue-consumer.test.ts + cascade-flow.test.ts
-14. refactor: migrate server.ts — buildContext, AbortController, type guards
+14. refactor: migrate server.ts — remove remaining Effect.gen wrappers, buildContext, type guards
+    handleBooksEvent/handleDataEvent become plain async functions (no Effect.gen/yield*).
+    Schema.decodeUnknownEither → isRawBooksEvent/isRawDataEvent type guards.
+    ManagedRuntime → buildContext, Fiber → AbortController.
     Tests: REWRITE initial-sync.test.ts + handlers.test.ts (no ManagedRuntime/Layers)
 15. feat: add reconciliation tests (TDD — write tests first, then verify impl)
     Tests: NEW reconciliation.test.ts
