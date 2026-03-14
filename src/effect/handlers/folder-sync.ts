@@ -1,8 +1,9 @@
-import { Effect } from "effect";
+import { ok, err } from "neverthrow";
+import type { Result } from "neverthrow";
 import { join, relative, basename } from "node:path";
 import { XMLBuilder } from "fast-xml-parser";
 import { encodeUrlPath, normalizeFilenameTitle } from "../../utils/processor.ts";
-import { ConfigService, LoggerService, FileSystemService } from "../services.ts";
+import type { HandlerDeps } from "../../context.ts";
 import type { EventType } from "../types.ts";
 import { FEED_FILE, FOLDER_ENTRY_FILE } from "../../constants.ts";
 
@@ -13,23 +14,23 @@ const xmlBuilder = new XMLBuilder({
   suppressEmptyNode: true,
 });
 
-export const folderSync = (
+export async function folderSync(
   event: EventType,
-): Effect.Effect<readonly EventType[], Error, ConfigService | LoggerService | FileSystemService> =>
-  Effect.gen(function* () {
-    if (event._tag !== "FolderCreated") return [];
-    const { parent, name } = event;
-    const config = yield* ConfigService;
-    const logger = yield* LoggerService;
-    const fs = yield* FileSystemService;
+  deps: HandlerDeps,
+): Promise<Result<readonly EventType[], Error>> {
+  if (event._tag !== "FolderCreated") return ok([]);
 
-    const folderPath = join(parent, name);
-    const relativePath = relative(config.filesPath, folderPath);
-    const folderDataDir = join(config.dataPath, relativePath);
+  const { parent, name } = event;
+  const { config, logger, fs } = deps;
 
-    yield* logger.info("FolderSync", "Processing", { path: relativePath || "(root)" });
+  const folderPath = join(parent, name);
+  const relativePath = relative(config.filesPath, folderPath);
+  const folderDataDir = join(config.dataPath, relativePath);
 
-    yield* fs.mkdir(folderDataDir, { recursive: true });
+  logger.info("FolderSync", "Processing", { path: relativePath || "(root)" });
+
+  try {
+    await fs.mkdir(folderDataDir, { recursive: true });
 
     if (relativePath !== "") {
       const folderName = normalizeFilenameTitle(basename(relativePath));
@@ -44,11 +45,14 @@ export const folderSync = (
         },
       }) as string;
 
-      yield* fs.atomicWrite(join(folderDataDir, FOLDER_ENTRY_FILE), entryXml);
-      yield* logger.info("FolderSync", "Done", { path: relativePath });
+      await fs.atomicWrite(join(folderDataDir, FOLDER_ENTRY_FILE), entryXml);
+      logger.info("FolderSync", "Done", { path: relativePath });
     } else {
-      yield* logger.info("FolderSync", "Root folder - no _entry.xml needed");
+      logger.info("FolderSync", "Root folder - no _entry.xml needed");
     }
 
-    return [{ _tag: "FolderMetaSyncRequested", path: folderDataDir }] as const;
-  });
+    return ok([{ _tag: "FolderMetaSyncRequested", path: folderDataDir }] as const);
+  } catch (error) {
+    return err(error as Error);
+  }
+}

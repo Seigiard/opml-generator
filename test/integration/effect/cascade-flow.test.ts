@@ -3,10 +3,11 @@ import { Effect, Layer } from "effect";
 import { ConfigService, LoggerService, FileSystemService } from "../../../src/effect/services.ts";
 import { audioSync } from "../../../src/effect/handlers/audio-sync.ts";
 import { folderSync } from "../../../src/effect/handlers/folder-sync.ts";
+import type { HandlerDeps } from "../../../src/context.ts";
 import type { EventType } from "../../../src/effect/types.ts";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdir, rm, stat, readFile, copyFile } from "node:fs/promises";
+import { mkdir, rm, stat, readFile, copyFile, readdir, rename, unlink, symlink } from "node:fs/promises";
 
 const TEST_DIR = join(tmpdir(), `cascade-test-${Date.now()}`);
 const FILES_DIR = join(TEST_DIR, "files");
@@ -49,11 +50,7 @@ const TestLoggerService = Layer.succeed(LoggerService, {
 const RealFileSystemService = Layer.succeed(FileSystemService, {
   mkdir: (path, options) => Effect.promise(() => mkdir(path, options)),
   rm: (path, options) => Effect.promise(() => rm(path, options)),
-  readdir: (path) =>
-    Effect.promise(async () => {
-      const fs = await import("node:fs/promises");
-      return fs.readdir(path);
-    }),
+  readdir: (path) => Effect.promise(() => readdir(path)),
   stat: (path) =>
     Effect.promise(async () => {
       const s = await stat(path);
@@ -70,19 +67,52 @@ const RealFileSystemService = Layer.succeed(FileSystemService, {
     }),
   writeFile: (path, content) => Effect.promise(() => Bun.write(path, content)),
   atomicWrite: (path, content) => Effect.promise(() => Bun.write(path, content)),
-  symlink: (target, path) =>
-    Effect.promise(async () => {
-      const fs = await import("node:fs/promises");
-      await fs.symlink(target, path);
-    }),
-  unlink: (path) =>
-    Effect.promise(async () => {
-      const fs = await import("node:fs/promises");
-      await fs.unlink(path);
-    }),
+  symlink: (target, path) => Effect.promise(() => symlink(target, path)),
+  unlink: (path) => Effect.promise(() => unlink(path)),
 });
 
 const TestLayer = Layer.mergeAll(TestConfigService, TestLoggerService, RealFileSystemService);
+
+function realDeps(): HandlerDeps {
+  return {
+    config: { filesPath: FILES_DIR, dataPath: DATA_DIR, port: 3000, reconcileInterval: 1800 },
+    logger: {
+      info: (tag, msg) => mockLogger.calls.push({ level: "info", tag, msg }),
+      warn: (tag, msg) => mockLogger.calls.push({ level: "warn", tag, msg }),
+      error: (tag, msg) => mockLogger.calls.push({ level: "error", tag, msg }),
+      debug: (tag, msg) => mockLogger.calls.push({ level: "debug", tag, msg }),
+    },
+    fs: {
+      mkdir: async (path, options) => {
+        await mkdir(path, options);
+      },
+      rm: (path, options) => rm(path, options),
+      readdir: (path) => readdir(path),
+      stat: async (path) => {
+        const s = await stat(path);
+        return { isDirectory: () => s.isDirectory(), size: s.size };
+      },
+      exists: async (path) => {
+        try {
+          await stat(path);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      writeFile: async (path, content) => {
+        await Bun.write(path, content);
+      },
+      atomicWrite: async (path, content) => {
+        const tmpPath = `${path}.tmp`;
+        await Bun.write(tmpPath, content);
+        await rename(tmpPath, path);
+      },
+      symlink: (target, path) => symlink(target, path),
+      unlink: (path) => unlink(path),
+    },
+  };
+}
 
 describe("Cascade Flow Integration", () => {
   beforeEach(async () => {
@@ -101,7 +131,7 @@ describe("Cascade Flow Integration", () => {
     await mkdir(albumPath, { recursive: true });
 
     const folderEvent: EventType = { _tag: "FolderCreated", parent: join(FILES_DIR, "Author"), name: "Album" };
-    await Effect.runPromise(Effect.provide(folderSync(folderEvent), TestLayer));
+    await folderSync(folderEvent, realDeps());
 
     const albumDataPath = join(DATA_DIR, "Author", "Album");
     const entryXmlPath = join(albumDataPath, "_entry.xml");

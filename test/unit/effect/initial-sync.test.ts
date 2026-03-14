@@ -1,9 +1,8 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import { Effect, Layer } from "effect";
-import { ConfigService, LoggerService, FileSystemService } from "../../../src/effect/services.ts";
 import { folderSync } from "../../../src/effect/handlers/folder-sync.ts";
 import { folderCleanup } from "../../../src/effect/handlers/folder-cleanup.ts";
 import { audioCleanup } from "../../../src/effect/handlers/audio-cleanup.ts";
+import type { HandlerDeps } from "../../../src/context.ts";
 import type { EventType } from "../../../src/effect/types.ts";
 
 interface MockFs {
@@ -39,48 +38,38 @@ const createMockLogger = (): MockLogger => ({
 const mockFs = createMockFs();
 const mockLogger = createMockLogger();
 
-const TestConfigService = Layer.succeed(ConfigService, {
-  filesPath: "/test/audiobooks",
-  dataPath: "/test/data",
-  port: 8080,
-  reconcileInterval: 1800,
-});
-
-const TestLoggerService = Layer.succeed(LoggerService, {
-  info: (tag, msg) =>
-    Effect.sync(() => {
-      mockLogger.infoCalls.push({ tag, msg });
-    }),
-  warn: () => Effect.void,
-  error: () => Effect.void,
-  debug: () => Effect.void,
-});
-
-const TestFileSystemService = Layer.succeed(FileSystemService, {
-  mkdir: (path, options) =>
-    Effect.sync(() => {
-      mockFs.mkdirCalls.push({ path, options });
-    }),
-  rm: (path, options) =>
-    Effect.sync(() => {
-      mockFs.rmCalls.push({ path, options });
-    }),
-  readdir: () => Effect.succeed([]),
-  stat: () => Effect.succeed({ isDirectory: () => false, size: 0 }),
-  exists: () => Effect.succeed(false),
-  writeFile: (path, content) =>
-    Effect.sync(() => {
-      mockFs.writeCalls.push({ path, content });
-    }),
-  atomicWrite: (path, content) =>
-    Effect.sync(() => {
-      mockFs.writeCalls.push({ path, content });
-    }),
-  symlink: () => Effect.void,
-  unlink: () => Effect.void,
-});
-
-const TestLayer = Layer.mergeAll(TestConfigService, TestLoggerService, TestFileSystemService);
+function makeDeps(): HandlerDeps {
+  return {
+    config: { filesPath: "/test/audiobooks", dataPath: "/test/data", port: 8080, reconcileInterval: 1800 },
+    logger: {
+      info: (tag, msg) => {
+        mockLogger.infoCalls.push({ tag, msg });
+      },
+      warn: () => {},
+      error: () => {},
+      debug: () => {},
+    },
+    fs: {
+      mkdir: async (path, options) => {
+        mockFs.mkdirCalls.push({ path, options });
+      },
+      rm: async (path, options) => {
+        mockFs.rmCalls.push({ path, options });
+      },
+      readdir: async () => [],
+      stat: async () => ({ isDirectory: () => false, size: 0 }),
+      exists: async () => false,
+      writeFile: async (path, content) => {
+        mockFs.writeCalls.push({ path, content });
+      },
+      atomicWrite: async (path, content) => {
+        mockFs.writeCalls.push({ path, content });
+      },
+      symlink: async () => {},
+      unlink: async () => {},
+    },
+  };
+}
 
 const folderCreatedEvent = (parent: string, name: string): EventType => ({
   _tag: "FolderCreated",
@@ -108,26 +97,34 @@ describe("Initial Sync - Folder and Cleanup Handlers", () => {
 
   describe("folderSync during initial sync", () => {
     test("creates folder data directory", async () => {
-      await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction")), TestLayer));
+      // #when
+      await folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction"), makeDeps());
+      // #then
       expect(mockFs.mkdirCalls.some((c) => c.path === "/test/data/Fiction")).toBe(true);
     });
 
     test("generates _entry.xml for folder", async () => {
-      await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction")), TestLayer));
+      // #when
+      await folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction"), makeDeps());
+      // #then
       const entryWrite = mockFs.writeCalls.find((c) => c.path.endsWith("_entry.xml"));
       expect(entryWrite).toBeDefined();
       expect(entryWrite?.content).toContain("<folder>");
     });
 
     test("processes nested folder paths correctly", async () => {
-      await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/audiobooks/Fiction/", "SciFi")), TestLayer));
+      // #when
+      await folderSync(folderCreatedEvent("/test/audiobooks/Fiction/", "SciFi"), makeDeps());
+      // #then
       expect(mockFs.mkdirCalls.some((c) => c.path === "/test/data/Fiction/SciFi")).toBe(true);
     });
   });
 
   describe("folderCleanup during initial sync", () => {
     test("removes orphan folder directory", async () => {
-      await Effect.runPromise(Effect.provide(folderCleanup(folderDeletedEvent("/test/audiobooks/", "OldFolder")), TestLayer));
+      // #when
+      await folderCleanup(folderDeletedEvent("/test/audiobooks/", "OldFolder"), makeDeps());
+      // #then
       expect(mockFs.rmCalls).toHaveLength(1);
       expect(mockFs.rmCalls[0]!.path).toBe("/test/data/OldFolder");
     });
@@ -135,7 +132,9 @@ describe("Initial Sync - Folder and Cleanup Handlers", () => {
 
   describe("audioCleanup during initial sync", () => {
     test("removes orphan audio file directory", async () => {
-      await Effect.runPromise(Effect.provide(audioCleanup(audioFileDeletedEvent("/test/audiobooks/Fiction/", "deleted.mp3")), TestLayer));
+      // #when
+      await audioCleanup(audioFileDeletedEvent("/test/audiobooks/Fiction/", "deleted.mp3"), makeDeps());
+      // #then
       expect(mockFs.rmCalls).toHaveLength(1);
       expect(mockFs.rmCalls[0]!.path).toBe("/test/data/Fiction/deleted.mp3");
     });
@@ -143,26 +142,36 @@ describe("Initial Sync - Folder and Cleanup Handlers", () => {
 
   describe("sync flow simulation", () => {
     test("processes multiple folders sequentially", async () => {
+      // #given
       const folders = ["Fiction", "NonFiction", "Podcasts"];
+      const deps = makeDeps();
+      // #when
       for (const folder of folders) {
-        await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/audiobooks/", folder)), TestLayer));
+        await folderSync(folderCreatedEvent("/test/audiobooks/", folder), deps);
       }
+      // #then
       const entryWrites = mockFs.writeCalls.filter((c) => c.path.endsWith("_entry.xml"));
       expect(entryWrites).toHaveLength(3);
     });
 
     test("cleanup then create for folder replacement", async () => {
-      await Effect.runPromise(Effect.provide(folderCleanup(folderDeletedEvent("/test/audiobooks/", "OldFolder")), TestLayer));
-      await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/audiobooks/", "NewFolder")), TestLayer));
-
+      // #given
+      const deps = makeDeps();
+      // #when
+      await folderCleanup(folderDeletedEvent("/test/audiobooks/", "OldFolder"), deps);
+      await folderSync(folderCreatedEvent("/test/audiobooks/", "NewFolder"), deps);
+      // #then
       expect(mockFs.rmCalls.some((c) => c.path.includes("OldFolder"))).toBe(true);
       expect(mockFs.mkdirCalls.some((c) => c.path.includes("NewFolder"))).toBe(true);
     });
 
     test("logs operations for each handler", async () => {
-      await Effect.runPromise(Effect.provide(folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction")), TestLayer));
-      await Effect.runPromise(Effect.provide(audioCleanup(audioFileDeletedEvent("/test/audiobooks/Fiction/", "old.mp3")), TestLayer));
-
+      // #given
+      const deps = makeDeps();
+      // #when
+      await folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction"), deps);
+      await audioCleanup(audioFileDeletedEvent("/test/audiobooks/Fiction/", "old.mp3"), deps);
+      // #then
       expect(mockLogger.infoCalls.some((c) => c.tag === "FolderSync")).toBe(true);
       expect(mockLogger.infoCalls.some((c) => c.tag === "AudioCleanup")).toBe(true);
     });
