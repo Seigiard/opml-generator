@@ -13,11 +13,11 @@ export const registerHandlers = Effect.gen(function* () {
   const registry = yield* HandlerRegistry;
 
   registry.registerEffect("AudioFileCreated", audioSync);
-  registry.registerEffect("AudioFileDeleted", audioCleanup);
-  registry.registerEffect("FolderCreated", folderSync);
-  registry.registerEffect("FolderDeleted", folderCleanup);
+  registry.registerAsync("AudioFileDeleted", audioCleanup);
+  registry.registerAsync("FolderCreated", folderSync);
+  registry.registerAsync("FolderDeleted", folderCleanup);
   registry.registerAsync("EntryXmlChanged", parentMetaSync);
-  registry.registerEffect("FolderEntryXmlChanged", folderEntryXmlChanged);
+  registry.registerAsync("FolderEntryXmlChanged", folderEntryXmlChanged);
   registry.registerEffect("FolderMetaSyncRequested", folderMetaSync);
   registry.registerEffect("FeedXmlCreated", opmlSync);
   registry.registerEffect("FeedXmlDeleted", opmlSync);
