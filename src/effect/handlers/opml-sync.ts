@@ -67,10 +67,7 @@ async function parsePodcastFeed(feedPath: string, feedDir: string, dataRoot: str
   }
 }
 
-export async function opmlSync(
-  event: EventType,
-  deps: HandlerDeps,
-): Promise<Result<readonly EventType[], Error>> {
+export async function opmlSync(event: EventType, deps: HandlerDeps): Promise<Result<readonly EventType[], Error>> {
   if (event._tag !== "FeedXmlCreated" && event._tag !== "FeedXmlDeleted") return ok([]);
 
   const { config, logger, fs } = deps;

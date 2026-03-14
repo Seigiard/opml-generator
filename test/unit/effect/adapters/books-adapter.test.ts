@@ -93,7 +93,10 @@ describe("adaptBooksEvent (books watcher classification)", () => {
   describe("supported audio formats", () => {
     for (const format of ["mp3", "m4a", "m4b", "ogg"]) {
       test(`recognizes .${format} as audio format`, () => {
-        const result = adaptBooksEvent({ parent: "/audiobooks/Fiction/", name: `chapter01.${format}`, events: "CLOSE_WRITE" }, alwaysProcess);
+        const result = adaptBooksEvent(
+          { parent: "/audiobooks/Fiction/", name: `chapter01.${format}`, events: "CLOSE_WRITE" },
+          alwaysProcess,
+        );
         expect(result?._tag).toBe("AudioFileCreated");
       });
     }

@@ -87,10 +87,7 @@ function parseFolderEntryXml(content: string): FolderChild | null {
   }
 }
 
-export async function folderMetaSync(
-  event: EventType,
-  deps: HandlerDeps,
-): Promise<Result<readonly EventType[], Error>> {
+export async function folderMetaSync(event: EventType, deps: HandlerDeps): Promise<Result<readonly EventType[], Error>> {
   if (event._tag !== "FolderMetaSyncRequested") return ok([]);
 
   const folderDataDir = event.path;

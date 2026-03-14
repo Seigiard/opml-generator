@@ -1,24 +1,15 @@
-import { Schema } from "@effect/schema";
+export interface RawBooksEvent {
+  parent: string;
+  name: string;
+  events: string;
+}
 
-// Raw event from books watcher (events string parsed in adapter)
-export const RawBooksEvent = Schema.Struct({
-  parent: Schema.String,
-  name: Schema.String,
-  events: Schema.String, // "CREATE,ISDIR" or "CLOSE_WRITE"
-});
+export interface RawDataEvent {
+  parent: string;
+  name: string;
+  events: string;
+}
 
-export type RawBooksEvent = typeof RawBooksEvent.Type;
-
-// Raw event from data watcher
-export const RawDataEvent = Schema.Struct({
-  parent: Schema.String,
-  name: Schema.String,
-  events: Schema.String, // "CLOSE_WRITE" or "MOVED_TO"
-});
-
-export type RawDataEvent = typeof RawDataEvent.Type;
-
-// Classified event types for handlers
 export type EventType =
   | { _tag: "AudioFileCreated"; parent: string; name: string }
   | { _tag: "AudioFileDeleted"; parent: string; name: string }

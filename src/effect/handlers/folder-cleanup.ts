@@ -4,10 +4,7 @@ import { dirname, join, relative } from "node:path";
 import type { HandlerDeps } from "../../context.ts";
 import type { EventType } from "../types.ts";
 
-export async function folderCleanup(
-  event: EventType,
-  deps: HandlerDeps,
-): Promise<Result<readonly EventType[], Error>> {
+export async function folderCleanup(event: EventType, deps: HandlerDeps): Promise<Result<readonly EventType[], Error>> {
   if (event._tag !== "FolderDeleted") return ok([]);
 
   const { parent, name } = event;

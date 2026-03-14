@@ -25,10 +25,7 @@ function buildEpisodeXml(fields: Record<string, unknown>): string {
   }) as string;
 }
 
-export async function audioSync(
-  event: EventType,
-  deps: HandlerDeps,
-): Promise<Result<readonly EventType[], Error>> {
+export async function audioSync(event: EventType, deps: HandlerDeps): Promise<Result<readonly EventType[], Error>> {
   if (event._tag !== "AudioFileCreated") return ok([]);
 
   const { parent, name } = event;
@@ -114,7 +111,12 @@ async function resolveEpisodeNumber(folderDataDir: string, currentEpisodeDir: st
   return maxEpisode + 1;
 }
 
-async function resolvePubDate(id3Date: string | undefined, folderDataDir: string, episodeNumber: number, fs: FileSystemService): Promise<string> {
+async function resolvePubDate(
+  id3Date: string | undefined,
+  folderDataDir: string,
+  episodeNumber: number,
+  fs: FileSystemService,
+): Promise<string> {
   if (id3Date) {
     const parsed = new Date(id3Date);
     if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();

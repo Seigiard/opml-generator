@@ -22,8 +22,6 @@
     "test:all": "bun run test && bun run test:e2e"
   },
   "dependencies": {
-    "@effect/schema": "^0.75.5",
-    "effect": "^3.19.14",
     "fast-xml-parser": "^5.3.3",
     "knip": "^5.79.0",
     "music-metadata": "^11.12.1",
