@@ -9,16 +9,12 @@ export async function saveBufferAsImage(buffer: Buffer, destPath: string, maxSiz
     const resize = `${maxSize}x${maxSize}>`;
     const proc = Bun.spawn(["magick", "-", "-resize", resize, "-colorspace", "sRGB", "-quality", "90", destPath], {
       stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
+      stdout: "ignore",
+      stderr: "ignore",
     });
     proc.stdin.write(buffer);
-    const [, , , exitCode] = await Promise.all([
-      proc.stdin.end(),
-      new Response(proc.stdout).arrayBuffer(),
-      new Response(proc.stderr).arrayBuffer(),
-      proc.exited,
-    ]);
+    await proc.stdin.end();
+    const exitCode = await proc.exited;
     return exitCode === 0;
   } catch (error) {
     log.warn("Image", "Failed to save buffer as image", { file: destPath, error: String(error) });
