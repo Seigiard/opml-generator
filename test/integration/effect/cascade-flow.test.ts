@@ -1,6 +1,4 @@
 import { describe, test, expect, beforeEach, afterAll } from "bun:test";
-import { Effect, Layer } from "effect";
-import { ConfigService, LoggerService, FileSystemService } from "../../../src/effect/services.ts";
 import { audioSync } from "../../../src/effect/handlers/audio-sync.ts";
 import { folderSync } from "../../../src/effect/handlers/folder-sync.ts";
 import type { HandlerDeps } from "../../../src/context.ts";
@@ -20,58 +18,6 @@ const mockLogger = {
     this.calls = [];
   },
 };
-
-const TestConfigService = Layer.succeed(ConfigService, {
-  filesPath: FILES_DIR,
-  dataPath: DATA_DIR,
-  port: 3000,
-  reconcileInterval: 1800,
-});
-
-const TestLoggerService = Layer.succeed(LoggerService, {
-  info: (tag, msg) =>
-    Effect.sync(() => {
-      mockLogger.calls.push({ level: "info", tag, msg });
-    }),
-  warn: (tag, msg) =>
-    Effect.sync(() => {
-      mockLogger.calls.push({ level: "warn", tag, msg });
-    }),
-  error: (tag, msg) =>
-    Effect.sync(() => {
-      mockLogger.calls.push({ level: "error", tag, msg });
-    }),
-  debug: (tag, msg) =>
-    Effect.sync(() => {
-      mockLogger.calls.push({ level: "debug", tag, msg });
-    }),
-});
-
-const RealFileSystemService = Layer.succeed(FileSystemService, {
-  mkdir: (path, options) => Effect.promise(() => mkdir(path, options)),
-  rm: (path, options) => Effect.promise(() => rm(path, options)),
-  readdir: (path) => Effect.promise(() => readdir(path)),
-  stat: (path) =>
-    Effect.promise(async () => {
-      const s = await stat(path);
-      return { isDirectory: () => s.isDirectory(), size: s.size };
-    }),
-  exists: (path) =>
-    Effect.promise(async () => {
-      try {
-        await stat(path);
-        return true;
-      } catch {
-        return false;
-      }
-    }),
-  writeFile: (path, content) => Effect.promise(() => Bun.write(path, content)),
-  atomicWrite: (path, content) => Effect.promise(() => Bun.write(path, content)),
-  symlink: (target, path) => Effect.promise(() => symlink(target, path)),
-  unlink: (path) => Effect.promise(() => unlink(path)),
-});
-
-const TestLayer = Layer.mergeAll(TestConfigService, TestLoggerService, RealFileSystemService);
 
 function realDeps(): HandlerDeps {
   return {
@@ -143,9 +89,10 @@ describe("Cascade Flow Integration", () => {
     await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(albumPath, "01.mp3"));
 
     const audioEvent: EventType = { _tag: "AudioFileCreated", parent: albumPath, name: "01.mp3" };
-    const cascades = await Effect.runPromise(Effect.provide(audioSync(audioEvent), TestLayer));
+    const audioResult = await audioSync(audioEvent, realDeps());
 
-    expect(cascades).toEqual([]);
+    expect(audioResult.isOk()).toBe(true);
+    expect(audioResult._unsafeUnwrap()).toEqual([]);
 
     const episodeDataPath = join(DATA_DIR, "Author", "Album", "01.mp3");
     const episodeEntryPath = join(episodeDataPath, "entry.xml");
@@ -172,9 +119,10 @@ describe("Cascade Flow Integration", () => {
     const event2: EventType = { _tag: "AudioFileCreated", parent: albumPath, name: "02.mp3" };
     const event3: EventType = { _tag: "AudioFileCreated", parent: albumPath, name: "03.mp3" };
 
-    await Effect.runPromise(Effect.provide(audioSync(event1), TestLayer));
-    await Effect.runPromise(Effect.provide(audioSync(event2), TestLayer));
-    await Effect.runPromise(Effect.provide(audioSync(event3), TestLayer));
+    const deps = realDeps();
+    await audioSync(event1, deps);
+    await audioSync(event2, deps);
+    await audioSync(event3, deps);
 
     const entry1 = await readFile(join(DATA_DIR, "Author", "Album", "01.mp3", "entry.xml"), "utf-8");
     const entry2 = await readFile(join(DATA_DIR, "Author", "Album", "02.mp3", "entry.xml"), "utf-8");
