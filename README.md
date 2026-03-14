@@ -172,7 +172,7 @@ bun run test
 bun run test:e2e
 
 # Lint + format
-bun run lint:fix && bun run format
+bun run fix
 ```
 
 ## License
