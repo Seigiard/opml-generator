@@ -40,5 +40,5 @@ files/*
 !files/test/**
 files/test/.DS_Store
 
-docs/plans
+docs/superpowers
 .worktrees
