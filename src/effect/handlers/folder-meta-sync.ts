@@ -1,11 +1,11 @@
-import { Effect } from "effect";
+import { ok, err } from "neverthrow";
+import type { Result } from "neverthrow";
 import { join, relative, dirname } from "node:path";
-import { readdir, stat } from "node:fs/promises";
 import { XMLParser, XMLBuilder } from "fast-xml-parser";
 import { generatePodcastRss } from "../../rss/podcast-rss.ts";
 import type { EpisodeInfo, PodcastInfo } from "../../rss/types.ts";
 import { encodeUrlPath, naturalSort, normalizeFilenameTitle } from "../../utils/processor.ts";
-import { ConfigService, LoggerService, FileSystemService } from "../services.ts";
+import type { HandlerDeps, FileSystemService } from "../../context.ts";
 import type { EventType } from "../types.ts";
 import { FEED_FILE, ENTRY_FILE, FOLDER_ENTRY_FILE, COVER_FILE } from "../../constants.ts";
 
@@ -87,58 +87,74 @@ function parseFolderEntryXml(content: string): FolderChild | null {
   }
 }
 
-export const folderMetaSync = (
+export async function folderMetaSync(
   event: EventType,
-): Effect.Effect<readonly EventType[], Error, ConfigService | LoggerService | FileSystemService> =>
-  Effect.gen(function* () {
-    if (event._tag !== "FolderMetaSyncRequested") return [];
-    const folderDataDir = event.path;
-    const config = yield* ConfigService;
-    const logger = yield* LoggerService;
-    const fs = yield* FileSystemService;
+  deps: HandlerDeps,
+): Promise<Result<readonly EventType[], Error>> {
+  if (event._tag !== "FolderMetaSyncRequested") return ok([]);
 
-    const normalizedDir = folderDataDir.endsWith("/") ? folderDataDir.slice(0, -1) : folderDataDir;
-    const relativePath = relative(config.dataPath, normalizedDir);
+  const folderDataDir = event.path;
+  const { config, logger, fs } = deps;
 
-    if (relativePath !== "") {
-      const sourceFolder = join(config.filesPath, relativePath);
-      const sourceFolderExists = yield* fs.stat(sourceFolder).pipe(
-        Effect.map((s) => s.isDirectory()),
-        Effect.catchAll(() => Effect.succeed(false)),
-      );
-      if (!sourceFolderExists) {
-        yield* logger.debug("FolderMetaSync", "Skipping (source folder deleted)", { path: relativePath });
-        return [];
-      }
+  const normalizedDir = folderDataDir.endsWith("/") ? folderDataDir.slice(0, -1) : folderDataDir;
+  const relativePath = relative(config.dataPath, normalizedDir);
+
+  if (relativePath !== "") {
+    const sourceFolder = join(config.filesPath, relativePath);
+    let sourceFolderExists = false;
+    try {
+      const s = await fs.stat(sourceFolder);
+      sourceFolderExists = s.isDirectory();
+    } catch {
+      sourceFolderExists = false;
     }
+    if (!sourceFolderExists) {
+      logger.debug("FolderMetaSync", "Skipping (source folder deleted)", { path: relativePath });
+      return ok([]);
+    }
+  }
 
-    yield* logger.info("FolderMetaSync", "Processing", { path: relativePath || "(root)" });
+  logger.info("FolderMetaSync", "Processing", { path: relativePath || "(root)" });
 
+  try {
     const feedOutputPath = join(normalizedDir, FEED_FILE);
+    const feedExistedBefore = await fs.exists(feedOutputPath);
 
-    const feedExistedBefore = yield* fs.exists(feedOutputPath);
-
-    const { episodes, folders } = yield* Effect.tryPromise({
-      try: () => collectChildren(normalizedDir),
-      catch: (e) => e as Error,
-    }).pipe(Effect.catchAll(() => Effect.succeed({ episodes: [] as ParsedEpisode[], folders: [] as FolderChild[] })));
+    let episodes: ParsedEpisode[];
+    let folders: FolderChild[];
+    try {
+      const children = await collectChildren(normalizedDir, fs);
+      episodes = children.episodes;
+      folders = children.folders;
+    } catch {
+      episodes = [];
+      folders = [];
+    }
 
     const hasEpisodes = episodes.length > 0;
     const hasFolders = folders.length > 0;
 
     if (!hasEpisodes && !hasFolders && feedExistedBefore) {
-      yield* fs.rm(feedOutputPath).pipe(Effect.catchAll(() => Effect.void));
-      yield* logger.info("FolderMetaSync", "Deleted empty feed.xml", { path: relativePath || "/" });
+      try {
+        await fs.rm(feedOutputPath);
+      } catch {
+        // ignore
+      }
+      logger.info("FolderMetaSync", "Deleted empty feed.xml", { path: relativePath || "/" });
 
       if (relativePath !== "") {
         const entryOutputPath = join(normalizedDir, FOLDER_ENTRY_FILE);
-        const entryExists = yield* fs.exists(entryOutputPath);
+        const entryExists = await fs.exists(entryOutputPath);
         if (entryExists) {
-          yield* fs.rm(entryOutputPath).pipe(Effect.catchAll(() => Effect.void));
+          try {
+            await fs.rm(entryOutputPath);
+          } catch {
+            // ignore
+          }
         }
       }
 
-      return [{ _tag: "FeedXmlDeleted" as const, path: normalizedDir }];
+      return ok([{ _tag: "FeedXmlDeleted" as const, path: normalizedDir }]);
     }
 
     if (hasEpisodes) {
@@ -155,9 +171,8 @@ export const folderMetaSync = (
       const parentRelativePath = dirname(relativePath);
       const podcastAuthor = parentRelativePath !== "." ? parentRelativePath.split("/").pop() : undefined;
 
-      const coverUrl = yield* fs
-        .exists(join(normalizedDir, COVER_FILE))
-        .pipe(Effect.map((exists) => (exists ? `/${encodeUrlPath(relativePath)}/${COVER_FILE}` : undefined)));
+      const coverExists = await fs.exists(join(normalizedDir, COVER_FILE));
+      const coverUrl = coverExists ? `/${encodeUrlPath(relativePath)}/${COVER_FILE}` : undefined;
 
       const podcastInfo: PodcastInfo = {
         title: podcastTitle,
@@ -177,16 +192,16 @@ export const folderMetaSync = (
       }));
 
       const rssXml = generatePodcastRss(podcastInfo, episodeInfos);
-      yield* fs.atomicWrite(feedOutputPath, rssXml);
+      await fs.atomicWrite(feedOutputPath, rssXml);
     } else if (hasFolders) {
       const rawFolderName = relativePath.split("/").pop() || "Catalog";
       const folderName = rawFolderName === "Catalog" ? rawFolderName : normalizeFilenameTitle(rawFolderName);
 
       const navigationXml = buildNavigationFeed(folderName, relativePath, folders);
-      yield* fs.atomicWrite(feedOutputPath, navigationXml);
+      await fs.atomicWrite(feedOutputPath, navigationXml);
     }
 
-    yield* logger.info("FolderMetaSync", "Generated feed.xml", {
+    logger.info("FolderMetaSync", "Generated feed.xml", {
       path: relativePath || "/",
       episodes: episodes.length,
       subfolders: folders.length,
@@ -207,17 +222,17 @@ export const folderMetaSync = (
         },
       }) as string;
 
-      const existingContent = yield* Effect.tryPromise({
-        try: async () => {
-          const file = Bun.file(entryOutputPath);
-          return (await file.exists()) ? await file.text() : null;
-        },
-        catch: () => null as never,
-      }).pipe(Effect.catchAll(() => Effect.succeed(null as string | null)));
+      let existingContent: string | null = null;
+      try {
+        const file = Bun.file(entryOutputPath);
+        existingContent = (await file.exists()) ? await file.text() : null;
+      } catch {
+        existingContent = null;
+      }
 
       if (existingContent !== folderEntryXml) {
-        yield* fs.atomicWrite(entryOutputPath, folderEntryXml);
-        yield* logger.debug("FolderMetaSync", "Updated _entry.xml", { path: relativePath });
+        await fs.atomicWrite(entryOutputPath, folderEntryXml);
+        logger.debug("FolderMetaSync", "Updated _entry.xml", { path: relativePath });
       }
     }
 
@@ -226,21 +241,24 @@ export const folderMetaSync = (
       cascades.push({ _tag: "FeedXmlCreated", path: normalizedDir });
     }
 
-    return cascades;
-  });
+    return ok(cascades);
+  } catch (error) {
+    return err(error as Error);
+  }
+}
 
-async function collectChildren(dir: string): Promise<{ episodes: ParsedEpisode[]; folders: FolderChild[] }> {
+async function collectChildren(dir: string, fs: FileSystemService): Promise<{ episodes: ParsedEpisode[]; folders: FolderChild[] }> {
   const episodes: ParsedEpisode[] = [];
   const folders: FolderChild[] = [];
 
-  const items = await readdir(dir);
+  const items = await fs.readdir(dir);
 
   for (const item of items) {
     if (item.startsWith("_")) continue;
     if (item === FEED_FILE || item.endsWith(".tmp")) continue;
 
     const itemPath = join(dir, item);
-    const itemStat = await stat(itemPath);
+    const itemStat = await fs.stat(itemPath);
 
     if (!itemStat.isDirectory()) continue;
 
