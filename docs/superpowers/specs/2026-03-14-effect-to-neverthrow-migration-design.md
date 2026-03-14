@@ -78,7 +78,26 @@ Eliminate both `effect` and `@effect/schema` dependencies entirely.
 
 Infrastructure is copied from opds-generator (battle-tested). Handlers are migrated one-by-one with new tests at each step.
 
-No Step 0 benchmark — SimpleQueue was already validated against mimalloc in opds-generator's Docker environment (same runtime, same allocator).
+### Step 0: Baseline RSS Measurement
+
+Before any migration work, capture baseline RSS in Docker:
+
+```bash
+# Run 500-event stress test, record RSS before/after
+docker compose -f docker-compose.test.yml run --rm test bun test test/integration/effect/queue-consumer.test.ts
+```
+
+Record: RSS at start, RSS after 500 events, delta per event. Compare against opds-generator's 3.4 KB/event baseline. This validates the motivation and provides a comparison point for post-migration measurement (commit 16).
+
+SimpleQueue was already validated at < 1 KB/event in opds-generator's Docker environment (same Bun runtime, same mimalloc allocator). The Step 0 measurement here confirms the same pattern holds for opml-generator's event workload.
+
+## Effect Feature Audit: No Advanced Features in Handlers
+
+**Verified via `rg 'Fiber\.|Ref\.|Schedule\.|Scope\.' src/effect/handlers/`**: zero results.
+
+All 8 handlers use ONLY: `Effect.gen`, `yield*`, `Effect.tryPromise`, `Effect.catchAll`, `Effect.succeed`, `Effect.map`, `Effect.asVoid`, `Effect.fail`. No Fiber (concurrency), Ref (mutable state), Schedule (retry), or Scope (resource management). The migration is a straightforward unwrap of generators into async/await.
+
+`Schedule.spaced` is used in `server.ts` only (periodic reconciliation) — replaced by a completion-aware async loop (see Server Migration section).
 
 ## EffectTS Feature Inventory
 
@@ -117,7 +136,7 @@ Complete enumeration of all Effect APIs used in the codebase.
 
 #### `queue.ts` — copy verbatim from opds-generator
 
-`SimpleQueue<T>` + `UnrolledQueue` + `QueueChunk` — generic, no domain-specific code. Proven in production.
+`SimpleQueue<T>` + `UnrolledQueue` + `QueueChunk` — generic, no domain-specific code. Verified: `queue.ts` has **zero imports** (no `node:*`, no project-specific modules). Safe to copy verbatim. Proven in production.
 
 #### `context.ts` — adapted for opml-generator
 
@@ -170,7 +189,7 @@ interface LoggerService {
 }
 ```
 
-Verified: the underlying implementation uses `log.info/warn/error/debug` which call `console.log()`/`console.error()` with `JSON.stringify()` — fully synchronous. The `Effect.sync()` wrapper in services.ts was pure ceremony.
+Verified in `src/effect/services.ts:86-91`: current Effect signatures return `Effect.Effect<void>`, implemented as `Effect.sync(() => log.info(...))`. The underlying `log.info/warn/error/debug` call `console.log()`/`console.error()` with `JSON.stringify()` — fully synchronous. The `Effect.sync()` wrapper was pure ceremony. No handler awaits or yields on a logger call for its return value — all logger calls are fire-and-forget.
 
 **FileSystemService** — methods return `Promise<T>`:
 
@@ -190,6 +209,8 @@ interface FileSystemService {
 
 Handlers MUST wrap fs calls in try/catch and convert to `err()` at the handler boundary. Consumer adds defensive try/catch backstop.
 
+**Design note**: The Architect review suggested a Result-returning fs service (methods return `Result<T, Error>` instead of `Promise<T>`). However, opds-generator uses the same Promise-returning pattern successfully in production — this is a deliberate alignment choice. The consumer backstop catches any handler that forgets try/catch. If persistent issues arise post-migration, wrapping fs in ResultAsync can be done later without architectural changes.
+
 **DeduplicationService** — returns `boolean` (synchronous):
 
 ```typescript
@@ -202,7 +223,7 @@ Dedup thresholds: 1000 keys / 5000ms cleanup (matches current opml-generator val
 
 #### Schema Validation → type guards
 
-`RawBooksEvent` and `RawDataEvent` use only `Schema.Struct({ field: Schema.String })` — pure structural validation:
+Verified in `src/effect/types.ts:4-18`: `RawBooksEvent = Schema.Struct({ parent: Schema.String, name: Schema.String, events: Schema.String })` and `RawDataEvent = Schema.Struct({ parent: Schema.String, name: Schema.String, events: Schema.String })`. No transforms, defaults, filters, branded types, or pipe chains — pure structural validation only:
 
 ```typescript
 function isRawBooksEvent(u: unknown): u is RawBooksEvent {
@@ -243,7 +264,7 @@ type UnifiedHandler =
   | { kind: "async"; handler: AsyncHandler };
 ```
 
-Consumer checks `kind` and dispatches accordingly. Removed once all handlers are async.
+Consumer checks `kind` and dispatches accordingly. **Removal gate**: after all 8 handlers are migrated (commit 10), the adapter is removed in commit 12 (consumer migration) when the consumer switches entirely to async dispatch. Add a dedicated test for the adapter's dispatch logic (both branches) in commit 2.
 
 ### Handler Migration Pattern
 
@@ -276,7 +297,10 @@ From simplest to most complex:
 | 5 | folder-sync | 54 | gen, ConfigService, LoggerService, FileSystemService | mkdir + atomicWrite + cascade |
 | 6 | opml-sync | 99 | gen, ConfigService, LoggerService, FileSystemService, tryPromise, catchAll | Walk tree + OPML generation |
 | 7 | audio-sync | 195 | gen, ConfigService, LoggerService, FileSystemService, tryPromise, catchAll (×8) | ID3 extraction, cover processing, resolveEpisodeNumber, resolvePubDate |
-| 8 | folder-meta-sync | 284 | gen, ConfigService, LoggerService, FileSystemService, tryPromise, catchAll, map | Largest — collectChildren, RSS generation, _entry.xml diff |
+| 8a | folder-meta-sync (structure) | ~120 | gen, ConfigService, LoggerService, FileSystemService | collectChildren, folder detection, empty-feed cleanup |
+| 8b | folder-meta-sync (generation) | ~164 | tryPromise, catchAll, map | RSS generation, _entry.xml diff, cascade emission |
+
+Note: folder-meta-sync is split into two commits (8a + 8b) due to size (284 lines total).
 
 Note: `folder-meta-sync` and `opml-sync` also import `readdir`/`stat` directly from `node:fs/promises` alongside the DI `FileSystemService`. During migration, route ALL fs calls through `deps.fs` for consistent testability.
 
@@ -382,6 +406,8 @@ async function startConsumer(
 }
 ```
 
+**GC strategy**: `Bun.gc(true)` every 100 events is inherited from opds-generator. The Step 0 baseline benchmark will determine if forced GC is still needed after migration. If SimpleQueue eliminates the per-take allocation pattern, this can be removed or moved to a timer-based approach outside the consumer hot path.
+
 Preserves all existing event lifecycle logging (event_id, handler_start/handler_complete, cascade info).
 
 ### Server Migration
@@ -428,7 +454,9 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 ```
 
-Matches `Schedule.spaced` semantics: waits for previous execution to complete before scheduling next interval.
+`sleep()` is a custom utility defined in this project (not a Node/Bun built-in). It creates a Promise that resolves after `ms` milliseconds, with AbortSignal support: the abort listener calls `clearTimeout` + `reject`, ensuring the reconciliation loop exits promptly on shutdown.
+
+Matches `Schedule.spaced` semantics: waits for previous execution to complete before scheduling next interval. Overlap prevention: `isSyncing` flag + `ctx.queue.size > 0` check before `reconcile()` — same guards as the current `periodicReconciliation` Effect (server.ts:119-128).
 
 #### Graceful Shutdown
 
@@ -537,38 +565,44 @@ opml-generator already has test helpers — no porting needed:
 ## Commit Plan
 
 ```
- 1. feat: add context.ts, queue.ts, neverthrow dep
+ 0. test: baseline RSS measurement in Docker (Step 0 — go/no-go)
+    Measure: RSS before, RSS after 500 events, delta per event
+ 1. fix: add reconcileInterval to ConfigService (standalone bug fix)
+ 2. feat: add context.ts, queue.ts, neverthrow dep
     Tests: queue unit tests (ported from opds-generator)
- 2. feat: add UnifiedHandler adapter to registry (Effect + async coexist)
-    Tests: adapter type tests
- 3. refactor: migrate parent-meta-sync handler
+ 3. feat: add UnifiedHandler adapter to registry (Effect + async coexist)
+    Tests: adapter dispatch tests (both Effect and async branches)
+ 4. refactor: migrate parent-meta-sync handler
     Tests: REWRITE parent-meta-sync.test.ts (96 lines → mock deps)
- 4. refactor: migrate folder-entry-xml-changed handler
+ 5. refactor: migrate folder-entry-xml-changed handler
     Tests: REWRITE folder-entry-xml-changed.test.ts (121 lines → mock deps)
- 5. refactor: migrate audio-cleanup handler
+ 6. refactor: migrate audio-cleanup handler
     Tests: NEW audio-cleanup.test.ts
- 6. refactor: migrate folder-cleanup handler
+ 7. refactor: migrate folder-cleanup handler
     Tests: NEW folder-cleanup.test.ts
- 7. refactor: migrate folder-sync handler
+ 8. refactor: migrate folder-sync handler
     Tests: NEW folder-sync.test.ts
- 8. refactor: migrate opml-sync handler
+ 9. refactor: migrate opml-sync handler
     Tests: REWRITE opml-sync.test.ts (242 lines → mock deps)
- 9. refactor: migrate audio-sync handler
+10. refactor: migrate audio-sync handler
     Tests: REWRITE audio-sync.test.ts (238 lines → mock deps)
-10. refactor: migrate folder-meta-sync handler
-    Tests: REWRITE folder-meta-sync.test.ts (440 lines → mock deps)
-11. refactor: migrate adapters (books, data)
+11a. refactor: migrate folder-meta-sync (structure + types)
+    Tests: REWRITE folder-meta-sync.test.ts part 1 (collectChildren, empty-feed)
+11b. refactor: migrate folder-meta-sync (generation + cascade)
+    Tests: REWRITE folder-meta-sync.test.ts part 2 (RSS gen, _entry.xml diff)
+12. refactor: migrate adapters (books, data)
     Tests: REWRITE events.test.ts → split into books-adapter.test.ts + data-adapter.test.ts
-12. refactor: migrate consumer to async/AbortController
+13. refactor: migrate consumer to async/AbortController (removes UnifiedHandler)
     Tests: REWRITE queue-consumer.test.ts + cascade-flow.test.ts
-13. refactor: migrate server.ts — buildContext, AbortController, type guards
+14. refactor: migrate server.ts — buildContext, AbortController, type guards
     Tests: REWRITE initial-sync.test.ts + handlers.test.ts (no ManagedRuntime/Layers)
-14. feat: fix ConfigService reconcileInterval gap + add reconciliation
+15. feat: add reconciliation tests (TDD — write tests first, then verify impl)
     Tests: NEW reconciliation.test.ts
-15. chore: verify zero Effect imports, remove effect + @effect/schema, delete services.ts
+16. chore: verify zero Effect imports, remove effect + @effect/schema, delete services.ts
     Tests: grep gate verification
-16. test: full verification suite (tsc, fix, test:all, knip)
-17. docs: update CLAUDE.md + architecture docs
+17. test: full verification suite + post-migration RSS measurement
+    Compare RSS delta against Step 0 baseline. If Bun.gc(true) not needed, remove.
+18. docs: update CLAUDE.md + architecture docs
 ```
 
 Each commit (3-14) includes both the source migration AND its tests, ensuring `bun test` passes after every commit.
