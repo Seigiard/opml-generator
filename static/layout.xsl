@@ -31,9 +31,15 @@
                   <xsl:if test="@author">
                     <small><xsl:value-of select="@author" /></small>
                   </xsl:if>
+                  <xsl:if test="@description">
+                    <p><xsl:value-of select="@description" /></p>
+                  </xsl:if>
+                  <div data-subscribe="" data-href="{@xmlUrl}"></div>
                 </div>
               </li>
             </xsl:for-each>
+            <!-- TODO: remove mock -->
+            <li><div><a href="#">Mock Book With Description</a><small>Mock Author</small><p>A thrilling journey through forgotten worlds and untold stories, narrated with warmth and precision.</p><div data-subscribe="" data-href="http://localhost:8080/mock/feed.xml"></div></div></li>
           </ul>
         </main>
         <script src="/static/subscribe.js"></script>
@@ -67,6 +73,7 @@
               </xsl:if>
             </hgroup>
           </header>
+          <div data-subscribe="" data-href=""></div>
           <ol>
             <xsl:for-each select="channel/item">
               <li>
@@ -82,6 +89,7 @@
             </xsl:for-each>
           </ol>
         </main>
+        <script src="/static/subscribe.js"></script>
       </body>
     </html>
   </xsl:template>

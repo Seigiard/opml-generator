@@ -262,49 +262,24 @@ main > ol > li > small {
   font-variant-numeric: tabular-nums;
 }
 
-/* --- Subscribe widget --- */
+/* --- Subscribe --- */
 
 .subscribe {
-  margin-block-start: 0.5rem;
-}
-
-.subscribe input {
   display: block;
-  width: 100%;
-  padding: 0.375rem 0.5rem;
-  font: inherit;
-  font-size: 0.8125rem;
-  color: var(--color-muted);
-  background: light-dark(#f5f5f5, #252525);
-  border: 1px solid var(--color-rule);
-  border-radius: 3px;
-  cursor: text;
+  margin-block-start: 0.5rem;
+  font-size: 0.75rem;
 }
 
-.subscribe input:focus {
-  outline: 2px solid light-dark(#00e, #8ab4f8);
-  outline-offset: -1px;
-}
-
-.subscribe nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem;
-  margin-block: 0.5rem 0;
-}
-
-.subscribe nav a {
-  font-size: 0.6875rem;
-  padding: 0.2rem 0.5rem;
-  border: 1px solid var(--color-rule);
-  border-radius: 3px;
+.subscribe a {
+  display: inline;
+  font-family: var(--font-body);
+  font-size: inherit;
   text-decoration: none;
-  color: var(--color-muted);
 }
 
-.subscribe nav a:hover {
-  color: light-dark(#222, #e0e0e0);
-  border-color: currentColor;
+.subscribe a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--color-rule);
 }
 
 /* Mobile */

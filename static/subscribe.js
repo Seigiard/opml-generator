@@ -1,61 +1,75 @@
 (function () {
-  var items = document.querySelectorAll("main > ul > li");
-  if (!items.length) return;
-
   var apps = [
+    ["Copy\u00a0RSS", null],
     [
-      "Apple\u00a0Podcasts",
+      "AntennaPod",
       function (u) {
-        return "podcast://" + u.replace(/^https?:\/\//, "");
+        return "antennapod-subscribe://" + u;
       },
     ],
-    [
-      "Overcast",
-      function (u) {
-        return "overcast://x-callback-url/add?url=" + encodeURIComponent(u);
-      },
-    ],
-    [
-      "Pocket\u00a0Casts",
-      function (u) {
-        return "pktc://subscribe/" + encodeURIComponent(u);
-      },
-    ],
-    [
-      "Castro",
-      function (u) {
-        return "castro://subscribe/" + encodeURIComponent(u);
-      },
-    ],
+    // [
+    //   "Apple\u00a0Podcasts",
+    //   function (u) {
+    //     return "podcast://" + u.replace(/^https?:\/\//, "");
+    //   },
+    // ],
+    // [
+    //   "Overcast",
+    //   function (u) {
+    //     return "overcast://x-callback-url/add?url=" + encodeURIComponent(u);
+    //   },
+    // ],
+    // [
+    //   "Pocket\u00a0Casts",
+    //   function (u) {
+    //     return "pktc://subscribe/" + encodeURIComponent(u);
+    //   },
+    // ],
+    // [
+    //   "Castro",
+    //   function (u) {
+    //     return "castro://subscribe/" + encodeURIComponent(u);
+    //   },
+    // ],
+    // [
+    //   "Podcast\u00a0Addict",
+    //   function (u) {
+    //     return "podcastaddict://subscribe/" + encodeURIComponent(u);
+    //   },
+    // ],
   ];
 
-  items.forEach(function (li) {
-    var link = li.querySelector("a");
-    if (!link) return;
-    var url = link.href;
+  document.querySelectorAll("[data-subscribe]").forEach(function (el) {
+    var url = el.dataset.href || location.href;
+    if (!url) return;
 
-    var sub = document.createElement("div");
-    sub.className = "subscribe";
+    var small = document.createElement("small");
+    small.className = "subscribe";
 
-    var input = document.createElement("input");
-    input.type = "text";
-    input.readOnly = true;
-    input.value = url;
-    input.addEventListener("click", function () {
-      this.select();
-    });
-    sub.appendChild(input);
+    apps.forEach(function (app, i) {
+      if (i > 0) small.appendChild(document.createTextNode(" \u00b7 "));
 
-    var nav = document.createElement("nav");
-    apps.forEach(function (app) {
       var a = document.createElement("a");
-      a.href = app[1](url);
-      a.textContent = app[0];
-      nav.appendChild(a);
-    });
-    sub.appendChild(nav);
 
-    var container = li.querySelector("div") || li;
-    container.appendChild(sub);
+      if (app[1] === null) {
+        a.href = "#";
+        a.addEventListener("click", function (e) {
+          e.preventDefault();
+          navigator.clipboard.writeText(url).then(function () {
+            a.textContent = "Copied!";
+            setTimeout(function () {
+              a.textContent = app[0];
+            }, 1500);
+          });
+        });
+      } else {
+        a.href = app[1](url);
+      }
+
+      a.textContent = app[0];
+      small.appendChild(a);
+    });
+
+    el.replaceWith(small);
   });
 })();
