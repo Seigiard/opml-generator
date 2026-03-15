@@ -23,11 +23,20 @@
           <ul>
             <xsl:for-each select="body/outline">
               <li>
-                <a href="{@xmlUrl}"><xsl:value-of select="@title" /></a>
+                <xsl:if test="@imageUrl">
+                  <img src="{@imageUrl}" alt="" />
+                </xsl:if>
+                <div>
+                  <a href="{@xmlUrl}"><xsl:value-of select="@title" /></a>
+                  <xsl:if test="@author">
+                    <small><xsl:value-of select="@author" /></small>
+                  </xsl:if>
+                </div>
               </li>
             </xsl:for-each>
           </ul>
         </main>
+        <script src="/static/subscribe.js"></script>
       </body>
     </html>
   </xsl:template>
@@ -47,19 +56,22 @@
           <a href="/feed.opml">&#8592; Back</a>
         </nav>
         <main>
-          <h1><xsl:value-of select="channel/title" /></h1>
-          <xsl:if test="channel/itunes:image">
-            <img src="{channel/itunes:image/@href}" alt="" />
-          </xsl:if>
-          <xsl:if test="channel/itunes:author">
-            <p><xsl:value-of select="channel/itunes:author" /></p>
-          </xsl:if>
+          <header>
+            <xsl:if test="channel/itunes:image">
+              <img src="{channel/itunes:image/@href}" alt="" />
+            </xsl:if>
+            <hgroup>
+              <h1><xsl:value-of select="channel/title" /></h1>
+              <xsl:if test="channel/itunes:author">
+                <p><xsl:value-of select="channel/itunes:author" /></p>
+              </xsl:if>
+            </hgroup>
+          </header>
           <ol>
             <xsl:for-each select="channel/item">
               <li>
                 <a href="{enclosure/@url}"><xsl:value-of select="title" /></a>
                 <xsl:if test="itunes:duration">
-                  <xsl:text> </xsl:text>
                   <small>
                     <xsl:call-template name="format-duration">
                       <xsl:with-param name="seconds" select="itunes:duration" />

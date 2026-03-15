@@ -62,18 +62,21 @@ function realDeps(): HandlerDeps {
   };
 }
 
-function makePodcastRss(title: string): string {
-  return generatePodcastRss({ title, author: "Test Author" }, [
-    {
-      title: "Episode 1",
-      guid: "ep1",
-      pubDate: "2024-01-15T10:00:00.000Z",
-      enclosureUrl: "/test/ep1.mp3",
-      enclosureLength: 1000,
-      enclosureType: "audio/mpeg",
-      episodeNumber: 1,
-    },
-  ]);
+function makePodcastRss(title: string, overrides: Partial<{ author: string; description: string; imageUrl: string }> = {}): string {
+  return generatePodcastRss(
+    { title, author: overrides.author ?? "Test Author", description: overrides.description, imageUrl: overrides.imageUrl },
+    [
+      {
+        title: "Episode 1",
+        guid: "ep1",
+        pubDate: "2024-01-15T10:00:00.000Z",
+        enclosureUrl: "/test/ep1.mp3",
+        enclosureLength: 1000,
+        enclosureType: "audio/mpeg",
+        episodeNumber: 1,
+      },
+    ],
+  );
 }
 
 describe("opmlSync handler", () => {
@@ -200,6 +203,45 @@ describe("opmlSync handler", () => {
     // #then
     expect(result.isOk()).toBe(true);
     expect(result._unsafeUnwrap()).toEqual([]);
+  });
+
+  test("includes author, description, and imageUrl in OPML outlines", async () => {
+    // #given
+    const albumDir = join(DATA_DIR, "Author", "Album");
+    await mkdir(albumDir, { recursive: true });
+    await Bun.write(
+      join(albumDir, "feed.xml"),
+      makePodcastRss("Rich Feed", {
+        author: "Jane Doe",
+        description: "A great audiobook",
+        imageUrl: "/data/Author/Album/cover.jpg",
+      }),
+    );
+    // #when
+    const event: EventType = { _tag: "FeedXmlCreated", path: albumDir };
+    await opmlSync(event, realDeps());
+    // #then
+    const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
+    expect(content).toContain('author="Jane Doe"');
+    expect(content).toContain('description="A great audiobook"');
+    expect(content).toContain("imageUrl=");
+    expect(content).toContain("cover.jpg");
+  });
+
+  test("omits author and imageUrl when not present in feed", async () => {
+    // #given
+    const albumDir = join(DATA_DIR, "Minimal", "Book");
+    await mkdir(albumDir, { recursive: true });
+    const minimalRss = `<?xml version="1.0"?><rss version="2.0"><channel><title>Minimal</title></channel></rss>`;
+    await Bun.write(join(albumDir, "feed.xml"), minimalRss);
+    // #when
+    const event: EventType = { _tag: "FeedXmlCreated", path: albumDir };
+    await opmlSync(event, realDeps());
+    // #then
+    const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
+    expect(content).toContain("Minimal");
+    expect(content).not.toContain("author=");
+    expect(content).not.toContain("imageUrl=");
   });
 
   test("logs OPML generation info", async () => {

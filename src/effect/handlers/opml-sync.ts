@@ -9,11 +9,17 @@ import type { EventType } from "../types.ts";
 import { FEED_FILE, OPML_FILE } from "../../constants.ts";
 import type { OpmlOutline } from "../../rss/types.ts";
 
-const xmlParser = new XMLParser();
+const xmlParser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: "@_",
+});
 
 interface DiscoveredFeed {
   title: string;
   feedUrl: string;
+  author?: string;
+  imageUrl?: string;
+  description?: string;
 }
 
 async function collectPodcastFeeds(dataRoot: string, fs: FileSystemService): Promise<DiscoveredFeed[]> {
@@ -55,13 +61,31 @@ async function parsePodcastFeed(feedPath: string, feedDir: string, dataRoot: str
     const content = await Bun.file(feedPath).text();
     const parsed = xmlParser.parse(content);
 
-    const channelTitle = parsed?.rss?.channel?.title;
+    const channel = parsed?.rss?.channel;
+    const channelTitle = channel?.title;
     if (!channelTitle) return null;
 
     const relativePath = relative(dataRoot, feedDir);
     const feedUrl = `/${encodeUrlPath(relativePath)}/${FEED_FILE}`;
 
-    return { title: String(channelTitle), feedUrl };
+    const feed: DiscoveredFeed = { title: String(channelTitle), feedUrl };
+
+    const author = channel["itunes:author"];
+    if (typeof author === "string" && author) {
+      feed.author = author;
+    }
+
+    const imageHref = channel["itunes:image"]?.["@_href"];
+    if (typeof imageHref === "string" && imageHref) {
+      feed.imageUrl = imageHref;
+    }
+
+    const description = channel.description;
+    if (typeof description === "string" && description) {
+      feed.description = description;
+    }
+
+    return feed;
   } catch {
     return null;
   }
@@ -86,6 +110,9 @@ export async function opmlSync(event: EventType, deps: HandlerDeps): Promise<Res
   const outlines: OpmlOutline[] = feeds.map((f) => ({
     title: f.title,
     feedUrl: f.feedUrl,
+    author: f.author,
+    imageUrl: f.imageUrl,
+    description: f.description,
   }));
 
   const opmlXml = generateOpml("Audiobooks", outlines);

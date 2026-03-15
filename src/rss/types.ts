@@ -21,4 +21,7 @@ export interface OpmlOutline {
   title: string;
   feedUrl: string;
   htmlUrl?: string;
+  author?: string;
+  imageUrl?: string;
+  description?: string;
 }

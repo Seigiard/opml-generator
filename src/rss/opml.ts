@@ -23,6 +23,18 @@ export function generateOpml(title: string, feeds: OpmlOutline[]): string {
       outline["@_htmlUrl"] = feed.htmlUrl;
     }
 
+    if (feed.description) {
+      outline["@_description"] = feed.description;
+    }
+
+    if (feed.author) {
+      outline["@_author"] = feed.author;
+    }
+
+    if (feed.imageUrl) {
+      outline["@_imageUrl"] = feed.imageUrl;
+    }
+
     return outline;
   });
 

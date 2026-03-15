@@ -135,6 +135,56 @@ describe("generateOpml", () => {
     expect(parsed.opml.body.outline[2]["@_title"]).toBe("Feed C");
   });
 
+  test("sets outline description when provided", () => {
+    // #given
+    const feed = makeOutline({ description: "A great audiobook" });
+
+    // #when
+    const parsed = parser.parse(generateOpml("Feeds", [feed]));
+    const outline = parsed.opml.body.outline[0];
+
+    // #then
+    expect(outline["@_description"]).toBe("A great audiobook");
+  });
+
+  test("sets outline author when provided", () => {
+    // #given
+    const feed = makeOutline({ author: "Jane Doe" });
+
+    // #when
+    const parsed = parser.parse(generateOpml("Feeds", [feed]));
+    const outline = parsed.opml.body.outline[0];
+
+    // #then
+    expect(outline["@_author"]).toBe("Jane Doe");
+  });
+
+  test("sets outline imageUrl when provided", () => {
+    // #given
+    const feed = makeOutline({ imageUrl: "{{{BASE_URL}}}/data/Author/Book/cover.jpg" });
+
+    // #when
+    const parsed = parser.parse(generateOpml("Feeds", [feed]));
+    const outline = parsed.opml.body.outline[0];
+
+    // #then
+    expect(outline["@_imageUrl"]).toBe("{{{BASE_URL}}}/data/Author/Book/cover.jpg");
+  });
+
+  test("omits description, author, imageUrl when undefined", () => {
+    // #given
+    const feed = makeOutline();
+
+    // #when
+    const parsed = parser.parse(generateOpml("Feeds", [feed]));
+    const outline = parsed.opml.body.outline[0];
+
+    // #then
+    expect(outline["@_description"]).toBeUndefined();
+    expect(outline["@_author"]).toBeUndefined();
+    expect(outline["@_imageUrl"]).toBeUndefined();
+  });
+
   test("produces valid OPML with empty feeds list", () => {
     // #given / #when
     const xml = generateOpml("Empty", []);
