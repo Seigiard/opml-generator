@@ -112,6 +112,13 @@ small {
 body {
   background: var(--color-bg);
   color: var(--color-text);
+  transition: opacity 0.15s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body {
+    transition: none;
+  }
 }
 a {
   color: inherit;
@@ -174,10 +181,20 @@ nav a:hover {
   display: flex;
   align-items: start;
   gap: 1rem;
-  padding-block: 0.75rem;
+  padding-block: 0.75rem 1rem;
   padding-inline-start: calc(3.5rem + 1rem);
+  position: relative;
+  isolation: isolate;
 }
-
+.podcast a:not(.podcast__title) {
+  position: relative;
+}
+.podcast a:not(.podcast__title)::before {
+  content: "";
+  position: absolute;
+  inset: -0.5rem;
+  z-index: 0;
+}
 .podcast__cover {
   inline-size: 3.5rem;
   block-size: 3.5rem;
@@ -196,6 +213,12 @@ nav a:hover {
   font-family: var(--font-header);
   font-size: 1.5rem;
   letter-spacing: -0.01em;
+}
+.podcast__title::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
 }
 
 .podcast__author {

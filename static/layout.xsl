@@ -3,6 +3,7 @@
   version="1.0"
   xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
   xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+  xmlns:atom="http://www.w3.org/2005/Atom"
 >
 
   <xsl:output method="html" encoding="UTF-8" />
@@ -38,19 +39,10 @@
                 </div>
               </li>
             </xsl:for-each>
-            <!-- TODO: remove mock -->
-            <li class="podcast"><div class="podcast__body"><a
-                  class="podcast__title"
-                  href="#"
-                >Mock Book With Description</a><small class="podcast__author">Mock Author</small><p
-                  class="podcast__desc"
-                >A thrilling journey through forgotten worlds and untold stories, narrated with warmth and precision.</p><div
-                  data-subscribe=""
-                  data-href="http://localhost:8080/mock/feed.xml"
-                /></div></li>
           </ul>
         </main>
         <script src="/static/subscribe.js" />
+        <script src="/static/nav.js" />
       </body>
     </html>
   </xsl:template>
@@ -101,6 +93,7 @@
           </ol>
         </main>
         <script src="/static/subscribe.js" />
+        <script src="/static/nav.js" />
       </body>
     </html>
   </xsl:template>
