@@ -58,6 +58,7 @@ export function generatePodcastRss(podcast: PodcastInfo, episodes: EpisodeInfo[]
 
   const rssObj = {
     "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
+    "?xml-stylesheet": { "@_type": "text/xsl", "@_href": "/static/layout.xsl" },
     rss: {
       "@_version": "2.0",
       "@_xmlns:itunes": "http://www.itunes.com/dtds/podcast-1.0.dtd",

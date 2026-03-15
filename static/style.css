@@ -1,727 +1,224 @@
-/* ====================== CSS VARIABLES ====================== */
-/* 1. Use a more-intuitive box-sizing model */
-*,
-:after,
-:before {
-  box-sizing: border-box;
-}
-/* 2. Remove default margin */
-:not(dialog) {
-  margin: 0;
-}
-/* 3. Enable keyword animations */
-@media (prefers-reduced-motion: no-preference) {
+@charset "UTF-8";
+
+@layer {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    background-repeat: no-repeat;
+  }
+
+  * {
+    padding: 0;
+    margin: 0;
+  }
+
   html {
-    interpolate-size: allow-keywords;
+    -webkit-text-size-adjust: none;
+    text-size-adjust: none;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    block-size: 100%;
+    color-scheme: light dark;
+  }
+
+  body {
+    min-block-size: 100%;
+  }
+
+  img {
+    display: block;
+    max-inline-size: 100%;
+    block-size: auto;
+  }
+
+  p,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    overflow-wrap: break-word;
+  }
+
+  p {
+    text-wrap: pretty;
+    font-variant-numeric: proportional-nums;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-variant-numeric: lining-nums;
+  }
+
+  p,
+  blockquote,
+  q,
+  figcaption,
+  li {
+    hanging-punctuation: first allow-end last;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    line-height: 1.1;
   }
 }
-body {
-  /* 4. Add accessible line-height */
-  line-height: 1.5;
-  /* 5. Improve text rendering */
-  -webkit-font-smoothing: antialiased;
-  font-weight: 400;
+
+:root {
+  --font-header: Charter, "Bitstream Charter", "Sitka Text", Cambria, serif;
+  --font-body: Inter, Roboto, "Helvetica Neue", "Arial Nova", "Nimbus Sans", Arial, sans-serif;
+  font-weight: normal;
 }
-/* 6. Improve media defaults */
-canvas,
-img,
-picture,
-svg,
-video {
-  display: block;
-  max-width: 100%;
+
+html {
+  font-family: var(--font-body);
+  font-size: 1rem;
+  line-height: 1.5rem;
 }
-/* 7. Inherit fonts for form controls */
-button,
-input,
-select,
-textarea {
-  font: inherit;
+
+/* Minor third */
+h1 {
+  font-size: 2.488em;
 }
-/* 8. Avoid text overflows */
+h2 {
+  font-size: 2.074em;
+}
+h3 {
+  font-size: 1.728em;
+}
+h4 {
+  font-size: 1.44em;
+}
+h5 {
+  font-size: 1.2em;
+}
+h6 {
+  font-size: 1em;
+}
+small {
+  font-size: 0.833em;
+}
+
 h1,
 h2,
-h3,
-h4,
-h5,
-h6,
-p {
-  overflow-wrap: break-word;
+h3 {
+  font-family: var(--font-header);
+  line-height: 3rem;
 }
-/* 9. Improve line wrapping */
-p {
-  text-wrap: pretty;
-}
+
+p,
+ul,
+ol,
+dl,
+table,
+blockquote,
+pre,
 h1,
 h2,
 h3,
 h4,
 h5,
 h6 {
-  text-wrap: balance;
-} /* --- CSS Variables --- */
-:root {
-  /* --- Typography --- */
-  --font-system: system-ui, sans-serif;
-  --font-old-style: "Iowan Old Style", "Palatino Linotype", "URW Palladio L", P052, serif;
-  --font-size-sm: 0.875rem;
-
-  /* --- Colors --- */
-  --color-bg: #fff;
-  --color-text: #0a0a0a;
-  --color-text-muted: #71717a;
-  --color-accent: #6366f1;
-
-  /* --- Scrollbar --- */
-  --scrollbar-track: var(--color-bg);
-  --scrollbar-thumb: #d4d4d8;
-  --scrollbar-thumb-hover: var(--color-accent);
-
-  /* --- Card --- */
-  --card-bg--basic: #f1f5f9;
-  --card-bg: var(--card-bg--basic);
-  --card-max-width: 11rem;
-  --card-radius: 0.125rem 0.3rem 0.3rem 0.125rem;
-  --card-light-radius: 0 0.3rem 0.3rem 0;
-  --card-shadow: inset 4px 1px 3px #ffffff60, inset 0 -1px 2px #00000080, 10px 0px 10px -5px #00000030, 0px 0px 1px 0px #0000007d;
-  --card-pages-shadow:
-    10px 40px 40px -10px #00000030, inset -2px 0 0 grey, inset -3px 0 0 #dbdbdb, inset -4px 0 0 #fff, inset -5px 0 0 #dbdbdb,
-    inset -6px 0 0 #fff, inset -7px 0 0 #dbdbdb, inset -8px 0 0 #fff, inset -9px 0 0 #dbdbdb;
-  --card-focus-ring: var(--color-accent);
-  --card-rotate-1: 5deg;
-  --card-rotate-2: -5deg;
-  --card-rotate-3: 2deg;
-
-  /* --- Animation --- */
-  --transition-fast: 200ms ease-out;
-  --transition-slow: 500ms ease-out;
-
-  /* --- Layout --- */
-  --grid-min-col: 10rem;
-}
-
-/* --- Dark Mode --- */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-bg: #0a0a0a;
-    --color-text: #fafafa;
-    --color-text-muted: #a1a1aa;
-    --scrollbar-thumb: #52525b;
-    --card-bg: #27272a;
-    --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.5);
-    --card-pages-shadow:
-      10px 40px 40px -10px #00000060, inset -2px 0 0 #52525b, inset -3px 0 0 #3f3f46, inset -4px 0 0 #27272a, inset -5px 0 0 #3f3f46,
-      inset -6px 0 0 #27272a, inset -7px 0 0 #3f3f46, inset -8px 0 0 #27272a, inset -9px 0 0 #3f3f46;
-  }
-}
-
-/* --- Global Styles --- */
-body {
-  background-color: var(--color-bg);
-  color: var(--color-text);
-  font-family: var(--font-system);
-  margin: 0 auto;
-  max-width: 80rem;
-  padding: 1.5rem;
-}
-::-webkit-scrollbar {
-  height: 8px;
-  width: 8px;
-}
-::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
-}
-::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
-}
-
-/* --- Grid --- */
-.books-grid {
-  --grid-amount: 1;
-  --grid-gap: 2rem;
-  display: grid;
-  gap: var(--grid-gap);
-  grid-template-columns: repeat(auto-fit, minmax(var(--grid-min-col), 1fr));
-  max-width: calc((var(--grid-min-col) + var(--grid-gap)) * var(--grid-amount));
-}
-.books-grid:has(> :nth-child(2)) {
-  --grid-amount: 2;
-}
-.books-grid:has(> :nth-child(3)) {
-  --grid-amount: 3;
-}
-.books-grid:has(> :nth-child(4)) {
-  --grid-amount: 4;
-}
-.books-grid:has(> :nth-child(5)) {
-  --grid-amount: 5;
-}
-.books-grid:has(> :nth-child(6)) {
-  --grid-amount: 6;
-}
-
-/* --- Card --- */
-.card {
-  align-self: start;
-  color: inherit;
-  gap: 0.75rem;
-  grid-template-columns: 1fr;
-  grid-template-rows: 1fr min-content;
-  max-width: var(--card-max-width);
-  outline: 0;
-  text-decoration: none;
-}
-.book,
-.card {
-  display: grid;
-  width: 100%;
-}
-.book {
-  aspect-ratio: 225/350;
-  border-radius: var(--card-radius);
-  grid-area: 1/1/2/2;
-  grid-template-areas: "stack";
-  grid-template-columns: 1fr;
-  grid-template-rows: 1fr;
-  isolation: isolate;
-}
-.book:after {
-  background: #fff;
-  border: 1px solid grey;
-  border-radius: 3px;
-  content: "";
-  display: block;
-  grid-area: stack;
-  height: 96%;
-  top: 2%;
-  width: calc(100% - 2px);
-  z-index: 0;
-}
-.book:after,
-.card--folder {
-  position: relative;
-}
-.card--folder .book {
-  padding: 8% 5%;
-  transform-style: preserve-3d;
-  transition: transform var(--transition-slow);
-}
-.card--folder .book:nth-child(3n + 1) {
-  transform: rotate(var(--card-rotate-1)) translateY(-0.5rem);
-  transform-origin: bottom;
-}
-.card--folder .book:nth-child(3n + 2) {
-  transform: rotate(var(--card-rotate-2)) translateX(-1rem);
-  transform-origin: top;
-}
-.card--folder .book:nth-child(3n + 3) {
-  transform: rotate(var(--card-rotate-3));
-  transform-origin: center;
-}
-.card--book .book:after {
-  /* Page edges — stacked paper illusion via layered inset shadows */
-  box-shadow: var(--card-pages-shadow);
-}
-.book__cover {
-  aspect-ratio: inherit;
-  background: var(--card-bg);
-  border-radius: var(--card-radius);
-  box-shadow: var(--card-shadow);
-  display: grid;
-  /* Book cover with spine and glare effects */
-  grid-area: stack;
-  grid-template-areas: "spine cover";
-  grid-template-columns: 0.5rem 1fr;
-  grid-template-rows: 1fr;
-  isolation: isolate;
-  justify-content: center;
-  outline: 3px solid transparent;
-  outline-offset: 2px;
-  overflow: hidden;
-  transform-origin: 0 50%;
-  transition:
-    transform var(--transition-slow),
-    box-shadow var(--transition-slow),
-    outline-color var(--transition-slow);
-  z-index: 1;
-}
-.book__cover:before {
-  background-image: linear-gradient(90deg, hsla(0, 0%, 100%, 0.2) 0, hsla(0, 0%, 100%, 0));
-  border-right: 1.5px solid #00000020;
-  box-shadow: 0 1.5px 0 1px #ffffff20;
-  /* Spine shadow — depth illusion at book binding */
-  content: "";
-  display: block;
-  grid-area: spine;
-  place-self: stretch;
-  z-index: 2;
-}
-.book__cover:after {
-  background-image: linear-gradient(90deg, #fff 0, hsla(0, 0%, 100%, 0) 50%);
-  border-radius: var(--card-light-radius);
-  /* Glare overlay — light reflection on cover surface */
-  content: "";
-  display: block;
-  grid-area: cover;
-  opacity: 0.3;
-  place-self: stretch;
-  transition: opacity var(--transition-slow);
-  z-index: 2;
-}
-.book__cover > img {
-  grid-area: 1/1/2/3;
-  min-height: 100%;
-  -o-object-fit: cover;
-  object-fit: cover;
-  place-self: center;
-  transition: transform var(--transition-slow);
-  width: 100%;
-  z-index: 1;
-}
-.book__cover > span {
-  align-self: start;
-  display: -webkit-box;
-  font-family: var(--font-old-style);
-  grid-area: 1/1/2/3;
-  height: -moz-fit-content;
-  height: fit-content;
-  justify-self: left;
-  -webkit-line-clamp: 4;
-  line-height: 1.25;
-  margin: 10%;
-  text-align: right;
-  width: 5rem;
-  -webkit-box-orient: vertical;
-  color: #000;
-  opacity: 0.8;
-  overflow: hidden;
-  transform: rotate(180deg);
-  writing-mode: vertical-rl;
-}
-@supports (hanging-punctuation: first) and (font: -apple-system-body) and (-webkit-appearance: none) {
-  .book__cover > span {
-    /* Hide in Safari (bug with writing-mode: vertical-rl;) */
-    display: none;
-  }
-}
-
-/* --- Card States --- */
-.card:has(input:checked) .book__cover {
-  box-shadow: var(--card-shadow);
-  transform: perspective(2000px) rotateY(-45deg);
-  transform-style: preserve-3d;
-}
-@media (hover: hover) and (pointer: fine) {
-  .card.card--book:has(label:hover):not(:has(input:checked)) .book__cover {
-    box-shadow: var(--card-shadow);
-    transform: perspective(2000px) rotateY(-30deg);
-    transform-style: preserve-3d;
-  }
-  .card.card--book:has(label:hover) .book__cover:after {
-    opacity: 0.5;
-  }
-  .card.card--folder:has(a:hover) .book:nth-child(3n + 1) {
-    --card-rotate-1: 6deg;
-  }
-  .card.card--folder:has(a:hover) .book:nth-child(3n + 2) {
-    --card-rotate-2: -6deg;
-  }
-  .card.card--folder:has(a:hover) .book:nth-child(3n + 3) {
-    --card-rotate-3: 1deg;
-  }
-}
-.card.card--book:has(:focus-visible) .book__cover,
-.card.card--folder:has(:focus-visible) .book:nth-child(3) .book__cover {
-  outline-color: var(--card-focus-ring);
-}
-.card__info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  grid-area: 2/1/2/2;
-  min-width: 0;
-  padding: 0 0.75rem;
-}
-.card__info h3 {
-  display: -webkit-box;
-  font-size: 1rem;
-  font-weight: 500;
-  -webkit-line-clamp: 3;
-  line-height: 1.25;
-  -webkit-box-orient: vertical;
-  color: inherit;
-  overflow: hidden;
-}
-.card__info h3 a {
-  color: inherit;
-  outline: none;
-  text-decoration: none;
-}
-.card__info h3 a:before {
-  content: "";
-  display: block;
-  inset: 0;
-  position: absolute;
-}
-.card__info p {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* --- Popup --- */
-body:has(.popup-trigger__wrapper input:checked) {
-  overflow: hidden;
-}
-.popup-trigger input,
-.popup-trigger span,
-.popup__close-button input,
-.popup__close-button span {
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  padding: 0;
-  position: absolute;
-  width: 1px;
-  clip: rect(0, 0, 0, 0);
-  border-width: 0;
-  white-space: nowrap;
-}
-.popup-trigger__wrapper:not(:has(input:checked)) {
-  position: relative;
-}
-.popup-trigger__wrapper:not(:has(input:checked)) .popup-trigger:after {
-  content: "";
-  cursor: pointer;
-  display: block;
-  inset: 0;
-  outline: none;
-  position: absolute;
-  z-index: 10;
-}
-.popup__close-button {
-  background:
-    linear-gradient(45deg, transparent 42%, var(--color-text) 42%, var(--color-text) 58%, transparent 58%),
-    linear-gradient(-45deg, transparent 42%, var(--color-text) 42%, var(--color-text) 58%, transparent 58%);
-  border-radius: 0.25rem;
-  cursor: pointer;
-  height: 1.5rem;
-  outline: 3px solid transparent;
-  outline-offset: 4px;
-  /* X close button via crossed diagonal gradients */
-  position: fixed;
-  right: 1rem;
-  top: 1rem;
-  transition:
-    transform var(--transition-fast),
-    outline-color var(--transition-fast);
-  width: 1.5rem;
-  z-index: 101;
-}
-.popup__close-button:focus-visible {
-  outline-color: var(--card-focus-ring);
-}
-@media (hover: hover) and (pointer: fine) {
-  .popup-trigger__wrapper:has(input:checked) + .popup .popup__close-button:hover {
-    transform: scale(1.1);
-  }
-}
-.popup {
-  background: var(--color-bg);
-  display: none;
-  inset: 0;
-  overflow: none;
-  position: fixed;
-  z-index: 100;
-}
-.popup-trigger__wrapper:has(input:checked) + .popup {
-  animation: popup-fade-in var(--transition-slow) forwards;
-  display: block;
-}
-@keyframes popup-fade-in {
-  0% {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-.popup__content {
-  display: grid;
-  grid-template-columns: 2fr 3fr;
-  height: 100svh;
-  margin: 0 auto;
-  max-width: 80rem;
-}
-.popup__cover {
-  align-items: start;
-  display: flex;
-  justify-content: center;
-  padding: 3rem;
-}
-.popup__cover .book {
-  max-width: 20rem;
-  width: 55svh;
-}
-.popup__info {
-  gap: 2.5rem;
-  height: 100svh;
-  overflow-y: auto;
-  padding: 3rem 4rem;
-}
-.popup__info,
-.popup__info hgroup {
-  display: flex;
-  flex-direction: column;
-}
-.popup__info hgroup {
-  gap: 0.5rem;
-}
-.popup__title {
-  font-size: 2rem;
-  font-weight: 600;
-  line-height: 1.25;
-}
-.popup__author {
-  font-size: 1.3rem;
-}
-.popup__description {
-  color: var(--color-text);
-  line-height: 1.6;
-}
-.popup__footer {
-  align-items: center;
-  -moz-column-gap: 4rem;
-  column-gap: 4rem;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  row-gap: 1rem;
-}
-.popup__meta {
-  color: var(--color-text-muted);
-  display: flex;
-  flex-direction: column;
-}
-.popup__downloads {
-  display: flex;
-  gap: 0.75rem;
-}
-.popup__download-btn {
-  background: var(--color-accent);
-  border-radius: 0.375rem;
-  color: #fff;
-  display: inline-block;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  outline: 3px solid transparent;
-  outline-offset: 2px;
-  padding: 0.625rem 1.25rem;
-  text-decoration: none;
-  transition:
-    background var(--transition-fast),
-    transform var(--transition-fast),
-    outline-color var(--transition-fast);
-}
-.popup__download-btn:focus-visible {
-  outline-color: var(--color-accent);
-}
-@media (hover: hover) and (pointer: fine) {
-  .popup__download-btn:hover {
-    background: color-mix(in srgb, var(--color-accent) 85%, #000);
-    transform: translateY(-1px);
-  }
-}
-@media (max-width: 768px) {
-  :root {
-    /* --- Layout --- */
-    --grid-min-col: 10rem;
-  }
-  .popup__content {
-    grid-template-columns: 1fr;
-    overflow-y: auto;
-  }
-  .popup__cover {
-    height: 24rem;
-  }
-  .popup__cover .book {
-    max-width: 12rem;
-    width: 100%;
-  }
-  .popup__info {
-    height: auto;
-    overflow-y: visible;
-    padding: 1rem 2rem;
-  }
-} /* --- Header --- */
-.header {
-  align-items: flex-start;
-  display: flex;
-  gap: 1.5rem;
-  justify-content: space-between;
-  margin-bottom: 1.5rem;
-}
-.header__left {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-/* --- Breadcrumb --- */
-.header__breadcrumb {
-  font-size: var(--font-size-sm);
-  gap: 0.5rem;
-}
-.header__breadcrumb,
-.header__home {
-  align-items: center;
-  color: var(--color-text-muted);
-  display: flex;
-}
-.header__home {
-  border-radius: 0.25rem;
-  outline: 3px solid transparent;
-  outline-offset: 2px;
-  transition:
-    color var(--transition-fast),
-    outline-color var(--transition-slow);
-}
-.header__home:hover {
-  color: var(--color-accent);
-}
-.header__home:focus-visible {
-  outline-color: var(--color-accent);
-}
-.header__icon {
-  height: 1.25rem;
-  width: 1.25rem;
-}
-.header__separator {
-  color: var(--color-text-muted);
-  font-weight: 300;
-}
-.header__breadcrumb-text {
-  font-weight: 500;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-/* --- Title --- */
-.header__title {
-  font-size: 2rem;
-  font-weight: 600;
-  line-height: 1.25;
+  margin: 1.5rem 0 0;
+}
+ul ul,
+ol ol,
+ul ol,
+ol ul {
   margin: 0;
 }
 
-/* --- Search --- */
-.header__search-wrapper {
-  align-items: center;
-  display: flex;
-  flex: 1;
-  max-width: 25rem;
-  min-width: 15rem;
-  position: relative;
-}
-.header__search-icon {
-  color: var(--color-text-muted);
-  height: 1.25rem;
-  left: 0.75rem;
-  pointer-events: none;
-  position: absolute;
-  width: 1.25rem;
-}
-.header__search {
-  background: color-mix(in srgb, var(--color-text-muted) 10%, transparent);
+hr {
+  margin: 0;
   border: none;
-  border-radius: 1.5rem;
-  color: var(--color-text);
-  font-family: inherit;
-  font-size: 1rem;
-  outline: 3px solid transparent;
+  padding: 1.5rem 0 0;
+}
+
+/* Colors */
+
+body {
+  background: light-dark(#fff, #1a1a1a);
+  color: light-dark(#222, #e0e0e0);
+}
+a {
+  color: light-dark(#00e, #8ab4f8);
+}
+a:visited {
+  color: light-dark(#60b, #c58af9);
+}
+small {
+  color: light-dark(#666, #999);
+}
+
+/* Layout */
+
+body {
+  margin: 0 auto;
+  padding: 1rem 2rem;
+  max-width: 60rem;
+}
+
+img {
+  max-inline-size: 12rem;
+}
+
+/* Lists */
+
+ul,
+ol {
+  padding: 0 0 0 3ch;
+}
+
+ul > li {
+  list-style-type: disc;
+}
+ol > li {
+  list-style-type: decimal;
+}
+
+/* Links */
+
+a {
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+  text-decoration-color: light-dark(#00e4, #8ab4f84d);
+}
+a:hover {
+  text-decoration-color: currentColor;
+}
+
+/* Focus */
+
+:focus-visible {
+  outline: 2px solid light-dark(#00e, #8ab4f8);
   outline-offset: 2px;
-  padding: 0.625rem 0.75rem 0.625rem 2.5rem;
-  transition:
-    background var(--transition-fast),
-    outline-color var(--transition-slow);
-  width: 100%;
-}
-.header__search::-moz-placeholder {
-  color: var(--color-text-muted);
-}
-.header__search::placeholder {
-  color: var(--color-text-muted);
-}
-.header__search:focus,
-.header__search:hover {
-  background: color-mix(in srgb, var(--color-text-muted) 15%, transparent);
-}
-.header__search:focus {
-  outline-color: var(--color-accent);
 }
 
-/* --- Mobile --- */
-@media (max-width: 768px) {
-  .header {
-    flex-direction: column;
-    gap: 1rem;
+/* Nav */
+
+nav {
+  margin-block-end: 1.5rem;
+}
+
+/* Mobile */
+
+@media (max-width: 40em) {
+  body {
+    padding: 1rem;
   }
-  .header__search-wrapper {
-    max-width: none;
-    width: 100%;
+
+  li {
+    padding-block: 0.25em;
   }
-}
-.books-grid > div:nth-child(3n + 1) .book:nth-child(3n + 1) {
-  --card-bg: color-mix(in oklch, var(--card-bg--basic) 65%, oklch(0.7 0.08 150deg));
-}
-.books-grid > div:nth-child(3n + 2) .book:nth-child(3n + 1) {
-  --card-bg: color-mix(in oklch, var(--card-bg--basic) 65%, oklch(0.7 0.08 300deg));
-}
-.books-grid > div:nth-child(3n + 3) .book:nth-child(3n + 1) {
-  --card-bg: color-mix(in oklch, var(--card-bg--basic) 65%, oklch(0.7 0.08 30deg));
-}
-
-/* Book heights: 5n cycle */
-.books-grid > div:nth-child(5n + 1) .book:nth-child(3n + 2) {
-  --card-bg: color-mix(in oklch, var(--card-bg--basic) 65%, oklch(0.7 0.08 165deg));
-}
-.books-grid > div:nth-child(5n + 2) .book:nth-child(3n + 2) {
-  --card-bg: color-mix(in oklch, var(--card-bg--basic) 65%, oklch(0.7 0.08 300deg));
-}
-.books-grid > div:nth-child(5n + 3) .book:nth-child(3n + 2) {
-  --card-bg: color-mix(in oklch, var(--card-bg--basic) 65%, oklch(0.7 0.08 0deg));
-}
-.books-grid > div:nth-child(5n + 4) .book:nth-child(3n + 2) {
-  --card-bg: color-mix(in oklch, var(--card-bg--basic) 65%, oklch(0.7 0.08 90deg));
-}
-.books-grid > div:nth-child(5n + 5) .book:nth-child(3n + 2) {
-  --card-bg: color-mix(in oklch, var(--card-bg--basic) 65%, oklch(0.7 0.08 210deg));
-}
-
-/* White section: 7n cycle */
-.books-grid > div:nth-child(7n + 1) .book:nth-child(3n + 3) {
-  --card-bg: color-mix(in oklch, var(--card-bg--basic) 65%, oklch(0.7 0.08 285deg));
-}
-.books-grid > div:nth-child(7n + 2) .book:nth-child(3n + 3) {
-  --card-bg: color-mix(in oklch, var(--card-bg--basic) 65%, oklch(0.7 0.08 150deg));
-}
-.books-grid > div:nth-child(7n + 3) .book:nth-child(3n + 3) {
-  --card-bg: color-mix(in oklch, var(--card-bg--basic) 65%, oklch(0.7 0.08 270deg));
-}
-.books-grid > div:nth-child(7n + 4) .book:nth-child(3n + 3) {
-  --card-bg: color-mix(in oklch, var(--card-bg--basic) 65%, oklch(0.7 0.08 360deg));
-}
-.books-grid > div:nth-child(7n + 5) .book:nth-child(3n + 3) {
-  --card-bg: color-mix(in oklch, var(--card-bg--basic) 65%, oklch(0.7 0.08 45deg));
-}
-.books-grid > div:nth-child(7n + 6) .book:nth-child(3n + 3) {
-  --card-bg: color-mix(in oklch, var(--card-bg--basic) 65%, oklch(0.7 0.08 195deg));
-}
-.books-grid > div:nth-child(7n + 7) .book:nth-child(3n + 3) {
-  --card-bg: color-mix(in oklch, var(--card-bg--basic) 65%, oklch(0.7 0.08 120deg));
 }

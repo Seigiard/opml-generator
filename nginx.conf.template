@@ -78,6 +78,7 @@ http {
         # OPML feed — njs replaces {{{BASE_URL}}} with request origin
         location = /feed.opml {
             root /data;
+            types { text/xml opml; }
             js_header_filter opml.header_filter;
             js_body_filter opml.body_filter;
             add_header Cache-Control "no-cache";
