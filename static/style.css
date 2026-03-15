@@ -112,13 +112,6 @@ small {
 body {
   background: var(--color-bg);
   color: var(--color-text);
-  transition: opacity 0.15s ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  body {
-    transition: none;
-  }
 }
 a {
   color: inherit;
@@ -223,9 +216,10 @@ nav a:hover {
 
 .podcast__author {
   display: block;
-  margin-block-start: 0.25rem;
+  margin-block-start: 0.5rem;
   font-size: 0.75rem;
   font-weight: 500;
+  line-height: 1.1;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-subtle);
@@ -266,6 +260,7 @@ nav a:hover {
 .feed-header__author {
   margin-block-start: 0.5rem;
   color: var(--color-subtle);
+  line-height: 1.2;
 }
 
 .feed-header__desc {

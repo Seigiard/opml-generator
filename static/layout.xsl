@@ -42,7 +42,6 @@
           </ul>
         </main>
         <script src="/static/subscribe.js" />
-        <script src="/static/nav.js" />
       </body>
     </html>
   </xsl:template>
@@ -93,7 +92,6 @@
           </ol>
         </main>
         <script src="/static/subscribe.js" />
-        <script src="/static/nav.js" />
       </body>
     </html>
   </xsl:template>
