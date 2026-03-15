@@ -20,29 +20,37 @@
       <body>
         <main>
           <h1><xsl:value-of select="head/title" /></h1>
-          <ul>
+          <ul class="podcasts">
             <xsl:for-each select="body/outline">
-              <li>
+              <li class="podcast">
                 <xsl:if test="@imageUrl">
-                  <img src="{@imageUrl}" alt="" />
+                  <img class="podcast__cover" src="{@imageUrl}" alt="" />
                 </xsl:if>
-                <div>
-                  <a href="{@xmlUrl}"><xsl:value-of select="@title" /></a>
+                <div class="podcast__body">
+                  <a class="podcast__title" href="{@xmlUrl}"><xsl:value-of select="@title" /></a>
                   <xsl:if test="@author">
-                    <small><xsl:value-of select="@author" /></small>
+                    <small class="podcast__author"><xsl:value-of select="@author" /></small>
                   </xsl:if>
                   <xsl:if test="@description">
-                    <p><xsl:value-of select="@description" /></p>
+                    <p class="podcast__desc"><xsl:value-of select="@description" /></p>
                   </xsl:if>
-                  <div data-subscribe="" data-href="{@xmlUrl}"></div>
+                  <div data-subscribe="" data-href="{@xmlUrl}" />
                 </div>
               </li>
             </xsl:for-each>
             <!-- TODO: remove mock -->
-            <li><div><a href="#">Mock Book With Description</a><small>Mock Author</small><p>A thrilling journey through forgotten worlds and untold stories, narrated with warmth and precision.</p><div data-subscribe="" data-href="http://localhost:8080/mock/feed.xml"></div></div></li>
+            <li class="podcast"><div class="podcast__body"><a
+                  class="podcast__title"
+                  href="#"
+                >Mock Book With Description</a><small class="podcast__author">Mock Author</small><p
+                  class="podcast__desc"
+                >A thrilling journey through forgotten worlds and untold stories, narrated with warmth and precision.</p><div
+                  data-subscribe=""
+                  data-href="http://localhost:8080/mock/feed.xml"
+                /></div></li>
           </ul>
         </main>
-        <script src="/static/subscribe.js"></script>
+        <script src="/static/subscribe.js" />
       </body>
     </html>
   </xsl:template>
@@ -62,24 +70,27 @@
           <a href="/feed.opml">&#8592; Back</a>
         </nav>
         <main>
-          <header>
+          <header class="feed-header">
             <xsl:if test="channel/itunes:image">
-              <img src="{channel/itunes:image/@href}" alt="" />
+              <img class="feed-header__cover" src="{channel/itunes:image/@href}" alt="" />
             </xsl:if>
-            <hgroup>
-              <h1><xsl:value-of select="channel/title" /></h1>
+            <hgroup class="feed-header__info">
+              <h1 class="feed-header__title"><xsl:value-of select="channel/title" /></h1>
               <xsl:if test="channel/itunes:author">
-                <p><xsl:value-of select="channel/itunes:author" /></p>
+                <p class="feed-header__author"><xsl:value-of select="channel/itunes:author" /></p>
               </xsl:if>
+              <xsl:if test="channel/description">
+                <p class="feed-header__desc"><xsl:value-of select="channel/description" /></p>
+              </xsl:if>
+              <div data-subscribe="" data-href="" />
             </hgroup>
           </header>
-          <div data-subscribe="" data-href=""></div>
-          <ol>
+          <ol class="episodes">
             <xsl:for-each select="channel/item">
-              <li>
-                <a href="{enclosure/@url}"><xsl:value-of select="title" /></a>
+              <li class="episode">
+                <a class="episode__title" href="{enclosure/@url}"><xsl:value-of select="title" /></a>
                 <xsl:if test="itunes:duration">
-                  <small>
+                  <small class="episode__duration">
                     <xsl:call-template name="format-duration">
                       <xsl:with-param name="seconds" select="itunes:duration" />
                     </xsl:call-template>
@@ -89,7 +100,7 @@
             </xsl:for-each>
           </ol>
         </main>
-        <script src="/static/subscribe.js"></script>
+        <script src="/static/subscribe.js" />
       </body>
     </html>
   </xsl:template>

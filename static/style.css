@@ -77,8 +77,12 @@
 :root {
   --font-header: Charter, "Bitstream Charter", "Sitka Text", Cambria, serif;
   --font-body: Inter, Roboto, "Helvetica Neue", "Arial Nova", "Nimbus Sans", Arial, sans-serif;
+  --color-bg: light-dark(#fff, #1a1a1a);
+  --color-text: light-dark(#222, #e0e0e0);
   --color-muted: light-dark(#666, #999);
+  --color-subtle: light-dark(#999, #777);
   --color-rule: light-dark(#e0e0e0, #333);
+  --color-focus: light-dark(#00e, #8ab4f8);
   font-weight: normal;
 }
 
@@ -106,8 +110,8 @@ small {
 /* Colors */
 
 body {
-  background: light-dark(#fff, #1a1a1a);
-  color: light-dark(#222, #e0e0e0);
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 a {
   color: inherit;
@@ -139,7 +143,7 @@ a:hover {
 /* Focus */
 
 :focus-visible {
-  outline: 2px solid light-dark(#00e, #8ab4f8);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
@@ -152,20 +156,21 @@ nav a {
   font-size: 0.875rem;
   color: var(--color-muted);
   text-decoration: none;
+  transition: color 0.15s ease-out;
 }
 nav a:hover {
-  color: light-dark(#222, #e0e0e0);
+  color: var(--color-text);
 }
 
 /* --- OPML: podcast list --- */
 
-main > ul {
+.podcasts {
   list-style: none;
   padding: 0;
   margin-block-start: 2rem;
 }
 
-main > ul > li {
+.podcast {
   display: flex;
   align-items: start;
   gap: 1rem;
@@ -173,7 +178,7 @@ main > ul > li {
   padding-inline-start: calc(3.5rem + 1rem);
 }
 
-main > ul > li > img {
+.podcast__cover {
   inline-size: 3.5rem;
   block-size: 3.5rem;
   border-radius: 4px;
@@ -182,82 +187,115 @@ main > ul > li > img {
   margin-inline-start: calc(-3.5rem - 1rem);
 }
 
-main > ul > li > div {
+.podcast__body {
   flex: 1;
   min-width: 0;
 }
 
-main > ul > li a {
+.podcast__title {
   font-family: var(--font-header);
-  font-size: 1.25rem;
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 1.5rem;
+  letter-spacing: -0.01em;
 }
 
-main > ul > li small {
+.podcast__author {
   display: block;
-  margin-block-start: 0.125rem;
+  margin-block-start: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-subtle);
+}
+
+.podcast__desc {
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+  margin-block-start: 0.5rem;
+  line-height: 1.4;
+  font-style: italic;
 }
 
 /* --- RSS: podcast page --- */
 
-main > header {
+.feed-header {
   display: flex;
   gap: 1.5rem;
   align-items: flex-start;
 }
 
-main > header img {
+.feed-header__cover {
   max-inline-size: 10rem;
   border-radius: 4px;
 }
 
-main > header hgroup {
+.feed-header__info {
   flex: 1;
   min-width: 0;
 }
 
-main > header hgroup p {
-  margin-block-start: 0.5rem;
-  color: var(--color-muted);
+.feed-header__title {
+  font-family: var(--font-header);
+  font-size: 2rem;
+  letter-spacing: -0.01em;
 }
 
-main > ol {
+.feed-header__author {
+  margin-block-start: 0.5rem;
+  color: var(--color-subtle);
+}
+
+.feed-header__desc {
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+  margin-block-start: 0.5rem;
+  line-height: 1.4;
+  font-style: italic;
+}
+
+.episodes {
   list-style: none;
   padding: 0;
   margin-block-start: 2rem;
   counter-reset: episode;
 }
 
-main > ol > li {
+.episode {
   display: flex;
   align-items: baseline;
   gap: 0.75rem;
   padding-block: 0.5rem;
+  padding-inline: 0.25rem;
+  margin-inline: -0.25rem;
+  border-radius: 3px;
   counter-increment: episode;
+  transition: background 0.15s ease-out;
 }
 
-main > ol > li::before {
+.episode:hover {
+  background: light-dark(#f8f8f8, #222);
+}
+
+.episode:hover .episode__title {
+  text-decoration-color: currentColor;
+}
+
+.episode::before {
   content: counter(episode);
   flex-shrink: 0;
   min-inline-size: 2ch;
   text-align: end;
   font-variant-numeric: tabular-nums;
-  color: var(--color-muted);
+  color: var(--color-subtle);
   font-size: 0.875rem;
 }
 
-main > ol > li > a {
+.episode__title {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-main > ol > li > small {
+.episode__duration {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
@@ -289,16 +327,16 @@ main > ol > li > small {
     padding: 1rem;
   }
 
-  main > header {
+  .feed-header {
     flex-direction: column;
   }
 
-  main > header img {
+  .feed-header__cover {
     max-inline-size: 8rem;
   }
 
-  main > ol > li,
-  main > ul > li {
+  .episode,
+  .podcast {
     padding-block: 0.625rem;
   }
 }
