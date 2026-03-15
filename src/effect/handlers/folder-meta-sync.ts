@@ -171,10 +171,13 @@ export async function folderMetaSync(event: EventType, deps: HandlerDeps): Promi
       const coverExists = await fs.exists(join(normalizedDir, COVER_FILE));
       const coverUrl = coverExists ? `/${encodeUrlPath(relativePath)}/${COVER_FILE}` : undefined;
 
+      const selfUrl = `/${encodeUrlPath(relativePath)}/${FEED_FILE}`;
+
       const podcastInfo: PodcastInfo = {
         title: podcastTitle,
         author: podcastAuthor,
         imageUrl: coverUrl,
+        selfUrl,
       };
 
       const episodeInfos: EpisodeInfo[] = episodes.map((ep, index) => ({

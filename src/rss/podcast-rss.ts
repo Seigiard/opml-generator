@@ -33,6 +33,14 @@ export function generatePodcastRss(podcast: PodcastInfo, episodes: EpisodeInfo[]
     channel["itunes:image"] = { "@_href": `${BASE_URL_PLACEHOLDER}${podcast.imageUrl}` };
   }
 
+  if (podcast.selfUrl) {
+    channel["atom:link"] = {
+      "@_href": `${BASE_URL_PLACEHOLDER}${podcast.selfUrl}`,
+      "@_rel": "self",
+      "@_type": "application/rss+xml",
+    };
+  }
+
   channel["itunes:type"] = "serial";
 
   channel.item = sorted.map((ep) => {
@@ -62,6 +70,7 @@ export function generatePodcastRss(podcast: PodcastInfo, episodes: EpisodeInfo[]
     rss: {
       "@_version": "2.0",
       "@_xmlns:itunes": "http://www.itunes.com/dtds/podcast-1.0.dtd",
+      "@_xmlns:atom": "http://www.w3.org/2005/Atom",
       channel,
     },
   };

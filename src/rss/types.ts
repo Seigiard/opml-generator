@@ -4,6 +4,7 @@ export interface PodcastInfo {
   description?: string;
   imageUrl?: string;
   link?: string;
+  selfUrl?: string;
 }
 
 export interface EpisodeInfo {
