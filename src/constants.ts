@@ -1,5 +1,4 @@
 export const COVER_MAX_SIZE = 1400;
-export const COVER_MIN_DIMENSION = 500;
 
 export const FEED_FILE = "feed.xml";
 export const ENTRY_FILE = "entry.xml";

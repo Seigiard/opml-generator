@@ -2,7 +2,7 @@ import { join } from "node:path";
 import type { AppContext } from "../context.ts";
 import type { EventType } from "./types.ts";
 
-export function generateEventId(event: EventType, path: string | undefined): string {
+function generateEventId(event: EventType, path: string | undefined): string {
   const timestamp = Date.now();
   const random = Math.random().toString(36).substring(2, 7);
   return `${event._tag}:${path ?? "unknown"}:${timestamp}:${random}`;
