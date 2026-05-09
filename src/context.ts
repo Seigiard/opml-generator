@@ -120,7 +120,9 @@ export async function buildContext(): Promise<AppContext> {
     },
   };
 
-  const queue = new SimpleQueue<EventType>();
+  const queue = new SimpleQueue<EventType>((event) =>
+    event._tag === "FolderMetaSyncRequested" ? `${event._tag}:${event.path}` : undefined,
+  );
 
   const handlerMap = new Map<string, AsyncHandler>();
   const handlers: HandlerRegistryService = {

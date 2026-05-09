@@ -140,7 +140,7 @@ nginx:80 (external)          Bun:3000 (localhost only)
 ## Architecture: Event Processing
 
 1. **Adapters** (`adapters/*.ts`) — raw inotify → typed EventType
-2. **Queue** (`SimpleQueue<EventType>`) — unrolled linked list + Promise waiters
+2. **Queue** (`SimpleQueue<EventType>`) — unrolled linked list + Promise waiters; pending `FolderMetaSyncRequested` events are coalesced by path and moved behind later queued work
 3. **Consumer** (`consumer.ts`) — `while (!signal.aborted)` loop with `queue.take(signal)`
 4. **Handlers** (`handlers/*.ts`) — return `Result<EventType[], Error>` for cascades
 

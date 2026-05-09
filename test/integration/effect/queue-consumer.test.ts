@@ -57,6 +57,21 @@ describe("Queue and Consumer Integration", () => {
     expect(queue.size).toBe(2);
   });
 
+  test("buildContext queue coalesces pending folder meta-sync requests behind later work", async () => {
+    // #given
+    const ctx = await buildContext();
+
+    // #when
+    ctx.queue.enqueue({ _tag: "FolderMetaSyncRequested", path: "/shared/parent" });
+    ctx.queue.enqueue({ _tag: "FolderMetaSyncRequested", path: "/shared/other" });
+    ctx.queue.enqueue({ _tag: "FolderMetaSyncRequested", path: "/shared/parent" });
+
+    // #then
+    expect(ctx.queue.size).toBe(2);
+    expect(await ctx.queue.take()).toEqual({ _tag: "FolderMetaSyncRequested", path: "/shared/other" });
+    expect(await ctx.queue.take()).toEqual({ _tag: "FolderMetaSyncRequested", path: "/shared/parent" });
+  });
+
   test("consumer stops on abort signal", async () => {
     // #given
     const ctx = await buildContext();

@@ -127,4 +127,34 @@ describe("SimpleQueue", () => {
     // #then
     expect(q.size).toBe(2);
   });
+
+  test("coalesces duplicate pending keyed items behind later work", async () => {
+    // #given
+    const q = new SimpleQueue<{ path: string; value: number }>((item) => item.path);
+
+    // #when
+    q.enqueue({ path: "/data/podcast", value: 1 });
+    q.enqueue({ path: "/data/other", value: 3 });
+    q.enqueue({ path: "/data/podcast", value: 2 });
+
+    // #then
+    expect(q.size).toBe(2);
+    expect(await q.take()).toEqual({ path: "/data/other", value: 3 });
+    expect(await q.take()).toEqual({ path: "/data/podcast", value: 1 });
+  });
+
+  test("does not deduplicate items delivered directly to waiters", async () => {
+    // #given
+    const q = new SimpleQueue<{ path: string; value: number }>((item) => item.path);
+    const first = q.take();
+
+    // #when
+    q.enqueue({ path: "/data/podcast", value: 1 });
+    q.enqueue({ path: "/data/podcast", value: 2 });
+
+    // #then
+    expect(await first).toEqual({ path: "/data/podcast", value: 1 });
+    expect(q.size).toBe(1);
+    expect(await q.take()).toEqual({ path: "/data/podcast", value: 2 });
+  });
 });
