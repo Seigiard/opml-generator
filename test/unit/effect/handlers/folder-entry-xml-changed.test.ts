@@ -48,7 +48,7 @@ describe("folderEntryXmlChanged handler", () => {
     expect(result._unsafeUnwrap()).toEqual([]);
   });
 
-  test("returns two FolderMetaSyncRequested events (current and parent)", async () => {
+  test("returns only parent FolderMetaSyncRequested event", async () => {
     // #given
     const event: EventType = { _tag: "FolderEntryXmlChanged", parent: "/data/Fiction/Author" };
     // #when
@@ -56,9 +56,7 @@ describe("folderEntryXmlChanged handler", () => {
     // #then
     expect(result.isOk()).toBe(true);
     const cascades = result._unsafeUnwrap();
-    expect(cascades).toHaveLength(2);
-    expect(cascades[0]).toEqual({ _tag: "FolderMetaSyncRequested", path: "/data/Fiction/Author" });
-    expect(cascades[1]).toEqual({ _tag: "FolderMetaSyncRequested", path: "/data/Fiction" });
+    expect(cascades).toEqual([{ _tag: "FolderMetaSyncRequested", path: "/data/Fiction" }]);
   });
 
   test("returns root as parent when folder is top-level", async () => {
@@ -68,9 +66,7 @@ describe("folderEntryXmlChanged handler", () => {
     const result = await folderEntryXmlChanged(event, deps);
     // #then
     const cascades = result._unsafeUnwrap();
-    expect(cascades).toHaveLength(2);
-    expect(cascades[0]).toEqual({ _tag: "FolderMetaSyncRequested", path: "/data/Fiction" });
-    expect(cascades[1]).toEqual({ _tag: "FolderMetaSyncRequested", path: "/data" });
+    expect(cascades).toEqual([{ _tag: "FolderMetaSyncRequested", path: "/data" }]);
   });
 
   test("handles deeply nested folders", async () => {
@@ -80,9 +76,7 @@ describe("folderEntryXmlChanged handler", () => {
     const result = await folderEntryXmlChanged(event, deps);
     // #then
     const cascades = result._unsafeUnwrap();
-    expect(cascades).toHaveLength(2);
-    expect(cascades[0]).toEqual({ _tag: "FolderMetaSyncRequested", path: "/data/Fiction/SciFi/Author" });
-    expect(cascades[1]).toEqual({ _tag: "FolderMetaSyncRequested", path: "/data/Fiction/SciFi" });
+    expect(cascades).toEqual([{ _tag: "FolderMetaSyncRequested", path: "/data/Fiction/SciFi" }]);
   });
 
   test("handles trailing slash in path", async () => {
@@ -92,8 +86,7 @@ describe("folderEntryXmlChanged handler", () => {
     const result = await folderEntryXmlChanged(event, deps);
     // #then
     const cascades = result._unsafeUnwrap();
-    expect(cascades).toHaveLength(2);
-    expect((cascades[0] as { path: string }).path).toBe("/data/Fiction/Author");
+    expect(cascades).toEqual([{ _tag: "FolderMetaSyncRequested", path: "/data/Fiction" }]);
   });
 
   test("logs the action", async () => {

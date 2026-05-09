@@ -1,7 +1,7 @@
 import { describe, test, expect, afterAll } from "bun:test";
 import { ok } from "neverthrow";
 import { buildContext } from "../../../src/context.ts";
-import { startConsumer } from "../../../src/effect/consumer.ts";
+import { getEventPath, startConsumer } from "../../../src/effect/consumer.ts";
 import type { EventType } from "../../../src/effect/types.ts";
 
 describe("Queue and Consumer Integration", () => {
@@ -9,6 +9,14 @@ describe("Queue and Consumer Integration", () => {
 
   afterAll(() => {
     for (const c of controllers) c.abort();
+  });
+
+  test("formats parent/name event paths without duplicate slashes", () => {
+    // #when
+    const path = getEventPath({ _tag: "FolderCreated", parent: "/audiobooks/comics/", name: "Marvel" });
+
+    // #then
+    expect(path).toBe("/audiobooks/comics/Marvel");
   });
 
   test("consumer processes events from shared queue", async () => {

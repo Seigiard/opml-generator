@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { log } from "../../logging/index.ts";
 import { AUDIO_EXTENSIONS } from "../../types.ts";
 import type { RawBooksEvent, EventType } from "../types.ts";
@@ -55,7 +56,7 @@ function getEventKey(event: EventType): string {
 
 export function adaptBooksEvent(raw: RawBooksEvent, dedup: DeduplicationService): EventType | null {
   const eventType = classifyBooksEvent(raw);
-  const path = `${raw.parent}/${raw.name}`;
+  const path = join(raw.parent, raw.name);
   const eventId = `raw:books:${path}:${Date.now()}`;
 
   if (eventType._tag === "Ignored") {

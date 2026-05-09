@@ -211,6 +211,7 @@ await Promise.allSettled([consumerTask, reconcileTask]);
 
 - data watcher excludes feed.xml and feed.opml
 - Only entry.xml and \_entry.xml produce actionable events
+- `_entry.xml` changes should sync only the parent folder; syncing the same folder can re-trigger metadata writes
 - Check watcher.sh exclusion patterns
 
 ### Tests Failing

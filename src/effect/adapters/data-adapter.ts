@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { log } from "../../logging/index.ts";
 import type { RawDataEvent, EventType } from "../types.ts";
 import type { DeduplicationService } from "../../context.ts";
@@ -27,7 +28,7 @@ function getEventKey(event: EventType): string {
 
 export function adaptDataEvent(raw: RawDataEvent, dedup: DeduplicationService): EventType | null {
   const eventType = classifyDataEvent(raw);
-  const path = `${raw.parent}/${raw.name}`;
+  const path = join(raw.parent, raw.name);
   const eventId = `raw:data:${path}:${Date.now()}`;
 
   if (eventType._tag === "Ignored") {

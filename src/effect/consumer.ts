@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { AppContext } from "../context.ts";
 import type { EventType } from "./types.ts";
 
@@ -9,7 +10,7 @@ export function generateEventId(event: EventType, path: string | undefined): str
 
 export function getEventPath(event: EventType): string | undefined {
   if ("path" in event && typeof event.path === "string") return event.path;
-  if ("parent" in event && "name" in event) return `${event.parent}/${event.name}`;
+  if ("parent" in event && "name" in event) return join(event.parent, event.name);
   if ("parent" in event && typeof event.parent === "string") return event.parent;
   return undefined;
 }
