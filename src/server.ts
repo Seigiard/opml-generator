@@ -13,36 +13,17 @@ import { registerHandlers } from "./effect/handlers/index.ts";
 import { buildContext } from "./context.ts";
 import type { AppContext } from "./context.ts";
 import { scanFiles, createSyncPlan } from "./scanner.ts";
+import { z } from "zod";
 
 let isReady = false;
 
 let isSyncing = false;
 
-function isRawBooksEvent(u: unknown): u is RawBooksEvent {
-  return (
-    typeof u === "object" &&
-    u !== null &&
-    "parent" in u &&
-    typeof (u as Record<string, unknown>).parent === "string" &&
-    "name" in u &&
-    typeof (u as Record<string, unknown>).name === "string" &&
-    "events" in u &&
-    typeof (u as Record<string, unknown>).events === "string"
-  );
-}
-
-function isRawDataEvent(u: unknown): u is RawDataEvent {
-  return (
-    typeof u === "object" &&
-    u !== null &&
-    "parent" in u &&
-    typeof (u as Record<string, unknown>).parent === "string" &&
-    "name" in u &&
-    typeof (u as Record<string, unknown>).name === "string" &&
-    "events" in u &&
-    typeof (u as Record<string, unknown>).events === "string"
-  );
-}
+const watcherEventSchema = z.object({
+  parent: z.string(),
+  name: z.string(),
+  events: z.string(),
+});
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -145,13 +126,7 @@ async function startReconciliation(ctx: AppContext, signal: AbortSignal): Promis
   }
 }
 
-function handleBooksEvent(body: unknown, ctx: AppContext): { status: number; message: string } {
-  if (!isRawBooksEvent(body)) {
-    log.warn("Server", "Invalid books event schema", { body });
-
-    return { status: 400, message: "Invalid event" };
-  }
-
+function handleBooksEvent(body: RawBooksEvent, ctx: AppContext) {
   const event = adaptBooksEvent(body, ctx.dedup);
 
   if (event === null) {
@@ -163,13 +138,7 @@ function handleBooksEvent(body: unknown, ctx: AppContext): { status: number; mes
   return { status: 202, message: "OK" };
 }
 
-function handleDataEvent(body: unknown, ctx: AppContext): { status: number; message: string } {
-  if (!isRawDataEvent(body)) {
-    log.warn("Server", "Invalid data event schema", { body });
-
-    return { status: 400, message: "Invalid event" };
-  }
-
+function handleDataEvent(body: RawDataEvent, ctx: AppContext) {
   const event = adaptDataEvent(body, ctx.dedup);
 
   if (event === null) {
@@ -206,7 +175,15 @@ async function main(): Promise<void> {
 
           try {
             const body = await req.json();
-            const result = handleBooksEvent(body, ctx);
+            const parsed = watcherEventSchema.safeParse(body);
+
+            if (!parsed.success) {
+              log.warn("Server", "Invalid books event schema", { body });
+
+              return new Response("Invalid event", { status: 400 });
+            }
+
+            const result = handleBooksEvent(parsed.data, ctx);
 
             return new Response(result.message, { status: result.status });
           } catch (error) {
@@ -221,7 +198,15 @@ async function main(): Promise<void> {
 
           try {
             const body = await req.json();
-            const result = handleDataEvent(body, ctx);
+            const parsed = watcherEventSchema.safeParse(body);
+
+            if (!parsed.success) {
+              log.warn("Server", "Invalid data event schema", { body });
+
+              return new Response("Invalid event", { status: 400 });
+            }
+
+            const result = handleDataEvent(parsed.data, ctx);
 
             return new Response(result.message, { status: result.status });
           } catch (error) {

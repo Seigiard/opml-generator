@@ -26,7 +26,7 @@ const DATA_DIR = join(TEST_DIR, "data");
 const FIXTURES_DIR = join(import.meta.dir, "../../../../test/fixtures/audio");
 
 const mockLogger = {
-  infoCalls: [] as Array<{ tag: string; msg: string; ctx?: LogContext }>,
+  infoCalls: new Array<{ tag: string; msg: string; ctx?: LogContext }>(),
   reset() {
     this.infoCalls = [];
   },
@@ -175,15 +175,18 @@ describe("audioSync handler", () => {
     await audioSync(audioFileCreatedEvent("Author/Album/01.mp3"), deps);
     await copyFile(join(FIXTURES_DIR, "tagged.mp3"), join(authorDir, "02.mp3"));
     await audioSync(audioFileCreatedEvent("Author/Album/02.mp3"), deps);
+
     // #then
     const entry1 = await readFile(
       join(DATA_DIR, "Author", "Album", "01.mp3", "entry.xml"),
       "utf-8",
     );
+
     const entry2 = await readFile(
       join(DATA_DIR, "Author", "Album", "02.mp3", "entry.xml"),
       "utf-8",
     );
+
     expect(entry1).toContain("<episodeNumber>1</episodeNumber>");
     expect(entry2).toContain("<episodeNumber>2</episodeNumber>");
   });

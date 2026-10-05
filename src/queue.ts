@@ -105,7 +105,6 @@ export class SimpleQueue<T> {
   private dirtyKeys = new Set<string>();
   private waiters: Array<{
     resolve: (item: T) => void;
-    reject: (reason: unknown) => void;
   }> = [];
 
   constructor(private readonly getKey?: (item: T) => string | null | undefined) {}
@@ -168,7 +167,6 @@ export class SimpleQueue<T> {
           signal?.removeEventListener("abort", onAbort);
           resolve(item);
         },
-        reject,
       };
 
       this.waiters.push(entry);

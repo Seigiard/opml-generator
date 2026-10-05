@@ -8,6 +8,7 @@ import type { HandlerDeps, FileSystemService } from "../../context.ts";
 import type { EventType } from "../types.ts";
 import { FEED_FILE, OPML_FILE } from "../../constants.ts";
 import type { OpmlOutline } from "../../rss/types.ts";
+import { z } from "zod";
 
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
@@ -21,6 +22,19 @@ interface DiscoveredFeed {
   imageUrl?: string;
   description?: string;
 }
+
+const optionalText = z.string().optional().catch(undefined);
+
+const podcastFeedSchema = z.object({
+  rss: z.object({
+    channel: z.object({
+      title: z.unknown().optional(),
+      "itunes:author": optionalText,
+      "itunes:image": z.object({ "@_href": optionalText }).optional().catch(undefined),
+      description: optionalText,
+    }),
+  }),
+});
 
 async function collectPodcastFeeds(
   dataRoot: string,
@@ -75,7 +89,7 @@ async function parsePodcastFeed(
 ): Promise<DiscoveredFeed | null> {
   try {
     const content = await Bun.file(feedPath).text();
-    const parsed = xmlParser.parse(content);
+    const parsed = podcastFeedSchema.parse(xmlParser.parse(content));
 
     const channel = parsed?.rss?.channel;
     const channelTitle = channel?.title;
@@ -89,19 +103,19 @@ async function parsePodcastFeed(
 
     const author = channel["itunes:author"];
 
-    if (typeof author === "string" && author) {
+    if (author) {
       feed.author = author;
     }
 
     const imageHref = channel["itunes:image"]?.["@_href"];
 
-    if (typeof imageHref === "string" && imageHref) {
+    if (imageHref) {
       feed.imageUrl = imageHref;
     }
 
     const description = channel.description;
 
-    if (typeof description === "string" && description) {
+    if (description) {
       feed.description = description;
     }
 
@@ -145,7 +159,7 @@ export async function opmlSync(
   try {
     await fs.atomicWrite(opmlPath, opmlXml);
   } catch (error) {
-    return err(error as Error);
+    return err(error instanceof Error ? error : new Error(String(error)));
   }
 
   logger.info("OpmlSync", "OPML generated", { feeds: feeds.length });

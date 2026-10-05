@@ -26,7 +26,7 @@ const DATA_DIR = join(TEST_DIR, "data");
 const AUDIO_FIXTURES = join(import.meta.dir, "../../../test/fixtures/audio");
 
 const mockLogger = {
-  calls: [] as Array<{ level: string; tag: string; msg: string }>,
+  calls: new Array<{ level: string; tag: string; msg: string }>(),
   reset() {
     this.calls = [];
   },
@@ -96,6 +96,7 @@ describe("Cascade Flow Integration", () => {
       parent: join(FILES_DIR, "Author"),
       name: "Album",
     };
+
     await folderSync(folderEvent, realDeps());
 
     const albumDataPath = join(DATA_DIR, "Author", "Album");
@@ -151,10 +152,12 @@ describe("Cascade Flow Integration", () => {
       join(DATA_DIR, "Author", "Album", "01.mp3", "entry.xml"),
       "utf-8",
     );
+
     const entry2 = await readFile(
       join(DATA_DIR, "Author", "Album", "02.mp3", "entry.xml"),
       "utf-8",
     );
+
     const entry3 = await readFile(
       join(DATA_DIR, "Author", "Album", "03.mp3", "entry.xml"),
       "utf-8",

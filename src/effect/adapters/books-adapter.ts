@@ -4,7 +4,7 @@ import { AUDIO_EXTENSIONS } from "../../types.ts";
 import type { RawBooksEvent, EventType } from "../types.ts";
 import type { DeduplicationService } from "../../context.ts";
 
-function parseEvents(events: string): { event: string; isDir: boolean } {
+function parseEvents(events: string) {
   const parts = events.split(",");
   const isDir = parts.includes("ISDIR");
   const event = parts.find((p) => p !== "ISDIR") ?? "";

@@ -13,6 +13,7 @@ describe("adaptDataEvent (data watcher classification)", () => {
       name: "entry.xml",
       events: "CLOSE_WRITE",
     };
+
     // #when
     const result = adaptDataEvent(event, alwaysProcess);
     // #then
@@ -28,6 +29,7 @@ describe("adaptDataEvent (data watcher classification)", () => {
       { parent: "/data/Fiction/", name: "_entry.xml", events: "CLOSE_WRITE" },
       alwaysProcess,
     );
+
     expect(result?._tag).toBe("FolderEntryXmlChanged");
 
     if (result?._tag === "FolderEntryXmlChanged") {
@@ -40,6 +42,7 @@ describe("adaptDataEvent (data watcher classification)", () => {
       { parent: "/data/Fiction/chapter01.mp3/", name: "entry.xml", events: "MOVED_TO" },
       alwaysProcess,
     );
+
     expect(result?._tag).toBe("EntryXmlChanged");
   });
 
@@ -48,6 +51,7 @@ describe("adaptDataEvent (data watcher classification)", () => {
       { parent: "/data/Fiction/chapter01.mp3/", name: "cover.jpg", events: "CLOSE_WRITE" },
       alwaysProcess,
     );
+
     expect(result).toBeNull();
   });
 
@@ -56,6 +60,7 @@ describe("adaptDataEvent (data watcher classification)", () => {
       { parent: "/data/Fiction/", name: "feed.xml", events: "CLOSE_WRITE" },
       alwaysProcess,
     );
+
     expect(result).toBeNull();
   });
 });

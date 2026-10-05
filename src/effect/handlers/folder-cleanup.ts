@@ -22,10 +22,10 @@ export async function folderCleanup(
   try {
     await fs.rm(folderDataDir, { recursive: true });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       logger.debug("FolderCleanup", "Already removed", { path: relativePath });
     } else {
-      return err(error as Error);
+      return err(error instanceof Error ? error : new Error(String(error)));
     }
   }
 

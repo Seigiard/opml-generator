@@ -15,7 +15,7 @@ const DATA_DIR = join(TEST_DIR, "data");
 const FILES_DIR = join(TEST_DIR, "files");
 
 const mockLogger = {
-  infoCalls: [] as Array<{ tag: string; msg: string; ctx?: LogContext }>,
+  infoCalls: new Array<{ tag: string; msg: string; ctx?: LogContext }>(),
   reset() {
     this.infoCalls = [];
   },

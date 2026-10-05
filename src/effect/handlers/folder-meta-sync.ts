@@ -183,6 +183,7 @@ export async function folderMetaSync(
         : normalizeFilenameTitle(rawFolderName);
 
       const parentRelativePath = dirname(relativePath);
+
       const podcastAuthor =
         parentRelativePath !== "." ? parentRelativePath.split("/").pop() : undefined;
 
@@ -213,6 +214,7 @@ export async function folderMetaSync(
       await fs.atomicWrite(feedOutputPath, rssXml);
     } else if (hasFolders) {
       const rawFolderName = relativePath.split("/").pop() || "Catalog";
+
       const folderName =
         rawFolderName === "Catalog" ? rawFolderName : normalizeFilenameTitle(rawFolderName);
 
@@ -232,6 +234,7 @@ export async function folderMetaSync(
       const folderName = normalizeFilenameTitle(rawFolderName);
       const selfHref = `/${encodeUrlPath(relativePath)}/${FEED_FILE}`;
 
+      // SAFETY: XMLBuilder.build returns XML text with this builder configuration.
       const folderEntryXml = xmlBuilder.build({
         "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
         folder: {
@@ -264,7 +267,7 @@ export async function folderMetaSync(
 
     return ok(cascades);
   } catch (error) {
-    return err(error as Error);
+    return err(error instanceof Error ? error : new Error(String(error)));
   }
 }
 
@@ -318,6 +321,7 @@ function buildNavigationFeed(title: string, relativePath: string, folders: Folde
     description: `${f.feedCount} items`,
   }));
 
+  // SAFETY: XMLBuilder.build returns XML text with this builder configuration.
   return xmlBuilder.build({
     "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
     feed: {

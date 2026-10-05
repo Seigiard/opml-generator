@@ -18,7 +18,22 @@ const xmlBuilder = new XMLBuilder({
   suppressEmptyNode: true,
 });
 
-function buildEpisodeXml(fields: Record<string, unknown>): string {
+interface EpisodeFields {
+  title: string;
+  fileName: string;
+  filePath: string;
+  fileSize: number;
+  mimeType: string;
+  duration?: number;
+  discNumber?: number;
+  trackNumber?: number;
+  episodeNumber: number;
+  pubDate: string;
+  guid: string;
+}
+
+function buildEpisodeXml(fields: EpisodeFields): string {
+  // SAFETY: XMLBuilder.build returns XML text with the configured string builder.
   return xmlBuilder.build({
     "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
     episode: fields,
@@ -56,7 +71,7 @@ export async function audioSync(
 
     const episodeNumber = await resolveEpisodeNumber(folderDataDir, episodeDataDir, fs);
     const pubDate = await resolvePubDate(metadata.date, folderDataDir, episodeNumber, fs);
-    const mimeType = MIME_TYPES[ext] ?? "application/octet-stream";
+    const mimeType = MIME_TYPES.get(ext) ?? "application/octet-stream";
 
     const episodeXml = buildEpisodeXml({
       title: metadata.title,
@@ -79,7 +94,7 @@ export async function audioSync(
 
     return ok([]);
   } catch (error) {
-    return err(error as Error);
+    return err(error instanceof Error ? error : new Error(String(error)));
   }
 }
 

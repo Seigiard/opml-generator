@@ -205,6 +205,7 @@ describe("Handler integration", () => {
         folderCreatedEvent("/test/audiobooks/", "Fiction"),
         makeDeps(),
       );
+
       // #then
       const cascades = result._unsafeUnwrap();
       expect(cascades).toHaveLength(1);
@@ -242,6 +243,7 @@ describe("Handler integration", () => {
         audioFileDeletedEvent("/test/audiobooks/Fiction/", "chapter01.mp3"),
         makeDeps(),
       );
+
       // #then
       const cascades = result._unsafeUnwrap();
       expect(cascades).toHaveLength(1);
@@ -256,6 +258,7 @@ describe("Handler integration", () => {
         folderDeletedEvent("/test/audiobooks/Fiction/", "SciFi"),
         makeDeps(),
       );
+
       // #then
       const cascades = result._unsafeUnwrap();
       expect(cascades).toHaveLength(1);
@@ -268,6 +271,7 @@ describe("Handler integration", () => {
         folderDeletedEvent("/test/audiobooks/", "Fiction"),
         makeDeps(),
       );
+
       // #then
       const cascades = result._unsafeUnwrap();
       expect(cascades).toHaveLength(0);

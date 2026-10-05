@@ -27,7 +27,8 @@
     "knip": "^5.79.0",
     "music-metadata": "^11.12.1",
     "neverthrow": "^8.2.0",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@oxlint/plugins": "1.87.0",

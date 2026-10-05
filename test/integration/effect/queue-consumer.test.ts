@@ -2,7 +2,6 @@ import { describe, test, expect, afterAll } from "bun:test";
 import { ok } from "neverthrow";
 import { buildContext } from "../../../src/context.ts";
 import { getEventPath, startConsumer } from "../../../src/effect/consumer.ts";
-import type { EventType } from "../../../src/effect/types.ts";
 
 describe("Queue and Consumer Integration", () => {
   const controllers: AbortController[] = [];
@@ -31,9 +30,11 @@ describe("Queue and Consumer Integration", () => {
     const processedEvents: string[] = [];
 
     ctx.handlers.register("FolderMetaSyncRequested", async (event) => {
-      processedEvents.push((event as { path: string }).path);
+      if (event._tag !== "FolderMetaSyncRequested") throw new Error("Unexpected event");
 
-      return ok([] as readonly EventType[]);
+      processedEvents.push(event.path);
+
+      return ok([]);
     });
 
     // #when

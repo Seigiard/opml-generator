@@ -38,6 +38,7 @@ export async function assertCoverMatchesReference(
   threshold = 0.1,
 ): Promise<void> {
   const referenceCover = await Bun.file(REFERENCE_COVER).arrayBuffer();
+
   const { similar, rmse } = await compareImages(
     extractedCover,
     Buffer.from(referenceCover),

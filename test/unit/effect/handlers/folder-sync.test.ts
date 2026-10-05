@@ -4,8 +4,8 @@ import type { HandlerDeps } from "../../../../src/context.ts";
 import type { EventType } from "../../../../src/effect/types.ts";
 
 const mockFs = {
-  mkdirCalls: [] as Array<{ path: string; options?: { recursive?: boolean } }>,
-  atomicWriteCalls: [] as Array<{ path: string; content: string }>,
+  mkdirCalls: new Array<{ path: string; options?: { recursive?: boolean } }>(),
+  atomicWriteCalls: new Array<{ path: string; content: string }>(),
   reset() {
     this.mkdirCalls = [];
     this.atomicWriteCalls = [];
@@ -13,7 +13,7 @@ const mockFs = {
 };
 
 const mockLogger = {
-  infoCalls: [] as Array<{ tag: string; msg: string }>,
+  infoCalls: new Array<{ tag: string; msg: string }>(),
   reset() {
     this.infoCalls = [];
   },

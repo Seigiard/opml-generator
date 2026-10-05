@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { z } from "zod";
 
 const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:8080";
 
@@ -8,20 +9,22 @@ const TEST_FOLDER = "test-events";
 
 const FIXTURE_MP3 = "/audiobooks/test/Test Author/Test Audiobook/01 - Chapter One.mp3";
 
-interface LogEntry {
-  ts: string;
-  level: string;
-  tag: string;
-  msg: string;
-  event_type?: string;
-  event_id?: string;
-  event_tag?: string;
-  path?: string;
-  duration_ms?: number;
-  cascade_count?: number;
-  cascade_tags?: string[];
-  error?: string;
-}
+const logEntrySchema = z.object({
+  ts: z.string(),
+  level: z.string(),
+  tag: z.string(),
+  msg: z.string(),
+  event_type: z.string().optional(),
+  event_id: z.string().optional(),
+  event_tag: z.string().optional(),
+  path: z.string().optional(),
+  duration_ms: z.number().optional(),
+  cascade_count: z.number().optional(),
+  cascade_tags: z.array(z.string()).optional(),
+  error: z.string().optional(),
+});
+
+type LogEntry = z.output<typeof logEntrySchema>;
 
 async function execInContainer(cmd: string): Promise<string> {
   const proc = Bun.spawn([
@@ -36,6 +39,7 @@ async function execInContainer(cmd: string): Promise<string> {
     "-c",
     cmd,
   ]);
+
   const output = await new Response(proc.stdout).text();
   const exitCode = await proc.exited;
 
@@ -64,6 +68,7 @@ async function getLogsSince(since: string): Promise<LogEntry[]> {
     "--no-log-prefix",
     "opml",
   ]);
+
   const output = await new Response(proc.stdout).text();
   await proc.exited;
 
@@ -74,7 +79,7 @@ async function getLogsSince(since: string): Promise<LogEntry[]> {
     .filter((line) => line.startsWith("{"))
     .map((line) => {
       try {
-        return JSON.parse(line) as LogEntry;
+        return logEntrySchema.parse(JSON.parse(line));
       } catch {
         return null;
       }
@@ -165,6 +170,7 @@ describe("Event Logging E2E", () => {
         "FolderCreated",
         TEST_FOLDER,
       );
+
       expect(folderCreated.length).toBeGreaterThan(0);
     });
   });
@@ -334,6 +340,7 @@ describe("Event Logging E2E", () => {
       const folderLogs = logs.filter(
         (e) => e.event_tag?.includes("Folder") && e.path?.includes("duplicate"),
       );
+
       expect(folderLogs.length).toBeGreaterThan(0);
     });
   });

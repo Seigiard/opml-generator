@@ -22,8 +22,8 @@ const xmlBuilder = new XMLBuilder({
 });
 
 const mockLogger = {
-  infoCalls: [] as Array<{ tag: string; msg: string; ctx?: LogContext }>,
-  warnCalls: [] as Array<{ tag: string; msg: string }>,
+  infoCalls: new Array<{ tag: string; msg: string; ctx?: LogContext }>(),
+  warnCalls: new Array<{ tag: string; msg: string }>(),
   reset() {
     this.infoCalls = [];
     this.warnCalls = [];
@@ -85,10 +85,11 @@ const folderMetaSyncEvent = (path: string): EventType => ({
 function writeEpisodeEntry(
   dir: string,
   name: string,
-  fields: Record<string, unknown>,
+  fields: Record<string, string | number>,
 ): Promise<number> {
   const episodeDir = join(dir, name);
 
+  // SAFETY: XMLBuilder.build serializes these primitive episode fields to XML text.
   const xml = xmlBuilder.build({
     "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
     episode: fields,
@@ -108,6 +109,7 @@ function writeFolderEntry(
 ): Promise<number> {
   const folderDir = join(dir, name);
 
+  // SAFETY: XMLBuilder.build serializes these folder fields to XML text.
   const xml = xmlBuilder.build({
     "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
     folder: { title, href, feedCount },

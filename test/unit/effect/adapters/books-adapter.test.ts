@@ -14,6 +14,7 @@ describe("adaptBooksEvent (books watcher classification)", () => {
         name: "chapter01.mp3",
         events: "CLOSE_WRITE",
       };
+
       // #when
       const result = adaptBooksEvent(event, alwaysProcess);
       // #then
@@ -30,6 +31,7 @@ describe("adaptBooksEvent (books watcher classification)", () => {
         { parent: "/audiobooks/Fiction/", name: "chapter01.m4a", events: "MOVED_TO" },
         alwaysProcess,
       );
+
       expect(result?._tag).toBe("AudioFileCreated");
     });
 
@@ -38,6 +40,7 @@ describe("adaptBooksEvent (books watcher classification)", () => {
         { parent: "/audiobooks/Fiction/", name: "chapter01.ogg", events: "DELETE" },
         alwaysProcess,
       );
+
       expect(result?._tag).toBe("AudioFileDeleted");
 
       if (result?._tag === "AudioFileDeleted") {
@@ -51,6 +54,7 @@ describe("adaptBooksEvent (books watcher classification)", () => {
         { parent: "/audiobooks/Fiction/", name: "audiobook.m4b", events: "MOVED_FROM" },
         alwaysProcess,
       );
+
       expect(result?._tag).toBe("AudioFileDeleted");
     });
 
@@ -59,6 +63,7 @@ describe("adaptBooksEvent (books watcher classification)", () => {
         { parent: "/audiobooks/Fiction/", name: "README.md", events: "CLOSE_WRITE" },
         alwaysProcess,
       );
+
       expect(result).toBeNull();
     });
 
@@ -67,6 +72,7 @@ describe("adaptBooksEvent (books watcher classification)", () => {
         { parent: "/audiobooks/Fiction/", name: "cover.jpg", events: "CLOSE_WRITE" },
         alwaysProcess,
       );
+
       expect(result).toBeNull();
     });
 
@@ -75,6 +81,7 @@ describe("adaptBooksEvent (books watcher classification)", () => {
         { parent: "/audiobooks/Fiction/", name: "book.epub", events: "CLOSE_WRITE" },
         alwaysProcess,
       );
+
       expect(result).toBeNull();
     });
 
@@ -83,6 +90,7 @@ describe("adaptBooksEvent (books watcher classification)", () => {
         { parent: "/audiobooks/Fiction/", name: "chapter01.mp3", events: "CREATE" },
         alwaysProcess,
       );
+
       expect(result).toBeNull();
     });
   });
@@ -93,6 +101,7 @@ describe("adaptBooksEvent (books watcher classification)", () => {
         { parent: "/audiobooks/", name: "Fiction", events: "CREATE,ISDIR" },
         alwaysProcess,
       );
+
       expect(result?._tag).toBe("FolderCreated");
 
       if (result?._tag === "FolderCreated") {
@@ -106,6 +115,7 @@ describe("adaptBooksEvent (books watcher classification)", () => {
         { parent: "/audiobooks/", name: "SciFi", events: "MOVED_TO,ISDIR" },
         alwaysProcess,
       );
+
       expect(result?._tag).toBe("FolderCreated");
     });
 
@@ -114,6 +124,7 @@ describe("adaptBooksEvent (books watcher classification)", () => {
         { parent: "/audiobooks/", name: "OldFolder", events: "DELETE,ISDIR" },
         alwaysProcess,
       );
+
       expect(result?._tag).toBe("FolderDeleted");
 
       if (result?._tag === "FolderDeleted") {
@@ -127,6 +138,7 @@ describe("adaptBooksEvent (books watcher classification)", () => {
         { parent: "/audiobooks/", name: "MovedAway", events: "MOVED_FROM,ISDIR" },
         alwaysProcess,
       );
+
       expect(result?._tag).toBe("FolderDeleted");
     });
   });
@@ -162,6 +174,7 @@ describe("adaptBooksEvent (books watcher classification)", () => {
         name: "chapter01.mp3",
         events: "CLOSE_WRITE",
       };
+
       // #when
       const result1 = adaptBooksEvent(event, dedup);
       const result2 = adaptBooksEvent(event, dedup);

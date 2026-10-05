@@ -36,6 +36,7 @@ export async function folderSync(
       const folderName = normalizeFilenameTitle(basename(relativePath));
       const selfHref = `/${encodeUrlPath(relativePath)}/${FEED_FILE}`;
 
+      // SAFETY: XMLBuilder.build returns XML text, not its untyped input object.
       const entryXml = xmlBuilder.build({
         "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
         folder: {
@@ -53,6 +54,6 @@ export async function folderSync(
 
     return ok([{ _tag: "FolderMetaSyncRequested", path: folderDataDir }] as const);
   } catch (error) {
-    return err(error as Error);
+    return err(error instanceof Error ? error : new Error(String(error)));
   }
 }
