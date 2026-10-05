@@ -1,10 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": [
-    "unicorn",
-    "typescript",
-    "oxc"
-  ],
+  "plugins": ["unicorn", "typescript", "oxc"],
   "categories": {},
   "rules": {
     "constructor-super": "warn",
@@ -143,7 +139,5 @@
     "builtin": true
   },
   "globals": {},
-  "ignorePatterns": [
-    "tools/oxlint/anti-slop/**"
-  ]
+  "ignorePatterns": ["tools/oxlint/anti-slop/**"]
 }
