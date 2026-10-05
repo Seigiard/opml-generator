@@ -107,6 +107,7 @@ describe("folderSync handler", () => {
     deps.fs.mkdir = async () => {
       throw new Error("disk full");
     };
+
     const event: EventType = { _tag: "FolderCreated", parent: "/audiobooks", name: "Author" };
     // #when
     const result = await folderSync(event, deps);

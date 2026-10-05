@@ -41,6 +41,7 @@
 
   document.querySelectorAll("[data-subscribe]").forEach(function (el) {
     var url = el.dataset.href || location.href;
+
     if (!url) return;
 
     var small = document.createElement("small");

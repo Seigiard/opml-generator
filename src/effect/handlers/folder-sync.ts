@@ -14,7 +14,10 @@ const xmlBuilder = new XMLBuilder({
   suppressEmptyNode: true,
 });
 
-export async function folderSync(event: EventType, deps: HandlerDeps): Promise<Result<readonly EventType[], Error>> {
+export async function folderSync(
+  event: EventType,
+  deps: HandlerDeps,
+): Promise<Result<readonly EventType[], Error>> {
   if (event._tag !== "FolderCreated") return ok([]);
 
   const { parent, name } = event;

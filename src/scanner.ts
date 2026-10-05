@@ -33,6 +33,7 @@ export async function scanFiles(rootPath: string): Promise<FileInfo[]> {
   }
 
   await scan(rootPath);
+
   return files;
 }
 
@@ -45,6 +46,7 @@ export function buildFolderStructure(files: FileInfo[]): FolderInfo[] {
     parts.pop();
 
     let currentPath = "";
+
     for (const part of parts) {
       currentPath = currentPath ? `${currentPath}/${part}` : part;
       folderSet.add(currentPath);
@@ -53,6 +55,7 @@ export function buildFolderStructure(files: FileInfo[]): FolderInfo[] {
 
   // Count audio files per folder (direct children only)
   const audioFileCounts = new Map<string, number>();
+
   for (const file of files) {
     const parts = file.relativePath.split("/");
     parts.pop();
@@ -66,8 +69,10 @@ export function buildFolderStructure(files: FileInfo[]): FolderInfo[] {
     const subfolders = Array.from(folderSet).filter((f) => {
       if (f === path) return false;
       const prefix = path === "" ? "" : path + "/";
+
       if (!f.startsWith(prefix)) return false;
       const rest = f.slice(prefix.length);
+
       return !rest.includes("/");
     });
 
@@ -91,6 +96,7 @@ async function scanDataMirror(dataPath: string): Promise<Set<string>> {
 
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
+
         if (entry.name.startsWith("_")) continue;
 
         const entryPath = join(dirPath, entry.name);
@@ -114,6 +120,7 @@ async function scanDataMirror(dataPath: string): Promise<Set<string>> {
   }
 
   await scan(dataPath, "");
+
   return paths;
 }
 
@@ -142,6 +149,7 @@ export async function createSyncPlan(files: FileInfo[], dataPath: string): Promi
       toProcess.push(file);
     } else {
       const entryStat = await stat(join(dataDir, ENTRY_FILE));
+
       if (file.mtime > entryStat.mtimeMs) {
         toProcess.push(file);
       }

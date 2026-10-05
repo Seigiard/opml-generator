@@ -4,7 +4,10 @@ import { dirname, join, relative } from "node:path";
 import type { HandlerDeps } from "../../context.ts";
 import type { EventType } from "../types.ts";
 
-export async function audioCleanup(event: EventType, deps: HandlerDeps): Promise<Result<readonly EventType[], Error>> {
+export async function audioCleanup(
+  event: EventType,
+  deps: HandlerDeps,
+): Promise<Result<readonly EventType[], Error>> {
   if (event._tag !== "AudioFileDeleted") return ok([]);
 
   const { parent, name } = event;
@@ -29,5 +32,6 @@ export async function audioCleanup(event: EventType, deps: HandlerDeps): Promise
   logger.info("AudioCleanup", "Done", { path: relativePath });
 
   const parentDataDir = dirname(dataDir);
+
   return ok([{ _tag: "FolderMetaSyncRequested", path: parentDataDir }] as const);
 }

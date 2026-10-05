@@ -13,7 +13,11 @@ describe("Queue and Consumer Integration", () => {
 
   test("formats parent/name event paths without duplicate slashes", () => {
     // #when
-    const path = getEventPath({ _tag: "FolderCreated", parent: "/audiobooks/comics/", name: "Marvel" });
+    const path = getEventPath({
+      _tag: "FolderCreated",
+      parent: "/audiobooks/comics/",
+      name: "Marvel",
+    });
 
     // #then
     expect(path).toBe("/audiobooks/comics/Marvel");
@@ -28,6 +32,7 @@ describe("Queue and Consumer Integration", () => {
 
     ctx.handlers.register("FolderMetaSyncRequested", async (event) => {
       processedEvents.push((event as { path: string }).path);
+
       return ok([] as readonly EventType[]);
     });
 
@@ -50,6 +55,7 @@ describe("Queue and Consumer Integration", () => {
     const { queue } = {
       queue: new (require("../../../src/queue.ts").SimpleQueue)(),
     };
+
     // #when
     queue.enqueue("a");
     queue.enqueue("b");
@@ -68,8 +74,14 @@ describe("Queue and Consumer Integration", () => {
 
     // #then
     expect(ctx.queue.size).toBe(2);
-    expect(await ctx.queue.take()).toEqual({ _tag: "FolderMetaSyncRequested", path: "/shared/other" });
-    expect(await ctx.queue.take()).toEqual({ _tag: "FolderMetaSyncRequested", path: "/shared/parent" });
+    expect(await ctx.queue.take()).toEqual({
+      _tag: "FolderMetaSyncRequested",
+      path: "/shared/other",
+    });
+    expect(await ctx.queue.take()).toEqual({
+      _tag: "FolderMetaSyncRequested",
+      path: "/shared/parent",
+    });
   });
 
   test("consumer stops on abort signal", async () => {

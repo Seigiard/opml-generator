@@ -25,7 +25,10 @@ function buildEpisodeXml(fields: Record<string, unknown>): string {
   }) as string;
 }
 
-export async function audioSync(event: EventType, deps: HandlerDeps): Promise<Result<readonly EventType[], Error>> {
+export async function audioSync(
+  event: EventType,
+  deps: HandlerDeps,
+): Promise<Result<readonly EventType[], Error>> {
   if (event._tag !== "AudioFileCreated") return ok([]);
 
   const { parent, name } = event;
@@ -44,6 +47,7 @@ export async function audioSync(event: EventType, deps: HandlerDeps): Promise<Re
     await fs.mkdir(episodeDataDir, { recursive: true });
 
     let metadata: AudioMetadata;
+
     try {
       metadata = await readAudioMetadata(filePath);
     } catch {
@@ -72,14 +76,20 @@ export async function audioSync(event: EventType, deps: HandlerDeps): Promise<Re
     await handleFolderCover(filePath, parent, folderDataDir, fs);
 
     logger.info("AudioSync", "Done", { path: relativePath, episode: episodeNumber });
+
     return ok([]);
   } catch (error) {
     return err(error as Error);
   }
 }
 
-async function resolveEpisodeNumber(folderDataDir: string, currentEpisodeDir: string, fs: FileSystemService): Promise<number> {
+async function resolveEpisodeNumber(
+  folderDataDir: string,
+  currentEpisodeDir: string,
+  fs: FileSystemService,
+): Promise<number> {
   let siblings: string[];
+
   try {
     siblings = await fs.readdir(folderDataDir);
   } catch {
@@ -87,15 +97,19 @@ async function resolveEpisodeNumber(folderDataDir: string, currentEpisodeDir: st
   }
 
   let maxEpisode = 0;
+
   for (const sibling of siblings) {
     const siblingDir = join(folderDataDir, sibling);
+
     if (siblingDir === currentEpisodeDir) continue;
 
     const entryPath = join(siblingDir, ENTRY_FILE);
     const exists = await fs.exists(entryPath);
+
     if (!exists) continue;
 
     let content: string;
+
     try {
       content = await Bun.file(entryPath).text();
     } catch {
@@ -103,6 +117,7 @@ async function resolveEpisodeNumber(folderDataDir: string, currentEpisodeDir: st
     }
 
     const match = content.match(/<episodeNumber>(\d+)<\/episodeNumber>/);
+
     if (match) {
       maxEpisode = Math.max(maxEpisode, Number.parseInt(match[1]!, 10));
     }
@@ -119,10 +134,12 @@ async function resolvePubDate(
 ): Promise<string> {
   if (id3Date) {
     const parsed = new Date(id3Date);
+
     if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
   }
 
   let siblings: string[];
+
   try {
     siblings = await fs.readdir(folderDataDir);
   } catch {
@@ -130,13 +147,16 @@ async function resolvePubDate(
   }
 
   let earliestMtime = Date.now();
+
   for (const sibling of siblings) {
     const siblingDir = join(folderDataDir, sibling);
     const entryPath = join(siblingDir, ENTRY_FILE);
     const exists = await fs.exists(entryPath);
+
     if (!exists) continue;
 
     let content: string;
+
     try {
       content = await Bun.file(entryPath).text();
     } catch {
@@ -144,8 +164,10 @@ async function resolvePubDate(
     }
 
     const match = content.match(/<pubDate>([^<]+)<\/pubDate>/);
+
     if (match) {
       const parsed = new Date(match[1]!);
+
       if (!Number.isNaN(parsed.getTime())) {
         earliestMtime = Math.min(earliestMtime, parsed.getTime());
       }
@@ -154,16 +176,24 @@ async function resolvePubDate(
 
   const baseDate = new Date(earliestMtime);
   const synthesized = new Date(baseDate.getTime() + (episodeNumber - 1) * 60_000);
+
   return synthesized.toISOString();
 }
 
-async function handleFolderCover(audioFilePath: string, sourceFolder: string, folderDataDir: string, fs: FileSystemService): Promise<void> {
+async function handleFolderCover(
+  audioFilePath: string,
+  sourceFolder: string,
+  folderDataDir: string,
+  fs: FileSystemService,
+): Promise<void> {
   try {
     const coverPath = join(folderDataDir, COVER_FILE);
     const coverExists = await fs.exists(coverPath);
+
     if (coverExists) return;
 
     let folderCoverPath: string | null = null;
+
     try {
       folderCoverPath = await findFolderCover(sourceFolder);
     } catch {
@@ -174,6 +204,7 @@ async function handleFolderCover(audioFilePath: string, sourceFolder: string, fo
       try {
         const coverBuffer = Buffer.from(await Bun.file(folderCoverPath).arrayBuffer());
         await saveBufferAsImage(coverBuffer, coverPath, COVER_MAX_SIZE);
+
         return;
       } catch {
         // fall through to embedded cover
@@ -181,6 +212,7 @@ async function handleFolderCover(audioFilePath: string, sourceFolder: string, fo
     }
 
     let embeddedCover: { data: Buffer } | null = null;
+
     try {
       embeddedCover = await extractEmbeddedCover(audioFilePath);
     } catch {

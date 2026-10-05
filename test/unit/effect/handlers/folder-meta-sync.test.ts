@@ -9,7 +9,9 @@ import { mkdir, rm, stat, readFile, readdir, rename } from "node:fs/promises";
 import { XMLBuilder } from "fast-xml-parser";
 
 const TEST_DIR = join(tmpdir(), `folder-meta-test-${Date.now()}`);
+
 const DATA_DIR = join(TEST_DIR, "data");
+
 const FILES_DIR = join(TEST_DIR, "files");
 
 const xmlBuilder = new XMLBuilder({
@@ -49,11 +51,13 @@ function realDeps(): HandlerDeps {
       readdir: (path) => readdir(path),
       stat: async (path) => {
         const s = await stat(path);
+
         return { isDirectory: () => s.isDirectory(), size: s.size };
       },
       exists: async (path) => {
         try {
           await stat(path);
+
           return true;
         } catch {
           return false;
@@ -78,22 +82,40 @@ const folderMetaSyncEvent = (path: string): EventType => ({
   path,
 });
 
-function writeEpisodeEntry(dir: string, name: string, fields: Record<string, unknown>): Promise<number> {
+function writeEpisodeEntry(
+  dir: string,
+  name: string,
+  fields: Record<string, unknown>,
+): Promise<number> {
   const episodeDir = join(dir, name);
+
   const xml = xmlBuilder.build({
     "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
     episode: fields,
   }) as string;
-  return mkdir(episodeDir, { recursive: true }).then(() => Bun.write(join(episodeDir, "entry.xml"), xml));
+
+  return mkdir(episodeDir, { recursive: true }).then(() =>
+    Bun.write(join(episodeDir, "entry.xml"), xml),
+  );
 }
 
-function writeFolderEntry(dir: string, name: string, title: string, href: string, feedCount: number): Promise<number> {
+function writeFolderEntry(
+  dir: string,
+  name: string,
+  title: string,
+  href: string,
+  feedCount: number,
+): Promise<number> {
   const folderDir = join(dir, name);
+
   const xml = xmlBuilder.build({
     "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
     folder: { title, href, feedCount },
   }) as string;
-  return mkdir(folderDir, { recursive: true }).then(() => Bun.write(join(folderDir, "_entry.xml"), xml));
+
+  return mkdir(folderDir, { recursive: true }).then(() =>
+    Bun.write(join(folderDir, "_entry.xml"), xml),
+  );
 }
 
 describe("folderMetaSync handler", () => {
@@ -443,9 +465,11 @@ describe("folderMetaSync handler", () => {
 
     // #then
     const entryPath = join(DATA_DIR, "_entry.xml");
+
     const exists = await stat(entryPath)
       .then(() => true)
       .catch(() => false);
+
     expect(exists).toBe(false);
   });
 
@@ -469,6 +493,8 @@ describe("folderMetaSync handler", () => {
     await folderMetaSync(folderMetaSyncEvent(DATA_DIR), realDeps());
 
     // #then
-    expect(mockLogger.infoCalls.some((c) => c.tag === "FolderMetaSync" && c.msg.includes("Processing"))).toBe(true);
+    expect(
+      mockLogger.infoCalls.some((c) => c.tag === "FolderMetaSync" && c.msg.includes("Processing")),
+    ).toBe(true);
   });
 });

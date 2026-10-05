@@ -38,6 +38,7 @@ function makeDeps(): HandlerDeps {
       mkdir: async () => {},
       rm: async (path) => {
         mockFs.rmCalls.push({ path });
+
         if (mockFs.rmError) throw mockFs.rmError;
       },
       readdir: async () => [],

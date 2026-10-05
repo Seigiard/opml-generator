@@ -128,7 +128,10 @@ describe("scanner", () => {
 
   describe("computeHash", () => {
     test("returns consistent hash for same files", () => {
-      const files = [createFileInfo("track1.mp3", 1000, 1700000000000), createFileInfo("track2.m4a", 2000, 1700000001000)];
+      const files = [
+        createFileInfo("track1.mp3", 1000, 1700000000000),
+        createFileInfo("track2.m4a", 2000, 1700000001000),
+      ];
 
       const hash1 = computeHash(files);
       const hash2 = computeHash(files);

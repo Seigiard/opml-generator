@@ -17,6 +17,7 @@ describe("QueueChunk", () => {
   test("returns false when full", () => {
     // #given
     const chunk = new QueueChunk<number>();
+
     for (let i = 0; i < CHUNK_SIZE; i++) chunk.push(i);
     // #then
     expect(chunk.push(999)).toBe(false);
@@ -55,12 +56,15 @@ describe("UnrolledQueue", () => {
     // #given
     const q = new UnrolledQueue<number>();
     const count = CHUNK_SIZE + 100;
+
     for (let i = 0; i < count; i++) q.push(i);
     // #then
     expect(q.length).toBe(count);
+
     for (let i = 0; i < count; i++) {
       expect(q.shift()).toBe(i);
     }
+
     expect(q.length).toBe(0);
   });
 });

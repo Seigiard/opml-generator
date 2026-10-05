@@ -2,7 +2,11 @@ import { join } from "node:path";
 
 const REFERENCE_COVER = join(import.meta.dir, "../../files/test/cover.jpg");
 
-export async function compareImages(imageA: Buffer, imageB: Buffer, threshold = 0.1): Promise<{ similar: boolean; rmse: number }> {
+export async function compareImages(
+  imageA: Buffer,
+  imageB: Buffer,
+  threshold = 0.1,
+): Promise<{ similar: boolean; rmse: number }> {
   const id = Date.now();
   const tmpA = `/tmp/compare_a_${id}.jpg`;
   const tmpB = `/tmp/compare_b_${id}.jpg`;
@@ -17,6 +21,7 @@ export async function compareImages(imageA: Buffer, imageB: Buffer, threshold = 
     stdout: "pipe",
     stderr: "pipe",
   });
+
   const stderr = await new Response(proc.stderr).text();
   await proc.exited;
 
@@ -28,12 +33,21 @@ export async function compareImages(imageA: Buffer, imageB: Buffer, threshold = 
   return { similar: rmse < threshold, rmse };
 }
 
-export async function assertCoverMatchesReference(extractedCover: Buffer, threshold = 0.1): Promise<void> {
+export async function assertCoverMatchesReference(
+  extractedCover: Buffer,
+  threshold = 0.1,
+): Promise<void> {
   const referenceCover = await Bun.file(REFERENCE_COVER).arrayBuffer();
-  const { similar, rmse } = await compareImages(extractedCover, Buffer.from(referenceCover), threshold);
+  const { similar, rmse } = await compareImages(
+    extractedCover,
+    Buffer.from(referenceCover),
+    threshold,
+  );
 
   if (!similar) {
-    throw new Error(`Cover does not match reference: RMSE=${rmse.toFixed(4)} > threshold=${threshold}`);
+    throw new Error(
+      `Cover does not match reference: RMSE=${rmse.toFixed(4)} > threshold=${threshold}`,
+    );
   }
 }
 

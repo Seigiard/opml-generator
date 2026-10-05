@@ -71,7 +71,10 @@ describe("folderEntryXmlChanged handler", () => {
 
   test("handles deeply nested folders", async () => {
     // #given
-    const event: EventType = { _tag: "FolderEntryXmlChanged", parent: "/data/Fiction/SciFi/Author" };
+    const event: EventType = {
+      _tag: "FolderEntryXmlChanged",
+      parent: "/data/Fiction/SciFi/Author",
+    };
     // #when
     const result = await folderEntryXmlChanged(event, deps);
     // #then

@@ -8,9 +8,11 @@ function parsePath(filesPath: string, relativePath: string): { parent: string; n
   if (relativePath === "") {
     return { parent: filesPath + "/", name: "" };
   }
+
   const fullPath = join(filesPath, relativePath);
   const parent = dirname(fullPath) + "/";
   const name = relativePath.split("/").pop() ?? "";
+
   return { parent, name };
 }
 

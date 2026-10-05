@@ -16,10 +16,12 @@ interface MockConfig {
 }
 
 let spawnSpy: Mock<typeof Bun.spawn> | null = null;
+
 let mockConfig: MockConfig = {};
 
 function createReadableStream(data: string | Buffer): ReadableStream<Uint8Array> {
   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data);
+
   return new ReadableStream({
     start(controller) {
       controller.enqueue(bytes);
@@ -92,13 +94,16 @@ export function resetMocks(): void {
     spawnSpy.mockRestore();
     spawnSpy = null;
   }
+
   mockConfig = {};
 }
 
 export function getMockCalls(): string[][] {
   if (!spawnSpy) return [];
+
   return spawnSpy.mock.calls.map((call) => {
     const cmd = call[0];
+
     return Array.isArray(cmd) ? cmd : [cmd];
   });
 }

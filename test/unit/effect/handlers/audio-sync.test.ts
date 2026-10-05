@@ -5,11 +5,24 @@ import type { EventType } from "../../../../src/effect/types.ts";
 import type { LogContext } from "../../../../src/logging/types.ts";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdir, rm, stat, readFile, copyFile, readdir, rename, symlink, unlink } from "node:fs/promises";
+import {
+  mkdir,
+  rm,
+  stat,
+  readFile,
+  copyFile,
+  readdir,
+  rename,
+  symlink,
+  unlink,
+} from "node:fs/promises";
 
 const TEST_DIR = join(tmpdir(), `audio-sync-test-${Date.now()}`);
+
 const FILES_DIR = join(TEST_DIR, "files");
+
 const DATA_DIR = join(TEST_DIR, "data");
+
 const FIXTURES_DIR = join(import.meta.dir, "../../../../test/fixtures/audio");
 
 const mockLogger = {
@@ -38,11 +51,13 @@ function realDeps(): HandlerDeps {
       readdir: (path) => readdir(path),
       stat: async (path) => {
         const s = await stat(path);
+
         return { isDirectory: () => s.isDirectory(), size: s.size };
       },
       exists: async (path) => {
         try {
           await stat(path);
+
           return true;
         } catch {
           return false;
@@ -66,6 +81,7 @@ const audioFileCreatedEvent = (relativePath: string): EventType => {
   const parts = relativePath.split("/");
   const name = parts.pop()!;
   const parent = join(FILES_DIR, parts.join("/"));
+
   return { _tag: "AudioFileCreated", parent, name };
 };
 
@@ -99,9 +115,11 @@ describe("audioSync handler", () => {
     await audioSync(audioFileCreatedEvent("track.mp3"), realDeps());
     // #then
     const dataDir = join(DATA_DIR, "track.mp3");
+
     const exists = await stat(dataDir)
       .then(() => true)
       .catch(() => false);
+
     expect(exists).toBe(true);
   });
 
@@ -158,8 +176,14 @@ describe("audioSync handler", () => {
     await copyFile(join(FIXTURES_DIR, "tagged.mp3"), join(authorDir, "02.mp3"));
     await audioSync(audioFileCreatedEvent("Author/Album/02.mp3"), deps);
     // #then
-    const entry1 = await readFile(join(DATA_DIR, "Author", "Album", "01.mp3", "entry.xml"), "utf-8");
-    const entry2 = await readFile(join(DATA_DIR, "Author", "Album", "02.mp3", "entry.xml"), "utf-8");
+    const entry1 = await readFile(
+      join(DATA_DIR, "Author", "Album", "01.mp3", "entry.xml"),
+      "utf-8",
+    );
+    const entry2 = await readFile(
+      join(DATA_DIR, "Author", "Album", "02.mp3", "entry.xml"),
+      "utf-8",
+    );
     expect(entry1).toContain("<episodeNumber>1</episodeNumber>");
     expect(entry2).toContain("<episodeNumber>2</episodeNumber>");
   });
@@ -173,9 +197,11 @@ describe("audioSync handler", () => {
     await audioSync(audioFileCreatedEvent("Author/Album/track.mp3"), realDeps());
     // #then
     const dataDir = join(DATA_DIR, "Author", "Album", "track.mp3");
+
     const exists = await stat(dataDir)
       .then(() => true)
       .catch(() => false);
+
     expect(exists).toBe(true);
   });
 
@@ -185,8 +211,12 @@ describe("audioSync handler", () => {
     // #when
     await audioSync(audioFileCreatedEvent("track.mp3"), realDeps());
     // #then
-    expect(mockLogger.infoCalls.some((c) => c.tag === "AudioSync" && c.msg.includes("Processing"))).toBe(true);
-    expect(mockLogger.infoCalls.some((c) => c.tag === "AudioSync" && c.msg.includes("Done"))).toBe(true);
+    expect(
+      mockLogger.infoCalls.some((c) => c.tag === "AudioSync" && c.msg.includes("Processing")),
+    ).toBe(true);
+    expect(mockLogger.infoCalls.some((c) => c.tag === "AudioSync" && c.msg.includes("Done"))).toBe(
+      true,
+    );
   });
 
   test("uses ID3 date for pubDate when available", async () => {

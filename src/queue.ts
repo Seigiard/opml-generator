@@ -17,6 +17,7 @@ export class QueueChunk<T> {
   push(item: T): boolean {
     if (this.writeIndex >= CHUNK_SIZE) return false;
     this.buffer[this.writeIndex++] = item;
+
     return true;
   }
 
@@ -25,6 +26,7 @@ export class QueueChunk<T> {
     const index = this.readIndex++;
     const item = this.buffer[index];
     this.buffer[index] = undefined;
+
     return item;
   }
 
@@ -55,15 +57,18 @@ export class UnrolledQueue<T> {
   push(item: T): void {
     if (!this.tail.push(item)) {
       let chunk = this.spare;
+
       if (chunk) {
         this.spare = null;
       } else {
         chunk = new QueueChunk<T>();
       }
+
       this.tail.next = chunk;
       this.tail = chunk;
       this.tail.push(item);
     }
+
     this._length++;
   }
 
@@ -72,10 +77,13 @@ export class UnrolledQueue<T> {
     const head = this.head;
     const item = head.shift();
     this._length--;
+
     if (head.length === 0) {
       const next = head.next;
+
       if (next) {
         this.head = next;
+
         if (!this.spare) {
           head.reset();
           this.spare = head;
@@ -86,6 +94,7 @@ export class UnrolledQueue<T> {
         head.reset();
       }
     }
+
     return item;
   }
 }
@@ -103,17 +112,22 @@ export class SimpleQueue<T> {
 
   enqueue(item: T): void {
     const waiter = this.waiters.shift();
+
     if (waiter) {
       waiter.resolve(item);
     } else {
       const key = this.getKey?.(item);
+
       if (key) {
         if (this.pendingKeys.has(key)) {
           this.dirtyKeys.add(key);
+
           return;
         }
+
         this.pendingKeys.add(key);
       }
+
       this.buffer.push(item);
     }
   }
@@ -127,21 +141,28 @@ export class SimpleQueue<T> {
       while (this.buffer.length > 0) {
         const item = this.buffer.shift()!;
         const key = this.getKey?.(item);
+
         if (key && this.dirtyKeys.delete(key)) {
           this.buffer.push(item);
           continue;
         }
+
         if (key) this.pendingKeys.delete(key);
+
         return item;
       }
     }
+
     if (signal?.aborted) throw signal.reason;
+
     return new Promise((resolve, reject) => {
       const onAbort = () => {
         const idx = this.waiters.indexOf(entry);
+
         if (idx !== -1) this.waiters.splice(idx, 1);
         reject(signal!.reason);
       };
+
       const entry = {
         resolve: (item: T) => {
           signal?.removeEventListener("abort", onAbort);
@@ -149,6 +170,7 @@ export class SimpleQueue<T> {
         },
         reject,
       };
+
       this.waiters.push(entry);
       signal?.addEventListener("abort", onAbort, { once: true });
     });
