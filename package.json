@@ -19,7 +19,8 @@
     "test:integration": "docker compose -f docker-compose.test.yml run --rm test bun test test/integration",
     "test:coverage": "docker compose -f docker-compose.test.yml run --rm test bun test --coverage",
     "test:e2e": "docker compose -f docker-compose.e2e.yml up -d --build --wait && bun test test/e2e; docker compose -f docker-compose.e2e.yml down",
-    "test:all": "bun run test && bun run test:e2e"
+    "test:all": "bun run test && bun run test:e2e",
+    "lint:anti-slop": "oxlint --config .oxlintrc.anti-slop.json ."
   },
   "dependencies": {
     "fast-xml-parser": "^5.3.3",
@@ -29,10 +30,11 @@
     "sharp": "^0.34.5"
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.87.0",
     "@types/bun": "latest",
     "oxfmt": "^0.21.0",
-    "oxlint": "latest",
-    "oxlint-tsgolint": "latest"
+    "oxlint": "1.87.0",
+    "oxlint-tsgolint": "7.0.2003"
   },
   "peerDependencies": {
     "typescript": "^5"

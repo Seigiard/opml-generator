@@ -195,6 +195,8 @@ await Promise.allSettled([consumerTask, reconcileTask]);
 
 ## Constraints & Gotchas
 
+- Anti-slop rules are vendored from `dmmulroy/anti-slop` at `tools/oxlint/anti-slop/`; `UPSTREAM.md` records the source revision. `bun run lint:anti-slop` checks owned JS/TS, including tests, and runs in a separate CI job. Oxlint and `@oxlint/plugins` are pinned together; `oxlint-tsgolint` matches Oxlint's peer requirement.
+
 - **music-metadata**: `parseFile()` hangs in Bun — always use `parseBuffer()`
 - **Healthcheck**: Docker image is Alpine without curl — use `wget`
 - **Handlers return events, never call each other** — cascade via `EventType[]` return values, consumer enqueues them
