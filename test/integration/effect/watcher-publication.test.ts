@@ -699,4 +699,91 @@ describe("source watcher publication through ApplicationLifecycle", () => {
       ],
     });
   });
+
+  test("a held pass-final OPML snapshot cannot overwrite newer watcher subscription information", async () => {
+    // #given
+    const lib = await library();
+    await lib.audio("Author/Book/01-first.mp3");
+    const initialWriteStarted = deferred();
+    const releaseInitialWrite = deferred();
+    const watcherOpmlStarted = deferred();
+    const writeBase = lib.ctx.fs.atomicWrite;
+    const readBase = lib.ctx.fs.readdir;
+    const infoBase = lib.ctx.logger.info;
+    let initialWriteHeld = false;
+    let watcherPublicationStarted = false;
+    let concurrentCollection = false;
+    let opmlWrites = 0;
+    cleanups.push(async () => {
+      releaseInitialWrite.resolve();
+    });
+    lib.ctx.fs.readdir = (path) => {
+      if (path === lib.dataPath && initialWriteHeld && watcherPublicationStarted)
+        concurrentCollection = true;
+
+      return readBase(path);
+    };
+
+    lib.ctx.fs.atomicWrite = async (path, content) => {
+      if (path !== join(lib.dataPath, "feed.opml")) {
+        await writeBase(path, content);
+
+        return;
+      }
+
+      opmlWrites++;
+
+      if (opmlWrites === 1) {
+        initialWriteHeld = true;
+        initialWriteStarted.resolve();
+        await releaseInitialWrite.promise;
+        await writeBase(path, content);
+        initialWriteHeld = false;
+      } else {
+        await writeBase(path, content);
+        releaseInitialWrite.resolve();
+      }
+    };
+
+    lib.ctx.logger.info = (tag, message, context) => {
+      infoBase(tag, message, context);
+
+      if (
+        tag === "Consumer" &&
+        message === "Handler started" &&
+        (context?.event_tag === "FeedXmlCreated" || context?.event_tag === "FeedXmlChanged")
+      ) {
+        watcherPublicationStarted = true;
+        watcherOpmlStarted.resolve();
+      }
+    };
+
+    // #when
+    const initial = lib.app.runInitialSync();
+    await initialWriteStarted.promise;
+    await lib.audio("Later/Other/02-new.mp3");
+    expect(
+      lib.app.admitBooksEvent({
+        parent: join(lib.filesPath, "Later/Other"),
+        name: "02-new.mp3",
+        events: "CLOSE_WRITE",
+      }),
+    ).toBe(true);
+    await watcherOpmlStarted.promise;
+
+    // A competing collector must finish its newer write before the held old snapshot.
+    // A serialized collector can proceed only after the held write is released.
+    if (!concurrentCollection) releaseInitialWrite.resolve();
+    const successful = await initial;
+    await lib.app.waitForIdle();
+
+    // #then
+    expect({ successful, subscriptions: await subscriptions(lib.dataPath) }).toEqual({
+      successful: true,
+      subscriptions: [
+        { title: "01-first", author: "Author", url: "{{{BASE_URL}}}/Author/Book/feed.xml" },
+        { title: "02-new", author: "Later", url: "{{{BASE_URL}}}/Later/Other/feed.xml" },
+      ],
+    });
+  });
 });

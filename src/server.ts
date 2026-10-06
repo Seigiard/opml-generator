@@ -17,22 +17,6 @@ const watcherEventSchema = z.object({
   events: z.string(),
 });
 
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(signal.reason);
-    };
-
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
 async function resync(ctx: AppContext, lifecycle: ApplicationLifecycle): Promise<void> {
   log.info("Resync", "Starting full resync");
   const entries = await readdir(config.dataPath);
@@ -41,33 +25,6 @@ async function resync(ctx: AppContext, lifecycle: ApplicationLifecycle): Promise
   );
   log.info("Resync", "Cleared data directory");
   await lifecycle.runPublicationPass("Resync");
-}
-
-async function startReconciliation(
-  ctx: AppContext,
-  lifecycle: ApplicationLifecycle,
-  signal: AbortSignal,
-): Promise<void> {
-  const intervalMs = ctx.config.reconcileInterval * 1000;
-
-  while (!signal.aborted) {
-    await sleep(intervalMs, signal).catch(() => {});
-
-    if (signal.aborted) break;
-
-    if (lifecycle.isSyncing()) continue;
-
-    if (ctx.queue.size > 0) continue;
-
-    try {
-      log.info("Reconciliation", "Starting periodic reconciliation");
-      await lifecycle.runPublicationPass("Reconciliation");
-
-      log.info("Reconciliation", "Completed");
-    } catch (error) {
-      log.error("Reconciliation", "Failed", error);
-    }
-  }
 }
 
 function handleDataEvent(body: RawDataEvent, ctx: AppContext) {
@@ -183,7 +140,7 @@ async function main(): Promise<void> {
     let reconcileTask: Promise<void> | undefined;
 
     if (config.reconcileInterval > 0) {
-      reconcileTask = startReconciliation(ctx, lifecycle, controller.signal);
+      reconcileTask = lifecycle.startReconciliation(controller.signal);
       log.info("Server", `Periodic reconciliation enabled (every ${config.reconcileInterval}s)`);
     }
 

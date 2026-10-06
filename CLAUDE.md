@@ -142,9 +142,16 @@ nginx:80 (external)          Bun:3000 (localhost only)
 
 ## Architecture: Sync Lifecycle
 
-Initial sync runs through `ApplicationLifecycle` as a lifecycle-owned pass. The pass tags its planned events and mandatory cascades, waits for active handlers as well as queued work, and preserves ownership through cascades of coalesced metadata events. It suppresses pass-scoped `FeedXmlCreated`/`FeedXmlChanged`/`FeedXmlDeleted` hints and writes one final `feed.opml` after covered RSS work completes. OPML collection and writing are serialized per filesystem service so ordinary watcher publication cannot race the pass-final write. Watcher admission is ready before publication readiness; nginx `GET /ready` proxies Bun readiness and returns 200 only after a successful initial pass. Accepted synchronization decisions live in `docs/adr/0001-filesystem-authoritative-synchronization.md`.
+Initial sync and reconciliation run through `ApplicationLifecycle` as lifecycle-owned passes. A pass tags its planned events and mandatory cascades, waits for active handlers and queued covered work, and preserves ownership through cascades of coalesced metadata events. It suppresses pass-scoped `FeedXmlCreated`/`FeedXmlChanged`/`FeedXmlDeleted` hints and writes one final `feed.opml` after covered RSS work completes. OPML collection and writing are serialized per filesystem service so ordinary watcher publication cannot race the pass-final write. Watcher admission is ready before publication readiness. A successful recovery pass can establish readiness after failed startup; nginx `GET /ready` proxies this state. Accepted synchronization decisions live in `docs/adr/0001-filesystem-authoritative-synchronization.md`.
 
 Source notifications enter through `ApplicationLifecycle.admitBooksEvent()`. They enqueue `SourcePathSyncRequested` hints, which check current filesystem state and reconcile directory descendants. Pending hints coalesce by path. Admission avoids TTL filtering because a repeated notification can describe a newer same-path replacement. Scan-planned deletions use the same current-state check. Audio metadata writes trigger folder RSS directly; folder RSS triggers parent navigation and OPML, including changes to existing podcast information. Empty cache branches are pruned only when their source subtree has no supported audio. `waitForIdle()` observes pending events and active consumer work for integration callers; pass completion remains scoped to the pass.
+
+### Publication Recovery
+
+- Scanner cache reuse requires a fresh `entry.xml` timestamp and valid episode XML, including source path identity, file size, MIME type, and usable dates and numbers. `src/rss/episode-cache.ts` owns this validation.
+- Every pass regenerates the audio-derived folder hierarchy and RSS, even when all episode metadata is reusable. Final OPML publication repairs missing or stale navigation without watcher notifications.
+- Cache scanning includes directories with missing metadata markers. Cleanup removes only the highest obsolete subtree so descendant cascades cannot recreate removed folders.
+- `ApplicationLifecycle.startReconciliation()` owns interval scheduling. Busy intervals are skipped without a deferred run; the next configured interval retries. Interval `0` creates no timer. Pass failures retain their unsuccessful result while independent handlers continue.
 
 ## Architecture: Event Processing
 
