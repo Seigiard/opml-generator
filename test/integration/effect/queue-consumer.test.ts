@@ -45,7 +45,7 @@ describe("Queue and Consumer Integration", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     controller.abort();
-    await consumerTask.catch(() => {});
+    await consumerTask;
 
     // #then
     expect(processedEvents).toContain("/test/book");
@@ -95,9 +95,8 @@ describe("Queue and Consumer Integration", () => {
     const consumerTask = startConsumer(ctx, controller.signal);
     await new Promise((resolve) => setTimeout(resolve, 50));
     controller.abort();
-    await consumerTask.catch(() => {});
 
     // #then — consumer exited without error
-    expect(true).toBe(true);
+    await expect(consumerTask).resolves.toBeUndefined();
   });
 });

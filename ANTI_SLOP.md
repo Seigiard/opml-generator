@@ -36,6 +36,8 @@ These exit codes describe the installation baseline. Local Docker is unavailable
 - Whitespace is committed separately. A second fix/format pass leaves the source diff unchanged.
 - Runtime success requires the existing same-head Docker tests and image build to pass on GitHub Actions.
 
+Consumer shutdown tests now await actual successful termination. Unexpected Promise rejection fails the test; the abort test asserts resolution to undefined instead of an unconditional true value.
+
 ## Scope
 
 Owned source and tests are included in cleanup. Vendored plugin source, installed dependencies, generated output, and agent tooling are excluded from the check. Existing rules are not suppressed. The separate config avoids inheriting broad legacy ignores that would exclude owned JavaScript or tests.
