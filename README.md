@@ -18,7 +18,7 @@ Podcast RSS and OPML feed generator for locally stored audiobooks and podcasts.
 - Root OPML file aggregates all podcast feeds
 - ID3 metadata extraction (title, artist, album, track, duration, cover art)
 - Folder-level cover art (embedded or standalone image files)
-- Stable episode numbering across incremental updates
+- Episode numbering follows the current sorted listening order
 - HTTP Range request support for seeking/streaming
 - File watching with automatic feed regeneration
 - Full resync via authenticated `/resync` endpoint
@@ -103,15 +103,15 @@ docker compose up -d --build
 
 ## API
 
-| Endpoint                    | Description                                 |
-| --------------------------- | ------------------------------------------- |
-| `GET /`                     | Redirect to /feed.opml                      |
-| `GET /feed.opml`            | Root OPML (aggregates all podcast feeds)    |
-| `GET /data/{path}/feed.xml` | Individual podcast RSS feed                 |
-| `GET /audiobooks/{path}`    | Stream audio file (supports Range requests) |
-| `GET /static/*`             | Static assets                               |
-| `POST /resync`              | Trigger full resync (requires Basic Auth)   |
-| `GET /ready`                | Publication readiness (`200` or `503`)      |
+| Endpoint                 | Description                                 |
+| ------------------------ | ------------------------------------------- |
+| `GET /`                  | Redirect to /feed.opml                      |
+| `GET /feed.opml`         | Root OPML (aggregates all podcast feeds)    |
+| `GET /{path}/feed.xml`   | Individual podcast RSS feed                 |
+| `GET /audiobooks/{path}` | Stream audio file (supports Range requests) |
+| `GET /static/*`          | Static assets                               |
+| `POST /resync`           | Trigger full resync (requires Basic Auth)   |
+| `GET /ready`             | Publication readiness (`200` or `503`)      |
 
 `/resync` returns `202` when the rebuild is accepted. This response does not mean
 that publication is complete. During initial sync, reconciliation, or another
