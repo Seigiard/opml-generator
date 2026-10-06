@@ -23,7 +23,7 @@ services:
       # - ADMIN_TOKEN=secret
       # - RECONCILE_INTERVAL=1800
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/feed.opml"]
+      test: ["CMD-SHELL", 'wget -q --spider "http://127.0.0.1:$${PORT:-3000}/ready"']
       interval: 10s
       timeout: 5s
       retries: 3

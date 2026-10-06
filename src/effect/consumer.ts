@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { AppContext } from "../context.ts";
-import type { EventType } from "./types.ts";
+import type { EventType, PassScopedEvent } from "./types.ts";
 
 function generateEventId(event: EventType, path: string | undefined): string {
   const timestamp = Date.now();
@@ -19,12 +19,18 @@ export function getEventPath(event: EventType): string | undefined {
   return undefined;
 }
 
+function isPassFinalOpmlHint(event: PassScopedEvent): boolean {
+  return (
+    event.__passId != null && (event._tag === "FeedXmlCreated" || event._tag === "FeedXmlDeleted")
+  );
+}
+
 export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promise<void> {
   let eventCount = 0;
   ctx.logger.info("Consumer", "Started processing events");
 
   while (!signal.aborted) {
-    let event: EventType;
+    let event: PassScopedEvent;
 
     try {
       event = await ctx.queue.take(signal);
@@ -35,7 +41,10 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
 
     const handler = ctx.handlers.get(event._tag);
 
-    if (!handler) continue;
+    if (!handler || isPassFinalOpmlHint(event)) {
+      ctx.lifecycle.complete(event);
+      continue;
+    }
 
     const path = getEventPath(event);
     const eventId = generateEventId(event, path);
@@ -70,8 +79,9 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
             cascade_count: result.value.length,
             cascade_tags: result.value.map((e) => e._tag),
           });
-          ctx.queue.enqueueMany(result.value);
+          ctx.lifecycle.enqueueCascades(ctx.queue, event, result.value);
         }
+        ctx.lifecycle.complete(event);
       } else {
         ctx.logger.error("Consumer", "handler failed", result.error, {
           event_type: "handler_error",
@@ -79,11 +89,13 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
           event_tag: event._tag,
           duration_ms: duration,
         });
+        ctx.lifecycle.complete(event, result.error);
       }
     } catch (err) {
       ctx.logger.error("Consumer", "unexpected handler throw", err, {
         event_tag: event._tag,
       });
+      ctx.lifecycle.complete(event, err instanceof Error ? err : new Error(String(err)));
     }
 
     if (++eventCount % 100 === 0) Bun.gc(true);

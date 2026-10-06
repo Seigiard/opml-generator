@@ -107,6 +107,7 @@ src/
 ├── queue.ts         # SimpleQueue<T> (unrolled linked list)
 ├── effect/          # Event handling (neverthrow + async/await)
 │   ├── types.ts     # RawBooksEvent, RawDataEvent, EventType
+│   ├── pass-lifecycle.ts # Synchronization pass ownership and completion tracking
 │   ├── consumer.ts  # Event loop (AbortController-based)
 │   ├── adapters/    # Raw → typed event conversion
 │   │   ├── books-adapter.ts    # /audiobooks watcher events
@@ -131,11 +132,16 @@ src/
 
 ```
 nginx:80 (external)          Bun:3000 (localhost only)
-├── /feed.opml → /data/      ├── POST /events/books ← books watcher
+├── /feed.opml → /data/      ├── GET /ready ← publication readiness
+├── healthcheck → /ready     ├── POST /events/books ← books watcher
 ├── /data/* → static files   ├── POST /events/data ← data watcher
 ├── /resync → auth → proxy   └── POST /resync ← nginx
 └── /* → 404
 ```
+
+## Architecture: Sync Lifecycle
+
+Initial sync runs as a lifecycle-owned pass. The pass tags its planned events and mandatory cascades, waits for active handlers as well as queued work, suppresses intermediate OPML writes from pass-scoped `FeedXmlCreated`/`FeedXmlDeleted` hints, and writes one final `feed.opml` after covered RSS work completes. Watcher event admission is ready before publication readiness; `GET /ready` returns 200 only after a successful initial pass.
 
 ## Architecture: Event Processing
 
@@ -154,6 +160,7 @@ nginx:80 (external)          Bun:3000 (localhost only)
 | `dedup`             | TTL-based (500ms) event filtering (synchronous)       |
 | `queue`             | SimpleQueue: enqueue, enqueueMany, take, size         |
 | `handlers`          | Map<tag, AsyncHandler>                                |
+| `lifecycle`         | PassLifecycle for pass-scoped event completion        |
 
 Handlers receive `HandlerDeps = Pick<AppContext, "config" | "logger" | "fs">`.
 

@@ -109,11 +109,13 @@ export class SimpleQueue<T> {
 
   constructor(private readonly getKey?: (item: T) => string | null | undefined) {}
 
-  enqueue(item: T): void {
+  enqueue(item: T): boolean {
     const waiter = this.waiters.shift();
 
     if (waiter) {
       waiter.resolve(item);
+
+      return true;
     } else {
       const key = this.getKey?.(item);
 
@@ -121,18 +123,26 @@ export class SimpleQueue<T> {
         if (this.pendingKeys.has(key)) {
           this.dirtyKeys.add(key);
 
-          return;
+          return false;
         }
 
         this.pendingKeys.add(key);
       }
 
       this.buffer.push(item);
+
+      return true;
     }
   }
 
-  enqueueMany(items: readonly T[]): void {
-    for (const item of items) this.enqueue(item);
+  enqueueMany(items: readonly T[]): number {
+    let accepted = 0;
+
+    for (const item of items) {
+      if (this.enqueue(item)) accepted++;
+    }
+
+    return accepted;
   }
 
   async take(signal?: AbortSignal): Promise<T> {

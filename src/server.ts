@@ -2,7 +2,6 @@ import { mkdir, rm, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "./config.ts";
 import { OPML_FILE } from "./constants.ts";
-import { generateOpml } from "./rss/opml.ts";
 import { log } from "./logging/index.ts";
 import type { RawBooksEvent, RawDataEvent } from "./effect/types.ts";
 import { adaptBooksEvent } from "./effect/adapters/books-adapter.ts";
@@ -13,9 +12,11 @@ import { registerHandlers } from "./effect/handlers/index.ts";
 import { buildContext } from "./context.ts";
 import type { AppContext } from "./context.ts";
 import { scanFiles, createSyncPlan } from "./scanner.ts";
+import { opmlSync } from "./effect/handlers/opml-sync.ts";
 import { z } from "zod";
 
-let isReady = false;
+let isAdmissionReady = false;
+let isPublicationReady = false;
 
 let isSyncing = false;
 
@@ -47,13 +48,6 @@ async function doSync(ctx: AppContext): Promise<void> {
 
   await mkdir(config.dataPath, { recursive: true });
 
-  const opmlPath = join(config.dataPath, OPML_FILE);
-
-  if (!(await Bun.file(opmlPath).exists())) {
-    await Bun.write(opmlPath, generateOpml("Podcasts", []));
-    log.info("InitialSync", "Seed feed.opml created");
-  }
-
   const files = await scanFiles(config.filesPath);
   log.info("InitialSync", "Audio files found", { audio_files_found: files.length });
 
@@ -65,10 +59,19 @@ async function doSync(ctx: AppContext): Promise<void> {
   });
 
   const events = adaptSyncPlan(plan, config.filesPath);
-  ctx.queue.enqueueMany(events);
+  const passId = ctx.lifecycle.startPass();
+  ctx.lifecycle.enqueueMany(ctx.queue, events, passId);
+  await ctx.lifecycle.waitFor(passId);
+
+  const opmlResult = await opmlSync(
+    { _tag: "FeedXmlCreated", path: join(config.dataPath, OPML_FILE) },
+    { config: ctx.config, logger: ctx.logger, fs: ctx.fs },
+  );
+
+  if (opmlResult.isErr()) throw opmlResult.error;
 
   const duration = Date.now() - startTime;
-  log.info("InitialSync", "Events queued", { entries_count: events.length, duration_ms: duration });
+  log.info("InitialSync", "Published", { entries_count: events.length, duration_ms: duration });
 }
 
 async function initialSync(ctx: AppContext): Promise<void> {
@@ -162,7 +165,7 @@ async function main(): Promise<void> {
 
     const consumerTask = startConsumer(ctx, controller.signal);
     log.info("Server", "Consumer started");
-    isReady = true;
+    isAdmissionReady = true;
 
     const server = Bun.serve({
       port: config.port,
@@ -171,7 +174,7 @@ async function main(): Promise<void> {
         const url = new URL(req.url);
 
         if (req.method === "POST" && url.pathname === "/events/books") {
-          if (!isReady) return new Response("Queue not ready", { status: 503 });
+          if (!isAdmissionReady) return new Response("Queue not ready", { status: 503 });
 
           try {
             const body = await req.json();
@@ -194,7 +197,7 @@ async function main(): Promise<void> {
         }
 
         if (req.method === "POST" && url.pathname === "/events/data") {
-          if (!isReady) return new Response("Queue not ready", { status: 503 });
+          if (!isAdmissionReady) return new Response("Queue not ready", { status: 503 });
 
           try {
             const body = await req.json();
@@ -217,7 +220,7 @@ async function main(): Promise<void> {
         }
 
         if (req.method === "POST" && url.pathname === "/resync") {
-          if (!isReady) return new Response("Queue not ready", { status: 503 });
+          if (!isAdmissionReady) return new Response("Queue not ready", { status: 503 });
 
           if (isSyncing) return new Response("Sync already in progress", { status: 409 });
           resync(ctx).catch((error) => {
@@ -227,6 +230,12 @@ async function main(): Promise<void> {
           return new Response("Resync started", { status: 202 });
         }
 
+        if (req.method === "GET" && url.pathname === "/ready") {
+          return new Response(isPublicationReady ? "Ready" : "Publication not ready", {
+            status: isPublicationReady ? 200 : 503,
+          });
+        }
+
         return new Response("Not found", { status: 404 });
       },
     });
@@ -234,6 +243,7 @@ async function main(): Promise<void> {
     log.info("Server", "Listening", { port: server.port });
 
     await initialSync(ctx);
+    isPublicationReady = true;
 
     let reconcileTask: Promise<void> | undefined;
 

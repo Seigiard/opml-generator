@@ -4,6 +4,8 @@ import { log } from "./logging/index.ts";
 import { SimpleQueue } from "./queue.ts";
 import type { LogContext } from "./logging/types.ts";
 import type { EventType } from "./effect/types.ts";
+import type { PassScopedEvent } from "./effect/types.ts";
+import { PassLifecycle } from "./effect/pass-lifecycle.ts";
 import type { LogErrorInput } from "./logging/error-schema.ts";
 
 export interface ConfigService {
@@ -51,8 +53,9 @@ export interface AppContext {
   readonly logger: LoggerService;
   readonly fs: FileSystemService;
   readonly dedup: DeduplicationService;
-  readonly queue: SimpleQueue<EventType>;
+  readonly queue: SimpleQueue<PassScopedEvent>;
   readonly handlers: HandlerRegistryService;
+  readonly lifecycle: PassLifecycle;
 }
 
 export type HandlerDeps = Pick<AppContext, "config" | "logger" | "fs">;
@@ -130,9 +133,13 @@ export async function buildContext(): Promise<AppContext> {
     },
   };
 
-  const queue = new SimpleQueue<EventType>((event) =>
-    event._tag === "FolderMetaSyncRequested" ? `${event._tag}:${event.path}` : undefined,
-  );
+  const queue = new SimpleQueue<PassScopedEvent>((event) => {
+    const owner = event.__passId ?? "live";
+
+    return event._tag === "FolderMetaSyncRequested"
+      ? `${owner}:${event._tag}:${event.path}`
+      : undefined;
+  });
 
   const handlerMap = new Map<string, AsyncHandler>();
 
@@ -148,5 +155,6 @@ export async function buildContext(): Promise<AppContext> {
     dedup,
     queue,
     handlers,
+    lifecycle: new PassLifecycle(),
   };
 }

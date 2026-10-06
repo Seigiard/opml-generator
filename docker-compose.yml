@@ -18,7 +18,7 @@ services:
       # - RATE_LIMIT_MB=5
       # - RECONCILE_INTERVAL=1800
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/feed.opml"]
+      test: ["CMD-SHELL", 'wget -q --spider "http://127.0.0.1:$${PORT:-3000}/ready"']
       interval: 30s
       timeout: 10s
       retries: 3

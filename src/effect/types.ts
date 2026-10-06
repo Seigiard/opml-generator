@@ -21,3 +21,5 @@ export type EventType =
   | { _tag: "FeedXmlCreated"; path: string }
   | { _tag: "FeedXmlDeleted"; path: string }
   | { _tag: "Ignored" };
+
+export type PassScopedEvent = EventType & { readonly __passId?: string };
