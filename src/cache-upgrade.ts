@@ -8,6 +8,17 @@ import { ENTRY_FILE } from "./constants.ts";
 import { cacheFileSystem } from "./stopping.ts";
 import { z } from "zod";
 
+const absentError = z.object({ code: z.enum(["ENOENT", "ENOTDIR"]) });
+
+async function lstatOrAbsent(fs: HandlerDeps["fs"], path: string) {
+  try {
+    return await fs.lstat(path);
+  } catch (error) {
+    if (absentError.safeParse(error).success) return undefined;
+    throw error;
+  }
+}
+
 function isEscapedName(name: string): boolean {
   return cachePath("", name) !== `/${name}`;
 }
@@ -15,16 +26,27 @@ function isEscapedName(name: string): boolean {
 export async function needsCacheUpgrade(deps: HandlerDeps, check: () => void): Promise<boolean> {
   const fs = deps.fs;
 
+  // Detection runs while handlers still rename temp files and remove mirrors.
   async function visit(directory: string, container: boolean): Promise<boolean> {
     check();
+    let names: string[];
 
-    for (const name of await fs.readdir(directory)) {
+    try {
+      names = await fs.readdir(directory);
+    } catch (error) {
+      check();
+
+      if (absentError.safeParse(error).success) return false;
+      throw error;
+    }
+
+    for (const name of names) {
       check();
       const path = join(directory, name);
-      const info = await fs.lstat(path);
+      const info = await lstatOrAbsent(fs, path);
       check();
 
-      if (!info.isDirectory()) continue;
+      if (!info?.isDirectory()) continue;
 
       // A container holds only escaped names; anything else is a legacy branch or a journal.
       if (container ? !isEscapedName(name) : name !== "~" && isEscapedName(name)) return true;
@@ -39,17 +61,6 @@ export async function needsCacheUpgrade(deps: HandlerDeps, check: () => void): P
 }
 
 const journalName = /^\.upgrade(-\d+)?$/;
-
-const absentError = z.object({ code: z.enum(["ENOENT", "ENOTDIR"]) });
-
-async function lstatOrAbsent(fs: HandlerDeps["fs"], path: string) {
-  try {
-    return await fs.lstat(path);
-  } catch (error) {
-    if (absentError.safeParse(error).success) return undefined;
-    throw error;
-  }
-}
 
 // A legacy cache never holds a regular manifest.json, so it identifies a journal at any name.
 async function findJournal(fs: HandlerDeps["fs"], container: string, check: () => void) {

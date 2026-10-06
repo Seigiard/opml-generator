@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { XMLParser } from "fast-xml-parser";
 import { z } from "zod";
@@ -495,4 +495,73 @@ test("repeated interrupted upgrades keep every staged legacy entry reusable", as
     rebuilds,
     unchanged: JSON.stringify(actual) === JSON.stringify(originals),
   }).toEqual({ first: false, retried: false, recovered: true, rebuilds: 0, unchanged: true });
+});
+
+test("cache entries removed during upgrade detection do not fail the pass", async () => {
+  // #given
+  const env = await setup();
+
+  for (const book of ["Book", "Other"])
+    await Bun.write(
+      join(env.filesPath, book, "01.mp3"),
+      Bun.file("test/fixtures/audio/tagged.mp3"),
+    );
+  expect(await env.app.runInitialSync()).toBe(true);
+  const book = join(env.dataPath, "Book");
+  const gone = join(env.dataPath, "Gone");
+  const feed = join(book, "feed.xml");
+  await Bun.write(`${feed}.tmp`, await Bun.file(feed).text());
+  await Bun.write(join(gone, "01.mp3/entry.xml"), "<episode/>");
+  const readdir = env.ctx.fs.readdir;
+  const lstat = env.ctx.fs.lstat;
+  let renamePending = true;
+  let removePending = true;
+
+  env.ctx.fs.readdir = async (path) => {
+    const names = await readdir(path);
+
+    if (path === book && renamePending) {
+      renamePending = false;
+      await rename(`${feed}.tmp`, feed);
+    }
+
+    return names;
+  };
+
+  env.ctx.fs.lstat = async (path) => {
+    const info = await lstat(path);
+
+    if (path === gone && removePending) {
+      removePending = false;
+      await rm(gone, { recursive: true });
+    }
+
+    return info;
+  };
+
+  // #when
+  const successful = await env.app.runPublicationPass("Reconciliation");
+
+  const title = z
+    .object({ rss: z.object({ channel: z.object({ title: z.string() }) }) })
+    .parse(parser.parse(await Bun.file(feed).text())).rss.channel.title;
+
+  const document = opmlSchema.parse(
+    parser.parse(await Bun.file(join(env.dataPath, "feed.opml")).text()),
+  );
+
+  // #then
+  expect({
+    successful,
+    ready: env.app.isPublicationReady(),
+    raced: !renamePending && !removePending,
+    title,
+    paths: document.opml.body.outline.map((item) => item["@_xmlUrl"]).sort(),
+  }).toEqual({
+    successful: true,
+    ready: true,
+    raced: true,
+    title: "Test Title",
+    paths: ["{{{BASE_URL}}}/Book/feed.xml", "{{{BASE_URL}}}/Other/feed.xml"],
+  });
 });
