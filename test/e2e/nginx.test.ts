@@ -7,7 +7,7 @@ async function waitForServer(maxWaitMs = 30000): Promise<void> {
 
   while (Date.now() - start < maxWaitMs) {
     try {
-      const response = await fetch(`${BASE_URL}/feed.opml`);
+      const response = await fetch(`${BASE_URL}/ready`);
 
       if (response.status === 200) return;
     } catch {
@@ -40,6 +40,11 @@ describe("nginx integration", () => {
   });
 
   describe("feed.opml", () => {
+    test("GET /ready returns 200 after initial publication", async () => {
+      const response = await fetch(`${BASE_URL}/ready`);
+      expect(response.status).toBe(200);
+    });
+
     test("GET /feed.opml returns 200 with XML content", async () => {
       const response = await fetch(`${BASE_URL}/feed.opml`);
       expect(response.status).toBe(200);

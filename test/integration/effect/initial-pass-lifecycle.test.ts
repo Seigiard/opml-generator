@@ -1,13 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, readdir, rename, rm, stat, symlink, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { ok } from "neverthrow";
+import { err, ok } from "neverthrow";
+import { ApplicationLifecycle } from "../../../src/app-lifecycle.ts";
 import { buildContext, type AppContext, type FileSystemService } from "../../../src/context.ts";
-import { adaptSyncPlan } from "../../../src/effect/adapters/sync-plan-adapter.ts";
 import { startConsumer } from "../../../src/effect/consumer.ts";
 import { registerHandlers } from "../../../src/effect/handlers/index.ts";
-import { opmlSync } from "../../../src/effect/handlers/opml-sync.ts";
-import { scanFiles, createSyncPlan } from "../../../src/scanner.ts";
 import { createFileStructure, createTempDir, cleanupTempDir } from "../../helpers/fs-helpers.ts";
 
 const tempDirs: string[] = [];
@@ -63,6 +61,7 @@ async function makeTempContext(): Promise<{
   filesPath: string;
   dataPath: string;
   opmlWrites: string[];
+  failOpmlWrites: (enabled: boolean) => void;
 }> {
   const root = await createTempDir("initial-pass-lifecycle");
   tempDirs.push(root);
@@ -74,6 +73,7 @@ async function makeTempContext(): Promise<{
   const base = await buildContext();
   const fs = realFs();
   const opmlWrites: string[] = [];
+  let shouldFailOpmlWrites = false;
 
   return {
     filesPath,
@@ -89,28 +89,18 @@ async function makeTempContext(): Promise<{
         ...fs,
         atomicWrite: async (path, content) => {
           if (path.endsWith("feed.opml")) opmlWrites.push(content);
+          if (path.endsWith("feed.opml") && shouldFailOpmlWrites) {
+            throw new Error("controlled OPML write failure");
+          }
           await fs.atomicWrite(path, content);
         },
       },
     },
     opmlWrites,
+    failOpmlWrites: (enabled) => {
+      shouldFailOpmlWrites = enabled;
+    },
   };
-}
-
-async function runInitialPass(ctx: AppContext): Promise<void> {
-  const files = await scanFiles(ctx.config.filesPath);
-  const plan = await createSyncPlan(files, ctx.config.dataPath);
-  const events = adaptSyncPlan(plan, ctx.config.filesPath);
-  const passId = ctx.lifecycle.startPass();
-  ctx.lifecycle.enqueueMany(ctx.queue, events, passId);
-  await ctx.lifecycle.waitFor(passId);
-
-  const result = await opmlSync(
-    { _tag: "FeedXmlCreated", path: ctx.config.dataPath },
-    { config: ctx.config, logger: ctx.logger, fs: ctx.fs },
-  );
-
-  if (result.isErr()) throw result.error;
 }
 
 describe("initial synchronization lifecycle", () => {
@@ -119,16 +109,17 @@ describe("initial synchronization lifecycle", () => {
     await Promise.all(tempDirs.splice(0).map((dir) => cleanupTempDir(dir)));
   });
 
-  test("active handler keeps the pass unfinished when the pending queue is empty", async () => {
+  test("held publication keeps admission ready and publication readiness false", async () => {
     // #given
     const { ctx } = await makeTempContext();
+    const app = new ApplicationLifecycle(ctx);
     const controller = new AbortController();
     controllers.push(controller);
     const handlerStarted = deferred();
     const releaseHandler = deferred();
     let passFinished = false;
 
-    ctx.handlers.register("FolderMetaSyncRequested", async () => {
+    ctx.handlers.register("FolderCreated", async () => {
       handlerStarted.resolve();
       await releaseHandler.promise;
 
@@ -136,20 +127,17 @@ describe("initial synchronization lifecycle", () => {
     });
 
     const consumerTask = startConsumer(ctx, controller.signal);
-    const passId = ctx.lifecycle.startPass();
+    app.markAdmissionReady();
 
     // #when
-    ctx.lifecycle.enqueue(
-      ctx.queue,
-      { _tag: "FolderMetaSyncRequested", path: "/tmp/book" },
-      passId,
-    );
-    const passTask = ctx.lifecycle.waitFor(passId).then(() => {
+    const passTask = app.runInitialSync().then(() => {
       passFinished = true;
     });
     await handlerStarted.promise;
 
     // #then
+    expect(app.isAdmissionReady()).toBe(true);
+    expect(app.isPublicationReady()).toBe(false);
     expect(ctx.queue.size).toBe(0);
     await Promise.resolve();
     expect(passFinished).toBe(false);
@@ -164,6 +152,7 @@ describe("initial synchronization lifecycle", () => {
   test("initial pass publishes RSS and one final OPML without data watcher notifications", async () => {
     // #given
     const { ctx, filesPath, dataPath, opmlWrites } = await makeTempContext();
+    const app = new ApplicationLifecycle(ctx);
     const fixture = await Bun.file("test/fixtures/audio/untagged.mp3").arrayBuffer();
     await createFileStructure(filesPath, {
       Author: {
@@ -176,17 +165,144 @@ describe("initial synchronization lifecycle", () => {
     const controller = new AbortController();
     controllers.push(controller);
     const consumerTask = startConsumer(ctx, controller.signal);
+    app.markAdmissionReady();
 
     // #when
-    await runInitialPass(ctx);
+    const successful = await app.runInitialSync();
 
     // #then
     const feedXml = await Bun.file(join(dataPath, "Author", "Book One", "feed.xml")).text();
     const opmlXml = await Bun.file(join(dataPath, "feed.opml")).text();
+    expect(successful).toBe(true);
+    expect(app.isPublicationReady()).toBe(true);
     expect(feedXml).toContain("<title>01-intro</title>");
     expect(opmlWrites).toHaveLength(1);
     expect(opmlXml).toContain("01-intro");
     expect(opmlXml).toContain("/Author/Book%20One/feed.xml");
+
+    controller.abort();
+    await consumerTask;
+  });
+
+  test("later watcher work does not extend the initial pass", async () => {
+    // #given
+    const { ctx } = await makeTempContext();
+    const app = new ApplicationLifecycle(ctx);
+    const controller = new AbortController();
+    controllers.push(controller);
+    const initialHandlerStarted = deferred();
+    const releaseInitialHandler = deferred();
+    const liveHandlerStarted = deferred();
+    const releaseLiveHandler = deferred();
+    let initialFinished = false;
+
+    ctx.handlers.register("FolderCreated", async () => {
+      initialHandlerStarted.resolve();
+      ctx.queue.enqueue({ _tag: "FolderMetaSyncRequested", path: "/live/later" });
+      await releaseInitialHandler.promise;
+
+      return ok([]);
+    });
+    ctx.handlers.register("FolderMetaSyncRequested", async () => {
+      liveHandlerStarted.resolve();
+      await releaseLiveHandler.promise;
+
+      return ok([]);
+    });
+
+    const consumerTask = startConsumer(ctx, controller.signal);
+    app.markAdmissionReady();
+
+    // #when
+    const initialTask = app.runInitialSync().then((successful) => {
+      initialFinished = successful;
+    });
+    await initialHandlerStarted.promise;
+    releaseInitialHandler.resolve();
+    await liveHandlerStarted.promise;
+    await initialTask;
+
+    // #then
+    expect(initialFinished).toBe(true);
+    expect(app.isPublicationReady()).toBe(true);
+
+    releaseLiveHandler.resolve();
+    controller.abort();
+    await consumerTask;
+  });
+
+  test("coalesced covered work waits for the merged ordinary event and inherits its failure", async () => {
+    // #given
+    const { ctx, dataPath } = await makeTempContext();
+    const app = new ApplicationLifecycle(ctx);
+    const controller = new AbortController();
+    controllers.push(controller);
+    const mergedHandlerStarted = deferred();
+    const releaseMergedHandler = deferred();
+    let initialFinished = false;
+
+    ctx.handlers.register("FolderCreated", async () => {
+      ctx.queue.enqueue({ _tag: "FolderMetaSyncRequested", path: dataPath });
+
+      return ok([{ _tag: "FolderMetaSyncRequested", path: dataPath }] as const);
+    });
+    ctx.handlers.register("FolderMetaSyncRequested", async () => {
+      mergedHandlerStarted.resolve();
+      await releaseMergedHandler.promise;
+
+      return err(new Error("controlled merged event failure"));
+    });
+
+    const consumerTask = startConsumer(ctx, controller.signal);
+    app.markAdmissionReady();
+
+    // #when
+    const initialTask = app.runInitialSync().then((successful) => {
+      initialFinished = successful;
+    });
+    await mergedHandlerStarted.promise;
+    await Promise.resolve();
+
+    // #then
+    expect(initialFinished).toBe(false);
+
+    releaseMergedHandler.resolve();
+    await initialTask;
+    expect(initialFinished).toBe(false);
+    expect(app.isPublicationReady()).toBe(false);
+
+    controller.abort();
+    await consumerTask;
+  });
+
+  test("failed final OPML publication leaves independent RSS work published but readiness false", async () => {
+    // #given
+    const { ctx, filesPath, dataPath, failOpmlWrites } = await makeTempContext();
+    const app = new ApplicationLifecycle(ctx);
+    const fixture = await Bun.file("test/fixtures/audio/untagged.mp3").arrayBuffer();
+    await createFileStructure(filesPath, {
+      Author: {
+        "Book One": { "01-intro.mp3": Buffer.from(fixture) },
+        "Book Two": { "01-start.mp3": Buffer.from(fixture) },
+      },
+    });
+    registerHandlers(ctx.handlers);
+    failOpmlWrites(true);
+    const controller = new AbortController();
+    controllers.push(controller);
+    const consumerTask = startConsumer(ctx, controller.signal);
+    app.markAdmissionReady();
+
+    // #when
+    const successful = await app.runInitialSync();
+
+    // #then
+    const firstFeed = await Bun.file(join(dataPath, "Author", "Book One", "feed.xml")).text();
+    const secondFeed = await Bun.file(join(dataPath, "Author", "Book Two", "feed.xml")).text();
+    expect(successful).toBe(false);
+    expect(app.isPublicationReady()).toBe(false);
+    expect(firstFeed).toContain("01-intro");
+    expect(secondFeed).toContain("01-start");
 
     controller.abort();
     await consumerTask;

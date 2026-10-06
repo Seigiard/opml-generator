@@ -4,6 +4,8 @@ import type { EventType, PassScopedEvent } from "./types.ts";
 interface PassState {
   readonly id: string;
   pending: number;
+  readonly directKeys: Set<string>;
+  readonly coalescedKeys: Set<string>;
   readonly errors: Error[];
   readonly promise: Promise<void>;
   resolve: () => void;
@@ -19,7 +21,15 @@ export class PassLifecycle {
     const promise = new Promise<void>((done) => {
       resolve = done;
     });
-    this.passes.set(id, { id, pending: 0, errors: [], promise, resolve });
+    this.passes.set(id, {
+      id,
+      pending: 0,
+      directKeys: new Set(),
+      coalescedKeys: new Set(),
+      errors: [],
+      promise,
+      resolve,
+    });
 
     return id;
   }
@@ -41,10 +51,21 @@ export class PassLifecycle {
       return;
     }
 
-    state.pending++;
-    const accepted = queue.enqueue({ ...event, __passId: passId });
+    const scopedEvent = { ...event, __passId: passId };
+    const key = queue.keyFor(scopedEvent);
+    const accepted = queue.enqueue(scopedEvent);
 
-    if (!accepted) this.complete({ ...event, __passId: passId });
+    if (accepted) {
+      state.pending++;
+      if (key) state.directKeys.add(key);
+
+      return;
+    }
+
+    if (!key || state.directKeys.has(key) || state.coalescedKeys.has(key)) return;
+
+    state.pending++;
+    state.coalescedKeys.add(key);
   }
 
   enqueueCascades(
@@ -63,14 +84,31 @@ export class PassLifecycle {
     this.enqueueMany(queue, cascades, passId);
   }
 
-  complete(event: PassScopedEvent, error?: Error): void {
+  complete(event: PassScopedEvent, error?: Error, key?: string | null): void {
     const passId = event.__passId;
 
-    if (!passId) return;
+    if (passId) this.completePassEvent(passId, event, error);
+    if (!key) return;
 
+    for (const state of this.passes.values()) {
+      if (!state.coalescedKeys.delete(key)) continue;
+      this.completePassState(state, error);
+    }
+  }
+
+  private completePassEvent(passId: string, event: PassScopedEvent, error?: Error): void {
     const state = this.passes.get(passId);
 
     if (!state) return;
+    const key =
+      event._tag === "FolderMetaSyncRequested" ? `${event._tag}:${event.path}` : undefined;
+
+    if (key) state.directKeys.delete(key);
+    this.completePassState(state, error);
+  }
+
+  private completePassState(state: PassState, error?: Error): void {
+    if (state.pending === 0) return;
 
     if (error) state.errors.push(error);
     state.pending--;

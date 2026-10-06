@@ -109,6 +109,10 @@ export class SimpleQueue<T> {
 
   constructor(private readonly getKey?: (item: T) => string | null | undefined) {}
 
+  keyFor(item: T): string | null | undefined {
+    return this.getKey?.(item);
+  }
+
   enqueue(item: T): boolean {
     const waiter = this.waiters.shift();
 
@@ -117,7 +121,7 @@ export class SimpleQueue<T> {
 
       return true;
     } else {
-      const key = this.getKey?.(item);
+      const key = this.keyFor(item);
 
       if (key) {
         if (this.pendingKeys.has(key)) {
@@ -149,7 +153,7 @@ export class SimpleQueue<T> {
     if (this.buffer.length > 0) {
       while (this.buffer.length > 0) {
         const item = this.buffer.shift()!;
-        const key = this.getKey?.(item);
+        const key = this.keyFor(item);
 
         if (key && this.dirtyKeys.delete(key)) {
           this.buffer.push(item);

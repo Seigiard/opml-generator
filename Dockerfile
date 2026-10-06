@@ -27,7 +27,7 @@ EXPOSE 80
 VOLUME ["/audiobooks", "/data"]
 
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=60s \
-  CMD wget -q --spider "http://127.0.0.1:${PORT:-3000}/ready" || exit 1
+  CMD wget -q --spider http://127.0.0.1/ready || exit 1
 
 ENTRYPOINT []
 CMD ["/bin/sh", "/app/entrypoint.sh"]

@@ -133,13 +133,9 @@ export async function buildContext(): Promise<AppContext> {
     },
   };
 
-  const queue = new SimpleQueue<PassScopedEvent>((event) => {
-    const owner = event.__passId ?? "live";
-
-    return event._tag === "FolderMetaSyncRequested"
-      ? `${owner}:${event._tag}:${event.path}`
-      : undefined;
-  });
+  const queue = new SimpleQueue<PassScopedEvent>((event) =>
+    event._tag === "FolderMetaSyncRequested" ? `${event._tag}:${event.path}` : undefined,
+  );
 
   const handlerMap = new Map<string, AsyncHandler>();
 

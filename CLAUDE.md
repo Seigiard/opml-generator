@@ -98,6 +98,7 @@ test/
 ```
 src/
 ├── server.ts        # HTTP server + initial sync + DI setup
+├── app-lifecycle.ts # Application lifecycle boundary for sync passes and readiness
 ├── config.ts        # Environment configuration
 ├── constants.ts     # File constants (feed.xml, entry.xml, feed.opml, etc.)
 ├── scanner.ts       # File scanning, sync planning
@@ -141,7 +142,7 @@ nginx:80 (external)          Bun:3000 (localhost only)
 
 ## Architecture: Sync Lifecycle
 
-Initial sync runs as a lifecycle-owned pass. The pass tags its planned events and mandatory cascades, waits for active handlers as well as queued work, suppresses intermediate OPML writes from pass-scoped `FeedXmlCreated`/`FeedXmlDeleted` hints, and writes one final `feed.opml` after covered RSS work completes. Watcher event admission is ready before publication readiness; `GET /ready` returns 200 only after a successful initial pass.
+Initial sync runs through `ApplicationLifecycle` as a lifecycle-owned pass. The pass tags its planned events and mandatory cascades, waits for active handlers as well as queued work, preserves ownership across coalesced `FolderMetaSyncRequested` events, suppresses intermediate OPML writes from pass-scoped `FeedXmlCreated`/`FeedXmlDeleted` hints, and writes one final `feed.opml` after covered RSS work completes. Watcher event admission is ready before publication readiness; nginx `GET /ready` proxies Bun readiness and returns 200 only after a successful initial pass. Accepted synchronization decisions live in `docs/adr/0001-filesystem-authoritative-synchronization.md`.
 
 ## Architecture: Event Processing
 
@@ -240,10 +241,10 @@ await Promise.allSettled([consumerTask, reconcileTask]);
 
 ### Healthcheck Commands
 
-Docker healthcheck uses `wget` (NOT `curl` — not in alpine image):
+Docker healthcheck uses nginx `GET /ready` with `wget` (NOT `curl` — not in alpine image):
 
 ```bash
-wget -q --spider http://127.0.0.1/feed.opml
+wget -q --spider http://127.0.0.1/ready
 ```
 
 ## Agent skills

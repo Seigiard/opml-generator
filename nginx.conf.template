@@ -44,6 +44,12 @@ http {
             add_header Cache-Control "public, immutable";
         }
 
+        # Publication readiness from Bun lifecycle
+        location = /ready {
+            proxy_pass http://127.0.0.1:${BUN_PORT}/ready;
+            proxy_set_header Host $host;
+        }
+
         # Admin endpoint: /resync (only if auth configured)
         # AUTH_BLOCK_START
         location = /resync {

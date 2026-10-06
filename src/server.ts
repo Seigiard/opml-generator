@@ -1,24 +1,16 @@
-import { mkdir, rm, readdir } from "node:fs/promises";
+import { rm, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "./config.ts";
-import { OPML_FILE } from "./constants.ts";
 import { log } from "./logging/index.ts";
 import type { RawBooksEvent, RawDataEvent } from "./effect/types.ts";
 import { adaptBooksEvent } from "./effect/adapters/books-adapter.ts";
 import { adaptDataEvent } from "./effect/adapters/data-adapter.ts";
-import { adaptSyncPlan } from "./effect/adapters/sync-plan-adapter.ts";
 import { startConsumer } from "./effect/consumer.ts";
 import { registerHandlers } from "./effect/handlers/index.ts";
 import { buildContext } from "./context.ts";
 import type { AppContext } from "./context.ts";
-import { scanFiles, createSyncPlan } from "./scanner.ts";
-import { opmlSync } from "./effect/handlers/opml-sync.ts";
+import { ApplicationLifecycle } from "./app-lifecycle.ts";
 import { z } from "zod";
-
-let isAdmissionReady = false;
-let isPublicationReady = false;
-
-let isSyncing = false;
 
 const watcherEventSchema = z.object({
   parent: z.string(),
@@ -42,65 +34,21 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-async function doSync(ctx: AppContext): Promise<void> {
-  log.info("InitialSync", "Starting");
-  const startTime = Date.now();
-
-  await mkdir(config.dataPath, { recursive: true });
-
-  const files = await scanFiles(config.filesPath);
-  log.info("InitialSync", "Audio files found", { audio_files_found: files.length });
-
-  const plan = await createSyncPlan(files, config.dataPath);
-  log.info("InitialSync", "Sync plan created", {
-    audio_files_process: plan.toProcess.length,
-    audio_files_delete: plan.toDelete.length,
-    folders_count: plan.folders.length,
-  });
-
-  const events = adaptSyncPlan(plan, config.filesPath);
-  const passId = ctx.lifecycle.startPass();
-  ctx.lifecycle.enqueueMany(ctx.queue, events, passId);
-  await ctx.lifecycle.waitFor(passId);
-
-  const opmlResult = await opmlSync(
-    { _tag: "FeedXmlCreated", path: join(config.dataPath, OPML_FILE) },
-    { config: ctx.config, logger: ctx.logger, fs: ctx.fs },
+async function resync(ctx: AppContext, lifecycle: ApplicationLifecycle): Promise<void> {
+  log.info("Resync", "Starting full resync");
+  const entries = await readdir(config.dataPath);
+  await Promise.all(
+    entries.map((entry) => rm(join(config.dataPath, entry), { recursive: true, force: true })),
   );
-
-  if (opmlResult.isErr()) throw opmlResult.error;
-
-  const duration = Date.now() - startTime;
-  log.info("InitialSync", "Published", { entries_count: events.length, duration_ms: duration });
+  log.info("Resync", "Cleared data directory");
+  await lifecycle.runPublicationPass("Resync");
 }
 
-async function initialSync(ctx: AppContext): Promise<void> {
-  isSyncing = true;
-
-  try {
-    await doSync(ctx);
-  } finally {
-    isSyncing = false;
-  }
-}
-
-async function resync(ctx: AppContext): Promise<void> {
-  isSyncing = true;
-
-  try {
-    log.info("Resync", "Starting full resync");
-    const entries = await readdir(config.dataPath);
-    await Promise.all(
-      entries.map((entry) => rm(join(config.dataPath, entry), { recursive: true, force: true })),
-    );
-    log.info("Resync", "Cleared data directory");
-    await doSync(ctx);
-  } finally {
-    isSyncing = false;
-  }
-}
-
-async function startReconciliation(ctx: AppContext, signal: AbortSignal): Promise<void> {
+async function startReconciliation(
+  ctx: AppContext,
+  lifecycle: ApplicationLifecycle,
+  signal: AbortSignal,
+): Promise<void> {
   const intervalMs = ctx.config.reconcileInterval * 1000;
 
   while (!signal.aborted) {
@@ -108,19 +56,13 @@ async function startReconciliation(ctx: AppContext, signal: AbortSignal): Promis
 
     if (signal.aborted) break;
 
-    if (isSyncing) continue;
+    if (lifecycle.isSyncing()) continue;
 
     if (ctx.queue.size > 0) continue;
 
     try {
       log.info("Reconciliation", "Starting periodic reconciliation");
-      isSyncing = true;
-
-      try {
-        await doSync(ctx);
-      } finally {
-        isSyncing = false;
-      }
+      await lifecycle.runPublicationPass("Reconciliation");
 
       log.info("Reconciliation", "Completed");
     } catch (error) {
@@ -162,10 +104,11 @@ async function main(): Promise<void> {
   try {
     registerHandlers(ctx.handlers);
     log.info("Server", "Handlers registered");
+    const lifecycle = new ApplicationLifecycle(ctx);
 
     const consumerTask = startConsumer(ctx, controller.signal);
     log.info("Server", "Consumer started");
-    isAdmissionReady = true;
+    lifecycle.markAdmissionReady();
 
     const server = Bun.serve({
       port: config.port,
@@ -174,7 +117,8 @@ async function main(): Promise<void> {
         const url = new URL(req.url);
 
         if (req.method === "POST" && url.pathname === "/events/books") {
-          if (!isAdmissionReady) return new Response("Queue not ready", { status: 503 });
+          if (!lifecycle.isAdmissionReady())
+            return new Response("Queue not ready", { status: 503 });
 
           try {
             const body = await req.json();
@@ -197,7 +141,8 @@ async function main(): Promise<void> {
         }
 
         if (req.method === "POST" && url.pathname === "/events/data") {
-          if (!isAdmissionReady) return new Response("Queue not ready", { status: 503 });
+          if (!lifecycle.isAdmissionReady())
+            return new Response("Queue not ready", { status: 503 });
 
           try {
             const body = await req.json();
@@ -220,10 +165,12 @@ async function main(): Promise<void> {
         }
 
         if (req.method === "POST" && url.pathname === "/resync") {
-          if (!isAdmissionReady) return new Response("Queue not ready", { status: 503 });
+          if (!lifecycle.isAdmissionReady())
+            return new Response("Queue not ready", { status: 503 });
 
-          if (isSyncing) return new Response("Sync already in progress", { status: 409 });
-          resync(ctx).catch((error) => {
+          if (lifecycle.isSyncing())
+            return new Response("Sync already in progress", { status: 409 });
+          resync(ctx, lifecycle).catch((error) => {
             log.error("Server", "Resync failed", error);
           });
 
@@ -231,8 +178,8 @@ async function main(): Promise<void> {
         }
 
         if (req.method === "GET" && url.pathname === "/ready") {
-          return new Response(isPublicationReady ? "Ready" : "Publication not ready", {
-            status: isPublicationReady ? 200 : 503,
+          return new Response(lifecycle.isPublicationReady() ? "Ready" : "Publication not ready", {
+            status: lifecycle.isPublicationReady() ? 200 : 503,
           });
         }
 
@@ -242,13 +189,12 @@ async function main(): Promise<void> {
 
     log.info("Server", "Listening", { port: server.port });
 
-    await initialSync(ctx);
-    isPublicationReady = true;
+    void lifecycle.runInitialSync();
 
     let reconcileTask: Promise<void> | undefined;
 
     if (config.reconcileInterval > 0) {
-      reconcileTask = startReconciliation(ctx, controller.signal);
+      reconcileTask = startReconciliation(ctx, lifecycle, controller.signal);
       log.info("Server", `Periodic reconciliation enabled (every ${config.reconcileInterval}s)`);
     }
 

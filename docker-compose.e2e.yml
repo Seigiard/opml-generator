@@ -15,7 +15,7 @@ services:
       - ADMIN_USER=admin
       - ADMIN_TOKEN=secret
     healthcheck:
-      test: ["CMD-SHELL", 'wget -q --spider "http://127.0.0.1:$${PORT:-3000}/ready"']
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/ready"]
       interval: 10s
       timeout: 5s
       retries: 3

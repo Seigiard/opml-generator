@@ -40,9 +40,10 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
     }
 
     const handler = ctx.handlers.get(event._tag);
+    const coalescingKey = ctx.queue.keyFor(event);
 
     if (!handler || isPassFinalOpmlHint(event)) {
-      ctx.lifecycle.complete(event);
+      ctx.lifecycle.complete(event, undefined, coalescingKey);
       continue;
     }
 
@@ -81,7 +82,7 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
           });
           ctx.lifecycle.enqueueCascades(ctx.queue, event, result.value);
         }
-        ctx.lifecycle.complete(event);
+        ctx.lifecycle.complete(event, undefined, coalescingKey);
       } else {
         ctx.logger.error("Consumer", "handler failed", result.error, {
           event_type: "handler_error",
@@ -89,13 +90,17 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
           event_tag: event._tag,
           duration_ms: duration,
         });
-        ctx.lifecycle.complete(event, result.error);
+        ctx.lifecycle.complete(event, result.error, coalescingKey);
       }
     } catch (err) {
       ctx.logger.error("Consumer", "unexpected handler throw", err, {
         event_tag: event._tag,
       });
-      ctx.lifecycle.complete(event, err instanceof Error ? err : new Error(String(err)));
+      ctx.lifecycle.complete(
+        event,
+        err instanceof Error ? err : new Error(String(err)),
+        coalescingKey,
+      );
     }
 
     if (++eventCount % 100 === 0) Bun.gc(true);
