@@ -8,6 +8,9 @@ import type { EventType } from "../types.ts";
 import { FEED_FILE, FOLDER_ENTRY_FILE } from "../../constants.ts";
 import { prepareMirrorKind } from "./mirror-kind.ts";
 import { readSourceEntry } from "./source-kind.ts";
+import { assertCachePath } from "../../cache-boundary.ts";
+import { cacheFileSystem } from "../../stopping.ts";
+import { cachePath } from "../../cache-projection.ts";
 
 const xmlBuilder = new XMLBuilder({
   ignoreAttributes: false,
@@ -23,16 +26,21 @@ export async function folderSync(
   if (event._tag !== "FolderCreated") return ok([]);
 
   const { parent, name } = event;
-  const { config, logger, fs } = deps;
+  const { config, logger } = deps;
+  const fs = cacheFileSystem(deps);
 
   const folderPath = join(parent, name);
   const relativePath = relative(config.filesPath, folderPath);
-  const folderDataDir = join(config.dataPath, relativePath);
+  const folderDataDir = cachePath(config.dataPath, relativePath);
 
   logger.info("FolderSync", "Processing", { path: relativePath || "(root)" });
 
   try {
+    assertCachePath(folderDataDir, config.dataPath);
     const source = await readSourceEntry(folderPath, config.filesPath, fs);
+
+    if (relativePath === "" && source.kind !== "directory")
+      throw new Error("Source root must be a regular directory");
 
     if (source.kind !== "directory") {
       return ok([{ _tag: "SourcePathSyncRequested", path: folderPath, isDirectory: true }]);

@@ -14,10 +14,10 @@ if [ "${1:-}" = worker ]; then
   if [ "$endpoint" = data ]; then
     set -- --exclude '(feed\.xml|feed\.opml|events\.jsonl|errors\.jsonl)$'
   fi
-  inotifywait -m -r -e close_write -e delete -e moved_from -e moved_to -e create \
+  inotifywait -m -r -e close_write -e delete -e moved_from -e moved_to -e create -e Q_OVERFLOW \
     "$@" \
     --no-newline --format '%w%0%f%0%e%0' \
-    "$directory" 2>/dev/null | bun /app/src/watcher-events.ts "$SERVER_URL" "$endpoint"
+    "$directory" 2>/dev/null | bun /app/src/watcher-events.ts "$SERVER_URL" "$endpoint" "$$"
   exit
 fi
 

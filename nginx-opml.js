@@ -9,4 +9,10 @@ function body_filter(r, data, flags) {
   r.sendBuffer(data.replace(/{{{BASE_URL}}}/g, baseUrl), flags);
 }
 
-export default { header_filter, body_filter };
+export default { header_filter, body_filter, cache_uri };
+
+import layout from "./src/cache-layout.js";
+
+function cache_uri(r) {
+  return layout.cacheUri(r.uri);
+}

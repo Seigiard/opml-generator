@@ -246,7 +246,8 @@ describe("initial synchronization lifecycle", () => {
     controllers.push(controller);
     const mergedHandlerStarted = deferred();
     const releaseMergedHandler = deferred();
-    let initialFinished = false;
+    let settled = false;
+    let result: boolean | undefined;
 
     ctx.handlers.register("FolderCreated", async () => {
       ctx.queue.enqueue({ _tag: "FolderMetaSyncRequested", path: dataPath });
@@ -265,22 +266,33 @@ describe("initial synchronization lifecycle", () => {
 
     // #when
     const initialTask = app.runInitialSync().then((successful) => {
-      initialFinished = successful;
+      settled = true;
+      result = successful;
     });
 
     await mergedHandlerStarted.promise;
-    await Promise.resolve();
+    await stat(dataPath);
 
     // #then
-    expect(initialFinished).toBe(false);
-
-    releaseMergedHandler.resolve();
-    await initialTask;
-    expect(initialFinished).toBe(false);
-    expect(app.isPublicationReady()).toBe(false);
-
-    controller.abort();
-    await consumerTask;
+    try {
+      expect({ settled, result, ready: app.isPublicationReady() }).toEqual({
+        settled: false,
+        result: undefined,
+        ready: false,
+      });
+      releaseMergedHandler.resolve();
+      await initialTask;
+      expect({ settled, result, ready: app.isPublicationReady() }).toEqual({
+        settled: true,
+        result: false,
+        ready: false,
+      });
+    } finally {
+      releaseMergedHandler.resolve();
+      await app.getActivePass();
+      controller.abort();
+      await consumerTask;
+    }
   });
 
   test("failed final OPML publication leaves independent RSS work published but readiness false", async () => {

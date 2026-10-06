@@ -13,6 +13,7 @@ export interface RawDataEvent {
 export type EventType =
   | { _tag: "SourcePathSyncRequested"; path: string; isDirectory: boolean }
   | { _tag: "AudioFileCreated"; parent: string; name: string }
+  | { _tag: "AudioMirrorSyncRequested"; parent: string; name: string }
   | { _tag: "AudioFileDeleted"; parent: string; name: string }
   | { _tag: "FolderCreated"; parent: string; name: string }
   | { _tag: "FolderDeleted"; parent: string; name: string }

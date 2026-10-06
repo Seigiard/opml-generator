@@ -9,6 +9,10 @@ import type { HandlerDeps, FileSystemService } from "../../context.ts";
 import type { EventType } from "../types.ts";
 import { FEED_FILE, ENTRY_FILE, FOLDER_ENTRY_FILE, COVER_FILE } from "../../constants.ts";
 import { readSourceEntry } from "./source-kind.ts";
+import { assertCachePath, cacheParent } from "../../cache-boundary.ts";
+import { cacheFileSystem } from "../../stopping.ts";
+import { decodeRelative } from "../../cache-projection.ts";
+import { cacheMirrors } from "../../cache-mirrors.ts";
 
 const xmlParser = new XMLParser({ parseTagValue: false });
 
@@ -102,11 +106,28 @@ export async function folderMetaSync(
   if (event._tag !== "FolderMetaSyncRequested") return ok([]);
 
   const folderDataDir = event.path;
-  const { config, logger, fs } = deps;
+  const { config, logger } = deps;
+  const fs = cacheFileSystem(deps);
 
   const normalizedDir = folderDataDir.endsWith("/") ? folderDataDir.slice(0, -1) : folderDataDir;
-  const relativePath = relative(config.dataPath, normalizedDir);
+  const relativePath = decodeRelative(relative(config.dataPath, normalizedDir));
   const sourceFolder = join(config.filesPath, relativePath);
+
+  try {
+    assertCachePath(normalizedDir, config.dataPath);
+  } catch (error) {
+    return err(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  if (relativePath === "") {
+    try {
+      const root = await readSourceEntry(config.filesPath, config.filesPath, fs);
+
+      if (root.kind !== "directory") throw new Error("Source root must be a regular directory");
+    } catch (error) {
+      return err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
 
   if (relativePath !== "") {
     let sourceFolderExists = false;
@@ -148,7 +169,7 @@ export async function folderMetaSync(
     let folders: FolderChild[];
 
     try {
-      const children = await collectChildren(normalizedDir, fs);
+      const children = await collectChildren(normalizedDir, config.dataPath, fs);
       episodes = children.episodes;
       folders = children.folders;
     } catch (error) {
@@ -179,7 +200,10 @@ export async function folderMetaSync(
       const cascades: EventType[] = [{ _tag: "FeedXmlDeleted", path: normalizedDir }];
 
       if (relativePath !== "")
-        cascades.unshift({ _tag: "FolderMetaSyncRequested", path: dirname(normalizedDir) });
+        cascades.unshift({
+          _tag: "FolderMetaSyncRequested",
+          path: cacheParent(normalizedDir, config.dataPath)!,
+        });
 
       return ok(cascades);
     }
@@ -279,7 +303,10 @@ export async function folderMetaSync(
     const cascades: EventType[] = [];
 
     if (relativePath !== "") {
-      cascades.push({ _tag: "FolderMetaSyncRequested", path: dirname(normalizedDir) });
+      cascades.push({
+        _tag: "FolderMetaSyncRequested",
+        path: cacheParent(normalizedDir, config.dataPath)!,
+      });
     }
 
     if (hasEpisodes || hasFolders) {
@@ -316,21 +343,13 @@ async function containsSourceAudio(
 
 async function collectChildren(
   dir: string,
+  root: string,
   fs: FileSystemService,
 ): Promise<{ episodes: ParsedEpisode[]; folders: FolderChild[] }> {
   const episodes: ParsedEpisode[] = [];
   const folders: FolderChild[] = [];
 
-  const items = await fs.readdir(dir);
-
-  for (const item of items) {
-    if (item === FEED_FILE || item.endsWith(".tmp")) continue;
-
-    const itemPath = join(dir, item);
-    const itemStat = await fs.stat(itemPath);
-
-    if (!itemStat.isDirectory()) continue;
-
+  for (const { path: itemPath } of await cacheMirrors(dir, root, fs)) {
     const episodeEntryPath = join(itemPath, ENTRY_FILE);
     const folderEntryPath = join(itemPath, FOLDER_ENTRY_FILE);
 

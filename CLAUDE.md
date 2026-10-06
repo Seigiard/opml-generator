@@ -161,12 +161,19 @@ Source type changes remove the obsolete cache representation before rebuilding. 
 
 `src/effect/handlers/source-kind.ts` classifies each source path component with `fs.lstat()`. Only regular directories and supported regular audio files enter the Catalog. Symlinks, broken links, cycles, and paths beneath symlink ancestors are excluded. Watcher hints and recovery remove their obsolete mirrors. Creation handlers recheck source kind after scanning. Source access errors still fail their owned work; cache traversal and OPML retain `fs.stat()` semantics.
 
+The configured source root must remain a regular directory. Passes check it before reset, after planning, and before final publication. A missing or excluded root fails the pass and retains prior OPML. It never becomes a root deletion hint. `src/cache-boundary.ts` owns cache path containment and bounded parent paths. Cache handlers validate entry paths. Mutation guards reject cache-root removal, out-of-root paths, and symlink ancestors; atomic writes also check their temporary path. Cover encoding completes before the guarded directory/write steps. Data marker events with `ISDIR` are ignored.
+
+Source names are unrestricted. `src/cache-layout.js` is the shared Bun/njs codec; `cache-projection.ts` is its typed interface and `cache-mirrors.ts` owns structural traversal. Service names (`feed.xml`, `feed.opml`, `entry.xml`, `_entry.xml`, `cover.jpg`, log names), `.tmp` names, and literal `~` segments use a private `~` container. Other segments retain their existing cache layout. For example, source `Author/feed.xml` maps to `/data/Author/~/feed.xml`, while public RSS remains `/Author/feed.xml/feed.xml`. A source `~` maps to `~/~`; prefix-looking names such as `~feed.xml` remain ordinary. Public metadata URI resolution uses the same codec. Audio URLs and Episode GUID/filePath stay source-relative. The accepted decision is `docs/adr/0002-unrestricted-source-names-private-cache.md`.
+
+`cache-upgrade.ts` detects affected legacy/mixed directories. Upgrade pauses queue delivery and waits for active writers before its source snapshot, keeps admission open, and serializes mutation with the original OPML lock. It stages valid, fresh episode XML under the private `~/.upgrade` journal before pruning conflicting old directories. Recovery copies those bytes into canonical mirrors, then removes the journal. It never forces a metadata rebuild for a reusable entry. A `finally` resumes delivery unless stopping is permanent. Publication readiness is cleared during this mutation phase and restored by the completed pass.
+
 ### Publication Recovery
 
 - OPML collection propagates directory, stat, read, and podcast XML errors. A failed collection leaves the previous OPML intact and fails the pass. Missing paths and valid navigation feeds are excluded normally.
 - Root-level audio publishes a podcast at `/feed.xml`. Build feed and cover URLs from joined relative paths so the empty root path does not add a second slash.
 - Scanner cache reuse requires a fresh `entry.xml` timestamp and valid episode XML, including source path identity, file size, MIME type, and usable dates and numbers. `src/rss/episode-cache.ts` owns this validation.
 - Every pass regenerates the audio-derived folder hierarchy and RSS, even when all episode metadata is reusable. Final OPML publication repairs missing or stale navigation without watcher notifications.
+- Every current audio file receives `AudioMirrorSyncRequested`, including reused metadata. Its handler removes obsolete RSS and descendants from the episode mirror while retaining `entry.xml`. This cleanup does not reread audio metadata.
 - Cache scanning includes directories with missing metadata markers. Cleanup removes only the highest obsolete subtree so descendant cascades cannot recreate removed folders.
 - `ApplicationLifecycle.startReconciliation()` owns interval scheduling. Busy intervals are skipped without a deferred run; the next configured interval retries. Interval `0` creates no timer. Pass failures retain their unsuccessful result while independent handlers continue.
 
@@ -179,6 +186,8 @@ Queue `pause()`/`resume()` remain temporary reset controls. Permanent `stop()` c
 `scanFiles()` and `createSyncPlan()` accept the lifecycle's optional `AbortSignal`. Source traversal, cache traversal, and metadata validation check it after awaited operations. Cancellation escapes the cache-reuse fallback so a stopped scan cannot start another read or stat.
 
 The shell entrypoint forwards signals promptly and waits for Bun, nginx, and the watcher. Unexpected child exits fail the container. Watcher pipelines run in owned process groups so inotify and in-flight wget receive TERM together. Compose uses an init reaper and a 15-second stop grace period: the 8-second application budget plus bounded helper cleanup.
+
+The disposable shell watchdog also owns its sleep process group. Entrypoint verifies group creation before cancellation, so a fast child exit cannot leave an uncancelled 11-second timer behind.
 
 ## Architecture: Event Processing
 
@@ -254,6 +263,7 @@ await server.stop(true);
 - **data watcher ignores feed.xml/feed.opml writes** — otherwise infinite loop
 - **Publication and log exclusions apply only to the data watcher.** The source watcher must observe directories such as `events.jsonl`, including their moves out of the Library.
 - **Watcher fields are NUL-delimited, not line-delimited.** `watcher-events.ts` decodes parent/name/events and uses `JSON.stringify()` before invoking `wget -T 2`. Quotes, backslashes, and embedded newlines must remain valid notification fields. The serializer and wget inherit their worker's process group. Source inotify uses `--no-dereference`; data exclusions remain separate.
+- **Inotify formatting has a 4096-byte limit.** The serializer validates parent/name/events before forwarding. A damaged frame fails the owned worker group explicitly so later events cannot be silently desynchronized. Select `Q_OVERFLOW` in inotify and route its exact token to `/resync`; the tool does not emit `IN_Q_OVERFLOW`.
 - **Only entry.xml and \_entry.xml produce actionable events** from data watcher
 - **M4B = single episode** — no chapter extraction, users must split beforehand
 - **Supported audio**: .mp3 (audio/mpeg), .m4a (audio/mp4), .m4b (audio/mp4), .ogg (audio/ogg)

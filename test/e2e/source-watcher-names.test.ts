@@ -27,10 +27,139 @@ const containers: string[] = [];
 
 const roots: string[] = [];
 
+test("public HTTP preserves unrestricted namespace, episode identity, ranges and legacy reuse across restart", async () => {
+  // #given
+  const root = await mkdtemp(join(tmpdir(), "namespace-http-"));
+  roots.push(root);
+  const books = join(root, "books");
+  const cache = join(root, "cache");
+  await mkdir(books);
+  await mkdir(cache);
+
+  const cases: Array<[string, string]> = [
+    ["feed.xml", "/feed.xml/feed.xml"],
+    ["feed.opml", "/feed.opml/feed.xml"],
+    ["_entry.xml", "/_entry.xml/feed.xml"],
+    ["entry.xml", "/entry.xml/feed.xml"],
+    ["cover.jpg", "/cover.jpg/feed.xml"],
+    ["feed.xml.tmp", "/feed.xml.tmp/feed.xml"],
+    ["~", "/~/feed.xml"],
+    ["~feed.xml", "/~feed.xml/feed.xml"],
+    ["Nested/feed.xml/entry.xml/cover.jpg", "/Nested/feed.xml/entry.xml/cover.jpg/feed.xml"],
+    ["Parent/feed.xml", "/Parent/feed.xml/feed.xml"],
+  ];
+
+  for (const [name] of cases)
+    await Bun.write(join(books, name!, "01.mp3"), Bun.file("test/fixtures/audio/tagged.mp3"));
+  await Bun.write(join(books, "Parent/direct.mp3"), Bun.file("test/fixtures/audio/untagged.mp3"));
+  await Bun.write(join(books, "root.mp3"), Bun.file("test/fixtures/audio/untagged.mp3"));
+  const container = `opml-source-names-${crypto.randomUUID()}`;
+  containers.push(container);
+  await docker(
+    "run",
+    "-d",
+    "--name",
+    container,
+    "--init",
+    "--stop-timeout=15",
+    "-p",
+    "127.0.0.1::80",
+    "--mount",
+    `type=bind,src=${books},dst=/audiobooks,readonly`,
+    "--mount",
+    `type=bind,src=${cache},dst=/data`,
+    "-e",
+    "RECONCILE_INTERVAL=0",
+    image,
+  );
+  let baseUrl = `http://${await docker("port", container, "80/tcp")}`;
+
+  const ready = () =>
+    observe(
+      "namespace readiness",
+      async () => {
+        try {
+          return (await fetch(`${baseUrl}/ready`)).status;
+        } catch {
+          return 0;
+        }
+      },
+      (status) => status === 200,
+    ).catch(async (error) => {
+      throw new Error(`${error}\n${await docker("logs", container)}`);
+    });
+
+  await ready();
+
+  const publication = async () => {
+    const response = await fetch(`${baseUrl}/feed.opml`);
+
+    if (response.status !== 200) throw new Error(`OPML HTTP status: ${response.status}`);
+    const value = opmlSchema.parse(parser.parse(await response.text())).opml.body.outline;
+    const outlines = Array.isArray(value) ? value : [value];
+    const episodes = [];
+
+    for (const [, url] of cases) {
+      const rss = await fetch(`${baseUrl}${url}`);
+
+      if (rss.status !== 200) throw new Error(`Public RSS failed: ${url} ${rss.status}`);
+      const item = podcastSchema.parse(parser.parse(await rss.text())).rss.channel.item;
+      episodes.push({ url, title: item.title, guid: item.guid["#text"] });
+    }
+
+    return { urls: outlines.map((entry) => new URL(entry["@_xmlUrl"]).pathname).sort(), episodes };
+  };
+
+  const first = await publication().catch(async (error) => {
+    throw new Error(`${error}\n${await docker("logs", container)}`);
+  });
+
+  const original = await Bun.file(join(cache, "~/feed.xml/01.mp3/entry.xml")).text();
+  await docker("stop", "--timeout=15", container);
+  await rm(join(cache, "~/feed.xml"), { recursive: true });
+  await rm(join(cache, "feed.xml"));
+  await Bun.write(join(cache, "feed.xml/01.mp3/entry.xml"), original);
+
+  // #when
+  const since = new Date().toISOString();
+  await docker("start", container);
+  baseUrl = `http://${await docker("port", container, "80/tcp")}`;
+  await ready();
+  const second = await publication();
+  const logs = await docker("logs", "--since", since, container);
+
+  const range = await fetch(`${baseUrl}/audiobooks/feed.xml/01.mp3`, {
+    headers: { Range: "bytes=0-99" },
+  });
+
+  // #then
+  expect({
+    first,
+    second,
+    reused: original === (await Bun.file(join(cache, "~/feed.xml/01.mp3/entry.xml")).text()),
+    audioRebuilds: logs
+      .split("\n")
+      .filter((line) => line.includes('"tag":"AudioSync","msg":"Processing"')).length,
+    range: [range.status, (await range.arrayBuffer()).byteLength],
+  }).toEqual({
+    first: {
+      urls: ["/feed.xml", "/Parent/feed.xml", ...cases.map(([, url]) => url)].sort(),
+      episodes: cases.map(([name, url]) => ({ url, title: "Test Title", guid: `${name}/01.mp3` })),
+    },
+    second: {
+      urls: ["/feed.xml", "/Parent/feed.xml", ...cases.map(([, url]) => url)].sort(),
+      episodes: cases.map(([name, url]) => ({ url, title: "Test Title", guid: `${name}/01.mp3` })),
+    },
+    reused: true,
+    audioRebuilds: 0,
+    range: [206, 100],
+  });
+}, 40_000);
+
 async function docker(...args: string[]): Promise<string> {
   const result = await Bun.$`docker ${args}`.quiet();
 
-  return result.stdout.toString().trim();
+  return (result.stdout.toString() + (args[0] === "logs" ? result.stderr.toString() : "")).trim();
 }
 
 async function observe<T>(
@@ -63,6 +192,140 @@ afterAll(async () => {
 
   for (const root of roots) await rm(root, { recursive: true });
   await docker("image", "rm", image);
+}, 30_000);
+
+test("a source _entry.xml directory never becomes a data marker notification at cache root", async () => {
+  // #given
+  const root = await mkdtemp(join(tmpdir(), "data-marker-directory-"));
+  roots.push(root);
+  await mkdir(join(root, "books/Keeper/Book"), { recursive: true });
+  await mkdir(join(root, "cache/generated"), { recursive: true });
+  await Bun.write(join(root, "cache/keep"), "sibling sentinel");
+  await Bun.write(
+    join(root, "books/Keeper/Book/keep.mp3"),
+    Bun.file("test/fixtures/audio/untagged.mp3"),
+  );
+  await Bun.write(join(root, "incoming/01.mp3"), Bun.file("test/fixtures/audio/tagged.mp3"));
+  const container = `opml-source-names-${crypto.randomUUID()}`;
+  containers.push(container);
+  const dataPath = "/library/cache/generated";
+  await docker(
+    "run",
+    "-d",
+    "--name",
+    container,
+    "--init",
+    "--stop-timeout=15",
+    "-p",
+    "127.0.0.1::80",
+    "--mount",
+    `type=bind,src=${root},dst=/library`,
+    "-e",
+    "FILES=/library/books",
+    "-e",
+    `DATA=${dataPath}`,
+    "-e",
+    "RECONCILE_INTERVAL=0",
+    image,
+  );
+  const baseUrl = `http://${await docker("port", container, "80/tcp")}`;
+  await observe(
+    "initial readiness",
+    async () => (await fetch(`${baseUrl}/ready`)).status,
+    (status) => status === 200,
+  );
+  await observe(
+    "data watcher readiness",
+    async () => {
+      await docker(
+        "exec",
+        container,
+        "bun",
+        "-e",
+        `const path="${dataPath}/Keeper/Book/keep.mp3/entry.xml"; await Bun.write(path, (await Bun.file(path).text()).replace(/<title>[^<]*<\\/title>/,"<title>Data ready</title>"));`,
+      );
+
+      return docker(
+        "exec",
+        container,
+        "bun",
+        "-e",
+        `import {XMLParser} from "fast-xml-parser"; console.log(new XMLParser().parse(await Bun.file("${dataPath}/Keeper/Book/feed.xml").text()).rss.channel.title);`,
+      );
+    },
+    (title) => title === "Data ready",
+  );
+
+  // #when
+  await docker(
+    "exec",
+    container,
+    "bun",
+    "-e",
+    `await import("node:fs/promises").then(fs => fs.mkdir("${dataPath}/_entry.xml"));`,
+  );
+  await docker(
+    "exec",
+    container,
+    "bun",
+    "-e",
+    'await import("node:fs/promises").then(fs => fs.rename("/library/incoming","/library/books/_entry.xml"));',
+  );
+
+  const logs = await observe(
+    "nested real marker delivery",
+    () => docker("logs", container),
+    (value) =>
+      value.split("\n").some((line) => {
+        if (!line.startsWith("{")) return false;
+
+        const event = z
+          .object({
+            event_tag: z.string().optional(),
+            event_type: z.string().optional(),
+            path: z.string().optional(),
+          })
+          .parse(JSON.parse(line));
+
+        return (
+          event.event_tag === "FolderEntryXmlChanged" &&
+          event.event_type === "handler_complete" &&
+          event.path === `${dataPath}/~/_entry.xml/`
+        );
+      }),
+  );
+
+  const rootMarkers = logs
+    .split("\n")
+    .filter((line) => line.startsWith("{"))
+    .map((line) =>
+      z
+        .object({
+          event_tag: z.string().optional(),
+          event_type: z.string().optional(),
+          path: z.string().optional(),
+        })
+        .parse(JSON.parse(line)),
+    )
+    .filter(
+      (event) =>
+        event.event_tag === "FolderEntryXmlChanged" &&
+        event.event_type === "handler_start" &&
+        event.path === `${dataPath}/`,
+    ).length;
+
+  // #then
+  expect({
+    rootMarkers,
+    sibling: await Bun.file(join(root, "cache/keep")).text(),
+    source: await Bun.file(join(root, "books/_entry.xml/01.mp3")).exists(),
+    ready: (await fetch(`${baseUrl}/ready`)).status,
+  }).toEqual({
+    rootMarkers: 0,
+    sibling: "sibling sentinel",
+    source: true,
+    ready: 200,
+  });
 }, 30_000);
 
 test.each([

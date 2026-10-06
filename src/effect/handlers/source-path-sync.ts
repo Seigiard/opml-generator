@@ -5,6 +5,10 @@ import { AUDIO_EXTENSIONS } from "../../types.ts";
 import type { EventType } from "../types.ts";
 import { prepareMirrorKind } from "./mirror-kind.ts";
 import { readSourceEntry } from "./source-kind.ts";
+import { assertCachePath } from "../../cache-boundary.ts";
+import { cacheFileSystem } from "../../stopping.ts";
+import { cachePath } from "../../cache-projection.ts";
+import { cacheMirrors } from "../../cache-mirrors.ts";
 
 export async function sourcePathSync(
   event: EventType,
@@ -15,7 +19,15 @@ export async function sourcePathSync(
   const name = basename(event.path);
 
   try {
+    const dataDir = assertCachePath(
+      cachePath(deps.config.dataPath, relative(deps.config.filesPath, event.path)),
+      deps.config.dataPath,
+    );
+
     const current = await readSourceEntry(event.path, deps.config.filesPath, deps.fs);
+
+    if (relative(deps.config.filesPath, event.path) === "" && current.kind !== "directory")
+      throw new Error("Source root must be a regular directory");
 
     if (current.kind === "missing") {
       return ok([{ _tag: event.isDirectory ? "FolderDeleted" : "AudioFileDeleted", parent, name }]);
@@ -27,17 +39,14 @@ export async function sourcePathSync(
       ]);
     }
 
-    const dataDir = join(deps.config.dataPath, relative(deps.config.filesPath, event.path));
-    await prepareMirrorKind(dataDir, true, deps.fs);
+    await prepareMirrorKind(dataDir, true, cacheFileSystem(deps));
     const names = new Set(await deps.fs.readdir(event.path));
     const cachedNames = new Set<string>();
 
     try {
-      for (const child of await deps.fs.readdir(dataDir)) {
-        if ((await deps.fs.stat(join(dataDir, child))).isDirectory()) {
-          names.add(child);
-          cachedNames.add(child);
-        }
+      for (const child of await cacheMirrors(dataDir, deps.config.dataPath, deps.fs)) {
+        names.add(child.name);
+        cachedNames.add(child.name);
       }
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;

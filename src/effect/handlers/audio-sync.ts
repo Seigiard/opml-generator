@@ -10,9 +10,12 @@ import { saveBufferAsImage, COVER_MAX_SIZE } from "../../utils/image.ts";
 import type { HandlerDeps, FileSystemService } from "../../context.ts";
 import type { EventType } from "../types.ts";
 import { ENTRY_FILE, COVER_FILE } from "../../constants.ts";
-import { checkFileSystemAccess } from "../../stopping.ts";
+import { checkFileSystemAccess, cacheFileSystem } from "../../stopping.ts";
+import { checkCacheMutation } from "../../cache-boundary.ts";
 import { prepareMirrorKind } from "./mirror-kind.ts";
 import { readSourceEntry } from "./source-kind.ts";
+import { assertCachePath } from "../../cache-boundary.ts";
+import { cachePath } from "../../cache-projection.ts";
 
 const xmlBuilder = new XMLBuilder({
   ignoreAttributes: false,
@@ -50,17 +53,19 @@ export async function audioSync(
   if (event._tag !== "AudioFileCreated") return ok([]);
 
   const { parent, name } = event;
-  const { config, logger, fs } = deps;
+  const { config, logger } = deps;
+  const fs = cacheFileSystem(deps);
 
   const ext = extname(name).slice(1).toLowerCase();
   const filePath = join(parent, name);
   const relativePath = relative(config.filesPath, filePath);
-  const episodeDataDir = join(config.dataPath, relativePath);
+  const episodeDataDir = cachePath(config.dataPath, relativePath);
   const folderDataDir = dirname(episodeDataDir);
 
   logger.info("AudioSync", "Processing", { path: relativePath });
 
   try {
+    assertCachePath(episodeDataDir, config.dataPath, false);
     const fileStat = await readSourceEntry(filePath, config.filesPath, fs);
 
     if (fileStat.kind !== "audio") {
@@ -103,7 +108,7 @@ export async function audioSync(
     });
 
     await fs.atomicWrite(join(episodeDataDir, ENTRY_FILE), episodeXml);
-    await handleFolderCover(filePath, parent, folderDataDir, fs);
+    await handleFolderCover(filePath, parent, folderDataDir, config.dataPath, fs);
 
     logger.info("AudioSync", "Done", { path: relativePath, episode: episodeNumber });
 
@@ -214,6 +219,7 @@ async function handleFolderCover(
   audioFilePath: string,
   sourceFolder: string,
   folderDataDir: string,
+  dataPath: string,
   fs: FileSystemService,
 ): Promise<void> {
   try {
@@ -221,6 +227,7 @@ async function handleFolderCover(
     const coverExists = await fs.exists(coverPath);
 
     if (coverExists) return;
+    await checkCacheMutation(coverPath, dataPath, fs, true, () => checkFileSystemAccess(fs));
 
     let folderCoverPath: string | null = null;
 
@@ -233,9 +240,10 @@ async function handleFolderCover(
     if (folderCoverPath) {
       try {
         const coverBuffer = Buffer.from(await Bun.file(folderCoverPath).arrayBuffer());
-        await saveBufferAsImage(coverBuffer, coverPath, COVER_MAX_SIZE, () =>
-          checkFileSystemAccess(fs),
-        );
+        await saveBufferAsImage(coverBuffer, coverPath, COVER_MAX_SIZE, async () => {
+          checkFileSystemAccess(fs);
+          await checkCacheMutation(coverPath, dataPath, fs, true, () => checkFileSystemAccess(fs));
+        });
 
         return;
       } catch {
@@ -253,9 +261,10 @@ async function handleFolderCover(
 
     if (embeddedCover) {
       try {
-        await saveBufferAsImage(embeddedCover.data, coverPath, COVER_MAX_SIZE, () =>
-          checkFileSystemAccess(fs),
-        );
+        await saveBufferAsImage(embeddedCover.data, coverPath, COVER_MAX_SIZE, async () => {
+          checkFileSystemAccess(fs);
+          await checkCacheMutation(coverPath, dataPath, fs, true, () => checkFileSystemAccess(fs));
+        });
       } catch {
         // ignore cover save failures
       }

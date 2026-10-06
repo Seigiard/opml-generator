@@ -9,7 +9,9 @@ import type { EventType } from "../types.ts";
 import { FEED_FILE, OPML_FILE } from "../../constants.ts";
 import type { OpmlOutline } from "../../rss/types.ts";
 import { z } from "zod";
-import { filesystemIdentity } from "../../stopping.ts";
+import { filesystemIdentity, cacheFileSystem } from "../../stopping.ts";
+import { assertCachePath } from "../../cache-boundary.ts";
+import { decodeRelative, isContainer } from "../../cache-projection.ts";
 
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
@@ -70,18 +72,17 @@ async function walkDirectory(
   for (const item of items) {
     const itemPath = join(dir, item);
 
-    if (item === FEED_FILE) {
-      const feed = await parsePodcastFeed(itemPath, dir, dataRoot);
-
-      if (feed) feeds.push(feed);
-      continue;
-    }
-
     try {
       const itemStat = await fs.stat(itemPath);
 
       if (itemStat.isDirectory()) {
+        if (item === FEED_FILE && !isContainer(relative(dataRoot, dir)))
+          throw new Error(`Podcast metadata is a directory: ${itemPath}`);
         await walkDirectory(itemPath, dataRoot, feeds, fs);
+      } else if (item === FEED_FILE) {
+        const feed = await parsePodcastFeed(itemPath, dir, dataRoot);
+
+        if (feed) feeds.push(feed);
       }
     } catch (error) {
       if (absentPathError.safeParse(error).success) continue;
@@ -109,7 +110,7 @@ async function parsePodcastFeed(
 
     if (!channelTitle) return null;
 
-    const relativePath = relative(dataRoot, feedDir);
+    const relativePath = decodeRelative(relative(dataRoot, feedDir));
     const feedUrl = `/${encodeUrlPath(join(relativePath, FEED_FILE))}`;
 
     const feed: DiscoveredFeed = { title: String(channelTitle), feedUrl };
@@ -176,6 +177,12 @@ export async function opmlSync(
   )
     return ok([]);
 
+  try {
+    assertCachePath(event.path, deps.config.dataPath);
+  } catch (error) {
+    return err(error instanceof Error ? error : new Error(String(error)));
+  }
+
   const publication = withPublicationLock(deps.fs, () => publishOpml(event, deps));
   deps.logger.debug("OpmlSync", "Publication requested", { trigger: event._tag });
 
@@ -186,7 +193,8 @@ async function publishOpml(
   event: EventType,
   deps: HandlerDeps,
 ): Promise<Result<readonly EventType[], Error>> {
-  const { config, logger, fs } = deps;
+  const { config, logger } = deps;
+  const fs = cacheFileSystem(deps);
 
   logger.info("OpmlSync", "Regenerating OPML", { trigger: event._tag });
 

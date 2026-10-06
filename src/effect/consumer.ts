@@ -72,7 +72,7 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
       const deps = {
         config: ctx.config,
         logger: ctx.logger,
-        fs: guardFileSystem(ctx.fs, () => ctx.queue.checkDeadline()),
+        fs: guardFileSystem(ctx.fs, () => ctx.queue.checkDeadline(), ctx.config.dataPath),
       };
 
       const result = await handler(event, deps);

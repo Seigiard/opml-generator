@@ -8,10 +8,12 @@ import { parentMetaSync } from "./parent-meta-sync.ts";
 import { folderEntryXmlChanged } from "./folder-entry-xml-changed.ts";
 import { opmlSync } from "./opml-sync.ts";
 import { sourcePathSync } from "./source-path-sync.ts";
+import { audioMirrorSync } from "./audio-mirror-sync.ts";
 
 export function registerHandlers(registry: HandlerRegistryService): void {
   registry.register("SourcePathSyncRequested", sourcePathSync);
   registry.register("AudioFileCreated", audioSync);
+  registry.register("AudioMirrorSyncRequested", audioMirrorSync);
   registry.register("AudioFileDeleted", audioCleanup);
   registry.register("FolderCreated", folderSync);
   registry.register("FolderDeleted", folderCleanup);

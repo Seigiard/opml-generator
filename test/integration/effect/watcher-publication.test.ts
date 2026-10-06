@@ -347,6 +347,49 @@ describe("source watcher publication through ApplicationLifecycle", () => {
     });
   });
 
+  test("recovery cleans stale RSS and descendants from a reused episode mirror without metadata writes", async () => {
+    // #given
+    const lib = await library();
+    await lib.audio("Author/Book.mp3", "tagged.mp3");
+    expect(await lib.app.runInitialSync()).toBe(true);
+    const entryPath = join(lib.dataPath, "Author/Book.mp3/entry.xml");
+    const previous = await Bun.file(entryPath).text();
+    await Bun.write(
+      join(lib.dataPath, "Author/Book.mp3/feed.xml"),
+      "<rss><channel><title>Ghost</title></channel></rss>",
+    );
+    await Bun.write(
+      join(lib.dataPath, "Author/Book.mp3/Removed/feed.xml"),
+      "<rss><channel><title>Nested Ghost</title></channel></rss>",
+    );
+    const write = lib.ctx.fs.atomicWrite;
+    let metadataWrites = 0;
+    lib.ctx.fs.atomicWrite = async (path, content) => {
+      if (path.endsWith("/entry.xml")) metadataWrites++;
+      await write(path, content);
+    };
+
+    // #when
+    const successful = await lib.app.runPublicationPass("Reconciliation");
+
+    // #then
+    expect({
+      successful,
+      metadataWrites,
+      unchanged: previous === (await Bun.file(entryPath).text()),
+      cache: (await lib.ctx.fs.readdir(join(lib.dataPath, "Author/Book.mp3"))).sort(),
+      subscriptions: await subscriptions(lib.dataPath),
+    }).toEqual({
+      successful: true,
+      metadataWrites: 0,
+      unchanged: true,
+      cache: ["entry.xml"],
+      subscriptions: [
+        { title: "Test Title", author: undefined, url: "{{{BASE_URL}}}/Author/feed.xml" },
+      ],
+    });
+  });
+
   test.each(["file", "parent"])(
     "a planned %s replaced by a source symlink before creation stays excluded",
     async (kind) => {

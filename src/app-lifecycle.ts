@@ -1,4 +1,6 @@
-import { join } from "node:path";
+import { join, dirname, basename } from "node:path";
+import type { EventType } from "./effect/types.ts";
+import { upgradeCache, needsCacheUpgrade } from "./cache-upgrade.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import type { AppContext } from "./context.ts";
 import { OPML_FILE } from "./constants.ts";
@@ -9,6 +11,7 @@ import { adaptBooksEvent } from "./effect/adapters/books-adapter.ts";
 import type { RawBooksEvent } from "./effect/types.ts";
 import { guardFileSystem } from "./stopping.ts";
 import { startConsumer } from "./effect/consumer.ts";
+import { readSourceEntry } from "./effect/handlers/source-kind.ts";
 
 async function waitForInterval(ms: number, signal: AbortSignal): Promise<void> {
   try {
@@ -137,6 +140,8 @@ export class ApplicationLifecycle {
 
   private async executePass(logTag: string, reset: boolean): Promise<boolean> {
     try {
+      await this.checkSourceRoot();
+
       if (reset) await this.resetCache();
       this.checkRunning();
       await this.publishCurrentCatalog(logTag);
@@ -152,6 +157,7 @@ export class ApplicationLifecycle {
   }
 
   private async resetCache(): Promise<void> {
+    const fs = guardFileSystem(this.ctx.fs, () => this.checkRunning(), this.ctx.config.dataPath);
     await this.ctx.queue.pause();
 
     try {
@@ -159,13 +165,13 @@ export class ApplicationLifecycle {
       this.publicationReady = false;
       await withPublicationLock(this.ctx.fs, async () => {
         this.checkRunning();
-        await this.ctx.fs.mkdir(this.ctx.config.dataPath, { recursive: true });
+        await fs.mkdir(this.ctx.config.dataPath, { recursive: true });
         this.checkRunning();
-        const entries = await this.ctx.fs.readdir(this.ctx.config.dataPath);
+        const entries = await fs.readdir(this.ctx.config.dataPath);
 
         for (const entry of entries) {
           this.checkRunning();
-          await this.ctx.fs.rm(join(this.ctx.config.dataPath, entry), { recursive: true });
+          await fs.rm(join(this.ctx.config.dataPath, entry), { recursive: true });
         }
       });
     } finally {
@@ -178,10 +184,13 @@ export class ApplicationLifecycle {
     this.ctx.logger.info(logTag, "Starting");
     const startTime = Date.now();
 
-    await this.ctx.fs.mkdir(this.ctx.config.dataPath, { recursive: true });
+    await guardFileSystem(this.ctx.fs, () => this.checkRunning(), this.ctx.config.dataPath).mkdir(
+      this.ctx.config.dataPath,
+      { recursive: true },
+    );
     this.checkRunning();
 
-    const files = await scanFiles(this.ctx.config.filesPath, this.stopping.signal);
+    const files = await this.sourceSnapshot();
     this.checkRunning();
     this.ctx.logger.info(logTag, "Audio files found", { audio_files_found: files.length });
 
@@ -192,8 +201,15 @@ export class ApplicationLifecycle {
       audio_files_delete: plan.toDelete.length,
       folders_count: plan.folders.length,
     });
+    await this.checkSourceRoot();
 
-    const events = adaptSyncPlan(plan, this.ctx.config.filesPath);
+    const mirrors: EventType[] = files.map((file) => ({
+      _tag: "AudioMirrorSyncRequested",
+      parent: dirname(file.path),
+      name: basename(file.path),
+    }));
+
+    const events = [...mirrors, ...adaptSyncPlan(plan, this.ctx.config.filesPath)];
     const passId = this.ctx.lifecycle.startPass();
     this.ctx.lifecycle.enqueueMany(this.ctx.queue, events, passId);
     let cancel!: () => void;
@@ -213,12 +229,14 @@ export class ApplicationLifecycle {
 
     this.checkRunning();
 
+    await this.checkSourceRoot();
+
     const opmlResult = await opmlSync(
       { _tag: "FeedXmlCreated", path: join(this.ctx.config.dataPath, OPML_FILE) },
       {
         config: this.ctx.config,
         logger: this.ctx.logger,
-        fs: guardFileSystem(this.ctx.fs, () => this.checkRunning()),
+        fs: guardFileSystem(this.ctx.fs, () => this.checkRunning(), this.ctx.config.dataPath),
       },
     );
 
@@ -233,6 +251,48 @@ export class ApplicationLifecycle {
 
   private checkRunning(): void {
     this.stopping.signal.throwIfAborted();
+  }
+
+  private async checkSourceRoot(): Promise<void> {
+    this.checkRunning();
+
+    const root = await readSourceEntry(
+      this.ctx.config.filesPath,
+      this.ctx.config.filesPath,
+      guardFileSystem(this.ctx.fs, () => this.checkRunning()),
+    );
+
+    this.checkRunning();
+
+    if (root.kind !== "directory") throw new Error("Source root must be a regular directory");
+  }
+
+  private async sourceSnapshot() {
+    const deps = {
+      config: this.ctx.config,
+      logger: this.ctx.logger,
+      fs: guardFileSystem(this.ctx.fs, () => this.checkRunning(), this.ctx.config.dataPath),
+    };
+
+    if (!(await needsCacheUpgrade(deps, () => this.checkRunning())))
+      return scanFiles(this.ctx.config.filesPath, this.stopping.signal);
+    await this.ctx.queue.pause();
+
+    try {
+      this.checkRunning();
+      this.publicationReady = false;
+
+      return await withPublicationLock(this.ctx.fs, async () => {
+        await this.checkSourceRoot();
+        const files = await scanFiles(this.ctx.config.filesPath, this.stopping.signal);
+        await this.checkSourceRoot();
+        await upgradeCache(files, deps, () => this.checkRunning());
+
+        return files;
+      });
+    } finally {
+      this.ctx.queue.resume();
+    }
   }
 
   shutdown(timeoutMs = 8_000): Promise<"completed" | "deadline"> {

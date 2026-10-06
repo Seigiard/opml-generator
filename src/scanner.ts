@@ -4,6 +4,8 @@ import type { FileInfo, FolderInfo } from "./types.ts";
 import { AUDIO_EXTENSIONS } from "./types.ts";
 import { ENTRY_FILE } from "./constants.ts";
 import { isReusableEpisodeCache } from "./rss/episode-cache.ts";
+import { cachePath } from "./cache-projection.ts";
+import { cacheMirrors } from "./cache-mirrors.ts";
 
 export async function scanFiles(rootPath: string, signal?: AbortSignal): Promise<FileInfo[]> {
   const files: FileInfo[] = [];
@@ -95,18 +97,18 @@ export function buildFolderStructure(files: FileInfo[]): FolderInfo[] {
 
 async function scanDataMirror(dataPath: string, signal?: AbortSignal): Promise<Set<string>> {
   const paths = new Set<string>();
+  const fs = { stat, readdir: (path: string) => readdir(path) };
 
   async function scan(dirPath: string, relativePath: string): Promise<void> {
     try {
       signal?.throwIfAborted();
-      const entries = await readdir(dirPath, { withFileTypes: true });
+      const entries = await cacheMirrors(dirPath, dataPath, fs, () => signal?.throwIfAborted());
       signal?.throwIfAborted();
 
       for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-
-        const entryPath = join(dirPath, entry.name);
-        const entryRelPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+        const entryPath = entry.path;
+        const logicalName = entry.name;
+        const entryRelPath = relativePath ? `${relativePath}/${logicalName}` : logicalName;
         paths.add(entryRelPath);
         const hasAudioEntry = await Bun.file(join(entryPath, ENTRY_FILE)).exists();
         signal?.throwIfAborted();
@@ -153,7 +155,7 @@ export async function createSyncPlan(
   const foldersToProcess: FolderInfo[] = [];
 
   for (const file of files) {
-    const dataDir = join(dataPath, file.relativePath);
+    const dataDir = cachePath(dataPath, file.relativePath);
     const entryFile = Bun.file(join(dataDir, ENTRY_FILE));
 
     try {

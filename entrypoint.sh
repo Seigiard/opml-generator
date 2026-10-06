@@ -90,19 +90,18 @@ trap '' TERM INT
 kill "$TICK_PID" 2>/dev/null || true
 wait "$TICK_PID" 2>/dev/null || true
 # The application has 8 seconds. Helpers have an additional 3 seconds.
-# A caught signal resets to default in the child. Inheriting an ignored TERM
-# would lose a cancellation sent before the watchdog installs its own trap.
-trap ':' TERM INT
-(
-  SLEEP_PID=
-  trap '[ -z "$SLEEP_PID" ] || kill "$SLEEP_PID" 2>/dev/null || true; exit 0' TERM INT
-  sleep 11 &
-  SLEEP_PID=$!
-  wait "$SLEEP_PID"
+# The disposable watchdog and its sleep have one owned process group.
+setsid sh -c '
+  sleep 11
   echo "[entrypoint] Child shutdown deadline expired" >&2
-  kill -KILL "$BUN_PID" "$WATCHER_PID" "$NGINX_PID" 2>/dev/null || true
-) &
+  kill -KILL "$@" 2>/dev/null || true
+' watchdog "$BUN_PID" "$WATCHER_PID" "$NGINX_PID" &
 DEADLINE_PID=$!
+# Confirm setsid has created the group before a fast child exit can cancel it.
+while ! kill -0 "-$DEADLINE_PID" 2>/dev/null; do
+  if ! kill -0 "$DEADLINE_PID" 2>/dev/null; then STATUS=1; break; fi
+  sleep 0.01
+done
 trap '' TERM INT
 for pid in "$BUN_PID" "$WATCHER_PID" "$NGINX_PID"; do
   child_status=0
@@ -110,6 +109,6 @@ for pid in "$BUN_PID" "$WATCHER_PID" "$NGINX_PID"; do
   echo "[entrypoint] Reaped $pid status=$child_status"
   [ "$child_status" = 0 ] || STATUS=1
 done
-kill "$DEADLINE_PID" 2>/dev/null || true
+kill -KILL "-$DEADLINE_PID" 2>/dev/null || true
 wait "$DEADLINE_PID" 2>/dev/null || true
 exit "$STATUS"
