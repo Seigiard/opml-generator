@@ -7,6 +7,7 @@ import type { HandlerDeps } from "../../context.ts";
 import type { EventType } from "../types.ts";
 import { FEED_FILE, FOLDER_ENTRY_FILE } from "../../constants.ts";
 import { prepareMirrorKind } from "./mirror-kind.ts";
+import { readSourceEntry } from "./source-kind.ts";
 
 const xmlBuilder = new XMLBuilder({
   ignoreAttributes: false,
@@ -31,6 +32,12 @@ export async function folderSync(
   logger.info("FolderSync", "Processing", { path: relativePath || "(root)" });
 
   try {
+    const source = await readSourceEntry(folderPath, config.filesPath, fs);
+
+    if (source.kind !== "directory") {
+      return ok([{ _tag: "SourcePathSyncRequested", path: folderPath, isDirectory: true }]);
+    }
+
     await prepareMirrorKind(folderDataDir, true, fs);
     await fs.mkdir(folderDataDir, { recursive: true });
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, rename, rm, stat } from "node:fs/promises";
+import { mkdir, rename, rm, stat, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { XMLParser } from "fast-xml-parser";
 import { z } from "zod";
@@ -139,6 +139,108 @@ describe("source watcher publication through ApplicationLifecycle", () => {
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   });
 
+  test.each([
+    ["watcher", false],
+    ["recovery", false],
+    ["watcher", true],
+    ["recovery", true],
+  ] as const)(
+    "%s excludes directory/file/broken source aliases with cyclic=%s",
+    async (mode, cyclic) => {
+      // #given
+      const lib = await library();
+
+      const book =
+        mode === "watcher" ? join(lib.filesPath, "../incoming") : join(lib.filesPath, "Book");
+
+      await mkdir(join(book, "Originals"), { recursive: true });
+      const audio = await Bun.file("test/fixtures/audio/untagged.mp3").arrayBuffer();
+      await Bun.write(join(book, "Originals/01.mp3"), audio);
+
+      if (mode === "recovery") {
+        await Bun.write(join(book, "alias/old.mp3"), audio);
+        await Bun.write(join(book, "alias.mp3"), audio);
+        await Bun.write(join(book, "broken.mp3"), audio);
+
+        if (cyclic) await Bun.write(join(book, "cycle/old.mp3"), audio);
+      }
+
+      expect(await lib.app.runInitialSync()).toBe(true);
+
+      for (const name of ["alias", "alias.mp3", "broken.mp3", ...(cyclic ? ["cycle"] : [])]) {
+        await rm(join(book, name), { recursive: true, force: true });
+      }
+
+      await symlink("Originals", join(book, "alias"));
+      await symlink("Originals/01.mp3", join(book, "alias.mp3"));
+      await symlink("missing.mp3", join(book, "broken.mp3"));
+
+      if (cyclic) await symlink(".", join(book, "cycle"));
+
+      // #when
+      let completion: Promise<boolean>;
+
+      if (mode === "watcher") {
+        await rename(book, join(lib.filesPath, "Book"));
+        lib.app.admitBooksEvent({ parent: lib.filesPath, name: "Book", events: "MOVED_TO,ISDIR" });
+        completion = lib.app.waitForIdle().then(() => true);
+      } else {
+        completion = lib.app.runPublicationPass("Recovery");
+      }
+
+      let timer: ReturnType<typeof setTimeout> | undefined;
+
+      try {
+        const successful = await Promise.race([
+          completion,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error("Source aliases prevented finite publication")),
+              1000,
+            );
+          }),
+        ]);
+
+        await lib.app.waitForIdle();
+
+        lib.app.admitBooksEvent({
+          parent: join(lib.filesPath, "Book/alias"),
+          name: "01.mp3",
+          events: "CLOSE_WRITE",
+        });
+
+        if (cyclic)
+          lib.app.admitBooksEvent({
+            parent: join(lib.filesPath, "Book/cycle/Originals"),
+            name: "01.mp3",
+            events: "CLOSE_WRITE",
+          });
+        await lib.app.waitForIdle();
+
+        // #then
+        expect({
+          successful,
+          subscriptions: await subscriptions(lib.dataPath),
+          podcast: await podcast(lib.dataPath, "Book/Originals"),
+          cache: (await lib.ctx.fs.readdir(join(lib.dataPath, "Book"))).sort(),
+        }).toEqual({
+          successful: true,
+          subscriptions: [
+            { title: "01", author: "Book", url: "{{{BASE_URL}}}/Book/Originals/feed.xml" },
+          ],
+          podcast: {
+            title: "01",
+            author: "Book",
+            episodes: [{ title: "01", guid: "Book/Originals/01.mp3", number: 1 }],
+          },
+          cache: ["Originals", "_entry.xml", "feed.xml"],
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  );
+
   test.each(["watcher", "recovery"])(
     "%s removes a published folder replaced by an unsupported regular file",
     async (mode) => {
@@ -244,6 +346,55 @@ describe("source watcher publication through ApplicationLifecycle", () => {
       subscriptions: [{ title: "root", author: undefined, url: "{{{BASE_URL}}}/feed.xml" }],
     });
   });
+
+  test.each(["file", "parent"])(
+    "a planned %s replaced by a source symlink before creation stays excluded",
+    async (kind) => {
+      // #given
+      const lib = await library();
+      await lib.audio("Book/01.mp3");
+      const target = join(lib.filesPath, "../target");
+      await mkdir(target);
+      await Bun.write(join(target, "01.mp3"), Bun.file("test/fixtures/audio/tagged.mp3"));
+      const info = lib.ctx.logger.info;
+      const inspect = lib.ctx.fs.lstat;
+      let planned = false;
+      let replaced = false;
+      lib.ctx.logger.info = (tag, message, context) => {
+        info(tag, message, context);
+
+        if (tag === "InitialSync" && message === "Sync plan created") planned = true;
+      };
+
+      lib.ctx.fs.lstat = async (path) => {
+        if (planned && !replaced) {
+          replaced = true;
+          const source = join(lib.filesPath, kind === "file" ? "Book/01.mp3" : "Book");
+          await rm(source, { recursive: true });
+          await symlink(kind === "file" ? join(target, "01.mp3") : target, source);
+        }
+
+        return inspect(path);
+      };
+
+      // #when
+      const successful = await lib.app.runInitialSync();
+      await lib.app.waitForIdle();
+
+      // #then
+      expect({
+        successful,
+        ready: lib.app.isPublicationReady(),
+        subscriptions: await subscriptions(lib.dataPath),
+        cache: (await lib.ctx.fs.readdir(lib.dataPath)).sort(),
+      }).toEqual({
+        successful: true,
+        ready: true,
+        subscriptions: [],
+        cache: ["feed.opml"],
+      });
+    },
+  );
 
   test.each(["watcher", "recovery"])(
     "%s replaces a folder with an audio file and then restores a folder at that path",
@@ -791,8 +942,8 @@ describe("source watcher publication through ApplicationLifecycle", () => {
     await lib.audio("Other/Story/story.mp3");
     expect(await lib.app.runInitialSync()).toBe(true);
     await lib.audio("Other/Story/story.mp3", "tagged.mp3");
-    const statBase = lib.ctx.fs.stat;
-    lib.ctx.fs.stat = (path) => {
+    const statBase = lib.ctx.fs.lstat;
+    lib.ctx.fs.lstat = (path) => {
       if (path === join(lib.filesPath, "Author/Book/original.mp3")) {
         return Promise.reject(
           Object.assign(new Error("controlled source access error"), { code: "EACCES" }),
@@ -957,10 +1108,10 @@ describe("source watcher publication through ApplicationLifecycle", () => {
     cleanups.push(async () => {
       releaseOld.resolve();
     });
-    const readStat = lib.ctx.fs.stat;
+    const readStat = lib.ctx.fs.lstat;
     const info = lib.ctx.logger.info;
     let old = true;
-    lib.ctx.fs.stat = async (path) => {
+    lib.ctx.fs.lstat = async (path) => {
       if (path === join(lib.filesPath, "Removed") && old) {
         old = false;
 

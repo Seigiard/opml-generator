@@ -9,6 +9,7 @@ import {
   mkdir,
   rm,
   stat,
+  lstat,
   readFile,
   copyFile,
   readdir,
@@ -49,6 +50,7 @@ function realDeps(): HandlerDeps {
       },
       rm: (path, options) => rm(path, options),
       readdir: (path) => readdir(path),
+      lstat: (path) => lstat(path),
       stat: async (path) => {
         const s = await stat(path);
 
@@ -230,8 +232,6 @@ describe("audioSync handler", () => {
     // #then
     const content = await readFile(join(DATA_DIR, "track.mp3", "entry.xml"), "utf-8");
     const pubDateMatch = content.match(/<pubDate>([^<]+)<\/pubDate>/);
-    expect(pubDateMatch).not.toBeNull();
-    const pubDate = new Date(pubDateMatch![1]!);
-    expect(Number.isNaN(pubDate.getTime())).toBe(false);
+    expect(pubDateMatch?.[1]).toBe("2024-01-01T00:00:00.000Z");
   });
 });

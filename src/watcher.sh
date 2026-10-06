@@ -10,19 +10,14 @@ SERVER_URL="http://127.0.0.1:$BUN_PORT"
 if [ "${1:-}" = worker ]; then
   directory=$2
   endpoint=$3
-  set --
+  set -- --no-dereference
   if [ "$endpoint" = data ]; then
     set -- --exclude '(feed\.xml|feed\.opml|events\.jsonl|errors\.jsonl)$'
   fi
   inotifywait -m -r -e close_write -e delete -e moved_from -e moved_to -e create \
     "$@" \
-    --format '{"parent":"%w","name":"%f","events":"%e"}' \
-    "$directory" 2>/dev/null | while read -r line; do
-      case "$line" in
-        *IN_Q_OVERFLOW*) wget -T 2 -q --post-data='' -O /dev/null "$SERVER_URL/resync" 2>/dev/null || true ;;
-        *) wget -T 2 -q --post-data="$line" --header="Content-Type: application/json" -O /dev/null "$SERVER_URL/events/$endpoint" 2>/dev/null || true ;;
-      esac
-    done
+    --no-newline --format '%w%0%f%0%e%0' \
+    "$directory" 2>/dev/null | bun /app/src/watcher-events.ts "$SERVER_URL" "$endpoint"
   exit
 fi
 

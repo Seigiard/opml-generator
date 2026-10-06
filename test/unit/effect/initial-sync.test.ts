@@ -64,6 +64,7 @@ function makeDeps(): HandlerDeps {
       },
       readdir: async () => [],
       stat: async () => ({ isDirectory: () => false, size: 0 }),
+      lstat: async () => ({ isDirectory: () => true, isFile: () => false, size: 0 }),
       exists: async () => false,
       writeFile: async (path, content) => {
         mockFs.writeCalls.push({ path, content });

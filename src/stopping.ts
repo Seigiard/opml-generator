@@ -34,6 +34,11 @@ export function guardFileSystem(fs: FileSystemService, check: () => void): FileS
 
       return fs.stat(path);
     },
+    lstat: (path) => {
+      check();
+
+      return fs.lstat(path);
+    },
     exists: (path) => {
       check();
 

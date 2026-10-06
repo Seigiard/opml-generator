@@ -9,6 +9,7 @@ import {
   mkdir,
   rm,
   stat,
+  lstat,
   readFile,
   copyFile,
   readdir,
@@ -47,6 +48,7 @@ function realDeps(): HandlerDeps {
       },
       rm: (path, options) => rm(path, options),
       readdir: (path) => readdir(path),
+      lstat: (path) => lstat(path),
       stat: async (path) => {
         const s = await stat(path);
 

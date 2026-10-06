@@ -1,6 +1,6 @@
 import { ok, err } from "neverthrow";
 import type { Result } from "neverthrow";
-import { join, relative, dirname, extname, basename } from "node:path";
+import { join, relative, dirname, basename } from "node:path";
 import { XMLParser, XMLBuilder } from "fast-xml-parser";
 import { generatePodcastRss } from "../../rss/podcast-rss.ts";
 import type { EpisodeInfo, PodcastInfo } from "../../rss/types.ts";
@@ -8,7 +8,7 @@ import { encodeUrlPath, naturalSort, normalizeFilenameTitle } from "../../utils/
 import type { HandlerDeps, FileSystemService } from "../../context.ts";
 import type { EventType } from "../types.ts";
 import { FEED_FILE, ENTRY_FILE, FOLDER_ENTRY_FILE, COVER_FILE } from "../../constants.ts";
-import { AUDIO_EXTENSIONS } from "../../types.ts";
+import { readSourceEntry } from "./source-kind.ts";
 
 const xmlParser = new XMLParser({ parseTagValue: false });
 
@@ -112,13 +112,10 @@ export async function folderMetaSync(
     let sourceFolderExists = false;
 
     try {
-      const s = await fs.stat(sourceFolder);
-      sourceFolderExists = s.isDirectory();
+      const s = await readSourceEntry(sourceFolder, config.filesPath, fs);
+      sourceFolderExists = s.kind === "directory";
 
-      if (
-        !sourceFolderExists &&
-        AUDIO_EXTENSIONS.includes(extname(sourceFolder).slice(1).toLowerCase())
-      ) {
+      if (s.kind === "audio") {
         return ok([{ _tag: "SourcePathSyncRequested", path: sourceFolder, isDirectory: false }]);
       }
     } catch (error) {
@@ -166,7 +163,7 @@ export async function folderMetaSync(
     if (!hasEpisodes && !hasFolders) {
       if (relativePath === "") {
         if (feedExistedBefore) await fs.rm(feedOutputPath);
-      } else if (!(await containsSourceAudio(sourceFolder, fs))) {
+      } else if (!(await containsSourceAudio(sourceFolder, config.filesPath, fs))) {
         try {
           await fs.rm(normalizedDir, { recursive: true });
         } catch (error) {
@@ -298,14 +295,18 @@ export async function folderMetaSync(
   }
 }
 
-async function containsSourceAudio(dir: string, fs: FileSystemService): Promise<boolean> {
+async function containsSourceAudio(
+  dir: string,
+  root: string,
+  fs: FileSystemService,
+): Promise<boolean> {
   for (const name of await fs.readdir(dir)) {
     const path = join(dir, name);
-    const current = await fs.stat(path);
+    const current = await readSourceEntry(path, root, fs);
 
-    if (current.isDirectory()) {
-      if (await containsSourceAudio(path, fs)) return true;
-    } else if (AUDIO_EXTENSIONS.includes(extname(name).slice(1).toLowerCase())) {
+    if (current.kind === "directory") {
+      if (await containsSourceAudio(path, root, fs)) return true;
+    } else if (current.kind === "audio") {
       return true;
     }
   }

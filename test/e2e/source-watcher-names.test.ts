@@ -15,6 +15,14 @@ const opmlSchema = z.object({
   opml: z.object({ body: z.object({ outline: z.union([outline, z.array(outline)]) }) }),
 });
 
+const podcastSchema = z.object({
+  rss: z.object({
+    channel: z.object({
+      item: z.object({ title: z.string(), guid: z.object({ "#text": z.string() }) }),
+    }),
+  }),
+});
+
 const containers: string[] = [];
 
 const roots: string[] = [];
@@ -155,6 +163,184 @@ test.each([
 
     // #then
     expect(published).toEqual({ rss: 404, subscriptions: ["/Keeper/Book/feed.xml"] });
+  },
+  30_000,
+);
+
+test.each([
+  [
+    "quoted filename",
+    "Quote Parent",
+    '01 - "Introduction".mp3',
+    "/Quote%20Parent/feed.xml",
+    'Quote Parent/01 - "Introduction".mp3',
+  ],
+  [
+    "quoted parent",
+    'Author/"Book"',
+    "01.mp3",
+    "/Author/%22Book%22/feed.xml",
+    'Author/"Book"/01.mp3',
+  ],
+  [
+    "backslash and newline",
+    "Parent\\Line\nBreak",
+    "01\\intro\npart.mp3",
+    "/Parent%5CLine%0ABreak/feed.xml",
+    "Parent\\Line\nBreak/01\\intro\npart.mp3",
+  ],
+])(
+  "production watcher serializes %s for source creation, data updates, and directory removal",
+  async (_description, parent, name, url, guid) => {
+    // #given
+    const root = await mkdtemp(join(tmpdir(), "source-watcher-escaping-"));
+    roots.push(root);
+    const books = join(root, "books");
+    await mkdir(join(books, parent), { recursive: true });
+    await mkdir(join(books, "Keeper/Book"), { recursive: true });
+    await Bun.write(
+      join(books, "Keeper/Book/keep.mp3"),
+      Bun.file("test/fixtures/audio/untagged.mp3"),
+    );
+    const audio = await Bun.file("test/fixtures/audio/tagged.mp3").arrayBuffer();
+    const container = `opml-source-names-${crypto.randomUUID()}`;
+    containers.push(container);
+    await docker(
+      "run",
+      "-d",
+      "--name",
+      container,
+      "--init",
+      "--stop-timeout=15",
+      "-p",
+      "127.0.0.1::80",
+      "--mount",
+      `type=bind,src=${root},dst=/library`,
+      "-e",
+      "FILES=/library/books",
+      "-e",
+      "RECONCILE_INTERVAL=0",
+      image,
+    );
+    const baseUrl = `http://${await docker("port", container, "80/tcp")}`;
+    await observe(
+      "publication readiness",
+      async () => (await fetch(`${baseUrl}/ready`)).status,
+      (status) => status === 200,
+    );
+    await observe(
+      "source watcher admission",
+      async () => {
+        await docker(
+          "exec",
+          container,
+          "bun",
+          "-e",
+          'const path="/library/books/Keeper/Book/keep.mp3"; await Bun.write(path, await Bun.file(path).arrayBuffer());',
+        );
+
+        return docker("logs", container);
+      },
+      (logs) =>
+        logs.includes(
+          '"event_tag":"SourcePathSyncRequested","path":"/library/books/Keeper/Book/keep.mp3"',
+        ),
+    );
+
+    const publication = async () => {
+      const rss = await fetch(`${baseUrl}${url}`);
+
+      if (rss.status !== 200) return { status: rss.status, title: "", guid: "", subscriptions: [] };
+      const item = podcastSchema.parse(parser.parse(await rss.text())).rss.channel.item;
+      const opmlResponse = await fetch(`${baseUrl}/feed.opml`);
+
+      if (opmlResponse.status !== 200) throw new Error(`OPML HTTP status: ${opmlResponse.status}`);
+      const value = opmlSchema.parse(parser.parse(await opmlResponse.text())).opml.body.outline;
+      const outlines = Array.isArray(value) ? value : [value];
+
+      return {
+        status: rss.status,
+        title: item.title,
+        guid: item.guid["#text"],
+        subscriptions: outlines.map((entry) => new URL(entry["@_xmlUrl"]).pathname).sort(),
+      };
+    };
+
+    // #when
+    await docker(
+      "exec",
+      container,
+      "bun",
+      "-e",
+      `await Bun.write(${JSON.stringify(join("/library/books", parent, name))}, Buffer.from(${JSON.stringify(Buffer.from(audio).toString("base64"))}, "base64"));`,
+    );
+
+    const created = await observe(
+      "escaped source publication",
+      publication,
+      (value) => value.title === "Test Title" && value.subscriptions.includes(url),
+    );
+
+    const cachePath = join("/data", parent, name, "entry.xml");
+
+    const changed = await observe(
+      "escaped data notification publication",
+      async () => {
+        await docker(
+          "exec",
+          container,
+          "bun",
+          "-e",
+          `const path=${JSON.stringify(cachePath)}; const xml=await Bun.file(path).text(); await Bun.write(path, xml.replace("<title>Test Title</title>", "<title>Cached Transport Title</title>"));`,
+        );
+
+        return publication();
+      },
+      (value) => value.title === "Cached Transport Title",
+    );
+
+    await docker(
+      "exec",
+      container,
+      "bun",
+      "-e",
+      `await import("node:fs/promises").then(fs => fs.rename(${JSON.stringify(join("/library/books", parent))}, "/library/moved"));`,
+    );
+
+    const removed = await observe(
+      "escaped parent removal",
+      async () => {
+        const rss = await fetch(`${baseUrl}${url}`);
+        const response = await fetch(`${baseUrl}/feed.opml`);
+
+        if (response.status !== 200) throw new Error(`OPML HTTP status: ${response.status}`);
+        const value = opmlSchema.parse(parser.parse(await response.text())).opml.body.outline;
+        const outlines = Array.isArray(value) ? value : [value];
+
+        return {
+          status: rss.status,
+          subscriptions: outlines.map((entry) => new URL(entry["@_xmlUrl"]).pathname),
+        };
+      },
+      (value) => value.status === 404 && value.subscriptions.length === 1,
+    );
+
+    // #then
+    expect({ created, changed, removed }).toEqual({
+      created: {
+        status: 200,
+        title: "Test Title",
+        guid,
+        subscriptions: ["/Keeper/Book/feed.xml", url].sort(),
+      },
+      changed: {
+        status: 200,
+        title: "Cached Transport Title",
+        guid,
+        subscriptions: ["/Keeper/Book/feed.xml", url].sort(),
+      },
+      removed: { status: 404, subscriptions: ["/Keeper/Book/feed.xml"] },
+    });
   },
   30_000,
 );

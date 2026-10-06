@@ -108,7 +108,8 @@ src/
 ├── constants.ts     # File constants (feed.xml, entry.xml, feed.opml, etc.)
 ├── scanner.ts       # File scanning, sync planning
 ├── types.ts         # Shared types (MIME_TYPES, AUDIO_EXTENSIONS)
-├── watcher.sh       # inotifywait → POST /events
+├── watcher.sh       # Owned inotify process groups → NUL-delimited events
+├── watcher-events.ts # Bun stdin framing + JSON serialization → POST /events
 ├── context.ts       # AppContext, HandlerDeps, buildContext()
 ├── queue.ts         # SimpleQueue<T> (unrolled linked list)
 ├── stopping.ts      # Filesystem guards with shared publication-lock identity
@@ -158,6 +159,8 @@ Source notifications enter through `ApplicationLifecycle.admitBooksEvent()`. The
 
 Source type changes remove the obsolete cache representation before rebuilding. Episode mirrors retain only `entry.xml`; folder mirrors remove that episode marker. Metadata requests for a path now occupied by supported audio reconcile the file rather than delete its new cache. Unsupported regular files remove obsolete mirrors and cannot become episodes. `src/effect/handlers/mirror-kind.ts` owns the representation cleanup.
 
+`src/effect/handlers/source-kind.ts` classifies each source path component with `fs.lstat()`. Only regular directories and supported regular audio files enter the Catalog. Symlinks, broken links, cycles, and paths beneath symlink ancestors are excluded. Watcher hints and recovery remove their obsolete mirrors. Creation handlers recheck source kind after scanning. Source access errors still fail their owned work; cache traversal and OPML retain `fs.stat()` semantics.
+
 ### Publication Recovery
 
 - OPML collection propagates directory, stat, read, and podcast XML errors. A failed collection leaves the previous OPML intact and fails the pass. Missing paths and valid navigation feeds are excluded normally.
@@ -186,15 +189,15 @@ The shell entrypoint forwards signals promptly and waits for Bun, nginx, and the
 
 ### DI via AppContext + Pick<>
 
-| Field in AppContext | Purpose                                               |
-| ------------------- | ----------------------------------------------------- |
-| `config`            | filesPath, dataPath, port, reconcileInterval          |
-| `logger`            | info, warn, error, debug (void, fire-and-forget)      |
-| `fs`                | mkdir, rm, readdir, stat, atomicWrite (Promise-based) |
-| `dedup`             | TTL-based (500ms) event filtering (synchronous)       |
-| `queue`             | SimpleQueue: enqueue, enqueueMany, take, size         |
-| `handlers`          | Map<tag, AsyncHandler>                                |
-| `lifecycle`         | PassLifecycle for pass-scoped event completion        |
+| Field in AppContext | Purpose                                                      |
+| ------------------- | ------------------------------------------------------------ |
+| `config`            | filesPath, dataPath, port, reconcileInterval                 |
+| `logger`            | info, warn, error, debug (void, fire-and-forget)             |
+| `fs`                | mkdir, rm, readdir, stat, lstat, atomicWrite (Promise-based) |
+| `dedup`             | TTL-based (500ms) event filtering (synchronous)              |
+| `queue`             | SimpleQueue: enqueue, enqueueMany, take, size                |
+| `handlers`          | Map<tag, AsyncHandler>                                       |
+| `lifecycle`         | PassLifecycle for pass-scoped event completion               |
 
 Handlers receive `HandlerDeps = Pick<AppContext, "config" | "logger" | "fs">`.
 
@@ -250,6 +253,7 @@ await server.stop(true);
 - **Handlers return events, never call each other** — cascade via `EventType[]` return values, consumer enqueues them
 - **data watcher ignores feed.xml/feed.opml writes** — otherwise infinite loop
 - **Publication and log exclusions apply only to the data watcher.** The source watcher must observe directories such as `events.jsonl`, including their moves out of the Library.
+- **Watcher fields are NUL-delimited, not line-delimited.** `watcher-events.ts` decodes parent/name/events and uses `JSON.stringify()` before invoking `wget -T 2`. Quotes, backslashes, and embedded newlines must remain valid notification fields. The serializer and wget inherit their worker's process group. Source inotify uses `--no-dereference`; data exclusions remain separate.
 - **Only entry.xml and \_entry.xml produce actionable events** from data watcher
 - **M4B = single episode** — no chapter extraction, users must split beforehand
 - **Supported audio**: .mp3 (audio/mpeg), .m4a (audio/mp4), .m4b (audio/mp4), .ogg (audio/ogg)

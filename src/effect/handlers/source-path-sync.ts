@@ -4,6 +4,7 @@ import type { HandlerDeps } from "../../context.ts";
 import { AUDIO_EXTENSIONS } from "../../types.ts";
 import type { EventType } from "../types.ts";
 import { prepareMirrorKind } from "./mirror-kind.ts";
+import { readSourceEntry } from "./source-kind.ts";
 
 export async function sourcePathSync(
   event: EventType,
@@ -14,27 +15,16 @@ export async function sourcePathSync(
   const name = basename(event.path);
 
   try {
-    let current;
+    const current = await readSourceEntry(event.path, deps.config.filesPath, deps.fs);
 
-    try {
-      current = await deps.fs.stat(event.path);
-    } catch (error) {
-      if (
-        !(
-          error instanceof Error &&
-          "code" in error &&
-          (error.code === "ENOENT" || error.code === "ENOTDIR")
-        )
-      )
-        throw error;
-
+    if (current.kind === "missing") {
       return ok([{ _tag: event.isDirectory ? "FolderDeleted" : "AudioFileDeleted", parent, name }]);
     }
 
-    if (!current.isDirectory()) {
-      const isAudio = AUDIO_EXTENSIONS.includes(extname(name).slice(1).toLowerCase());
-
-      return ok([{ _tag: isAudio ? "AudioFileCreated" : "FolderDeleted", parent, name }]);
+    if (current.kind !== "directory") {
+      return ok([
+        { _tag: current.kind === "audio" ? "AudioFileCreated" : "FolderDeleted", parent, name },
+      ]);
     }
 
     const dataDir = join(deps.config.dataPath, relative(deps.config.filesPath, event.path));
@@ -57,20 +47,14 @@ export async function sourcePathSync(
 
     for (const child of names) {
       const path = join(event.path, child);
-      let isDirectory = false;
+      const entry = await readSourceEntry(path, deps.config.filesPath, deps.fs);
 
-      try {
-        isDirectory = (await deps.fs.stat(path)).isDirectory();
-      } catch (error) {
-        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-        isDirectory = !AUDIO_EXTENSIONS.includes(extname(child).slice(1).toLowerCase());
-      }
+      const isDirectory =
+        entry.kind === "directory" ||
+        (entry.kind === "missing" &&
+          !AUDIO_EXTENSIONS.includes(extname(child).slice(1).toLowerCase()));
 
-      if (
-        cachedNames.has(child) ||
-        isDirectory ||
-        AUDIO_EXTENSIONS.includes(extname(child).slice(1).toLowerCase())
-      ) {
+      if (cachedNames.has(child) || isDirectory || entry.kind === "audio") {
         cascades.push({ _tag: "SourcePathSyncRequested", path, isDirectory });
       }
     }

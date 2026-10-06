@@ -5,7 +5,7 @@ import type { EventType } from "../../../../src/effect/types.ts";
 import type { LogContext } from "../../../../src/logging/types.ts";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdir, rm, stat, readFile, readdir, rename } from "node:fs/promises";
+import { mkdir, rm, stat, lstat, readFile, readdir, rename } from "node:fs/promises";
 import { generatePodcastRss } from "../../../../src/rss/podcast-rss.ts";
 
 const TEST_DIR = join(tmpdir(), `opml-sync-test-${Date.now()}`);
@@ -38,6 +38,7 @@ function realDeps(): HandlerDeps {
       },
       rm: (path, options) => rm(path, options),
       readdir: (path) => readdir(path),
+      lstat: (path) => lstat(path),
       stat: async (path) => {
         const s = await stat(path);
 

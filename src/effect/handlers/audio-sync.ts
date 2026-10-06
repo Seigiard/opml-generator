@@ -12,6 +12,7 @@ import type { EventType } from "../types.ts";
 import { ENTRY_FILE, COVER_FILE } from "../../constants.ts";
 import { checkFileSystemAccess } from "../../stopping.ts";
 import { prepareMirrorKind } from "./mirror-kind.ts";
+import { readSourceEntry } from "./source-kind.ts";
 
 const xmlBuilder = new XMLBuilder({
   ignoreAttributes: false,
@@ -60,11 +61,15 @@ export async function audioSync(
   logger.info("AudioSync", "Processing", { path: relativePath });
 
   try {
-    const fileStat = await fs.stat(filePath);
+    const fileStat = await readSourceEntry(filePath, config.filesPath, fs);
 
-    if (fileStat.isDirectory() || !MIME_TYPES.has(ext)) {
+    if (fileStat.kind !== "audio") {
       return ok([
-        { _tag: "SourcePathSyncRequested", path: filePath, isDirectory: fileStat.isDirectory() },
+        {
+          _tag: "SourcePathSyncRequested",
+          path: filePath,
+          isDirectory: fileStat.kind === "directory",
+        },
       ]);
     }
 

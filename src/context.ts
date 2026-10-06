@@ -1,4 +1,4 @@
-import { mkdir, rm, readdir, stat, rename, symlink, unlink } from "node:fs/promises";
+import { mkdir, rm, readdir, stat, lstat, rename, symlink, unlink } from "node:fs/promises";
 import { config } from "./config.ts";
 import { log } from "./logging/index.ts";
 import { SimpleQueue } from "./queue.ts";
@@ -27,6 +27,7 @@ export interface FileSystemService {
   rm(path: string, options?: { recursive?: boolean }): Promise<void>;
   readdir(path: string): Promise<string[]>;
   stat(path: string): Promise<{ isDirectory(): boolean; size: number }>;
+  lstat(path: string): Promise<{ isDirectory(): boolean; isFile(): boolean; size: number }>;
   exists(path: string): Promise<boolean>;
   writeFile(path: string, content: string): Promise<void>;
   atomicWrite(path: string, content: string): Promise<void>;
@@ -86,6 +87,7 @@ export async function buildContext(): Promise<AppContext> {
 
       return { isDirectory: () => s.isDirectory(), size: s.size };
     },
+    lstat: (path) => lstat(path),
     exists: async (path) => {
       try {
         return await Bun.file(path).exists();

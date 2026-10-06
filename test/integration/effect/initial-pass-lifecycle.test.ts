@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, readdir, rename, rm, stat, symlink, unlink, utimes } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, stat, lstat, symlink, unlink, utimes } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { err, ok } from "neverthrow";
 import { XMLParser } from "fast-xml-parser";
@@ -30,6 +30,7 @@ function realFs(): FileSystemService {
     },
     rm: (path, options) => rm(path, options),
     readdir: (path) => readdir(path),
+    lstat: (path) => lstat(path),
     stat: async (path) => {
       const s = await stat(path);
 

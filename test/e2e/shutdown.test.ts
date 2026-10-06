@@ -479,8 +479,22 @@ test("steady-state watcher TERM completes its active metadata writer without sta
 test("the real supervisor reaps an unexpectedly killed Bun child and returns failure", async () => {
   // #given
   const run = await launch("mkdir", "/data");
+  await observe(
+    "watcher serializer children",
+    async () =>
+      Number(
+        await docker(
+          "exec",
+          run.name,
+          "bun",
+          "-e",
+          'const fs=await import("node:fs/promises"); let count=0; for(const pid of await fs.readdir("/proc")){if(!/^\\d+$/.test(pid))continue; try{const args=(await fs.readFile(`/proc/${pid}/cmdline`,"utf8")).split("\\0"); if(args.includes("/app/src/watcher-events.ts"))count++;}catch(error){if(error.code!=="ENOENT" && error.code!=="ESRCH")throw error;}}console.log(count);',
+        ),
+      ),
+    (count) => count === 2,
+  );
   // #when
-  await docker("exec", run.name, "sh", "-c", 'kill -KILL "$(pidof bun)"');
+  await docker("exec", run.name, "pkill", "-KILL", "-f", "/app/test/e2e/shutdown-bootstrap.ts$");
 
   const state = await observe(
     "unexpected child exit",
