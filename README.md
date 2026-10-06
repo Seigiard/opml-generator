@@ -153,7 +153,10 @@ Episodes are ordered using a `(disc, track, filename)` sort tuple:
 1. **ID3 disc + track number** (primary) — from embedded metadata
 2. **Natural sort by filename** (fallback) — when no ID3 tags present
 
-Episode numbers are persisted in `entry.xml` and remain stable across incremental updates. New files get `max(existing) + 1`. Full renumber only on `/resync`.
+The source files and folders are authoritative. RSS reflects the current library.
+Episode numbers in RSS are assigned from 1 after sorting on every feed update.
+Adding or removing files, renaming them, or changing disc and track tags can change these numbers.
+The cached `episodeNumber` in `entry.xml` does not determine the number published in RSS.
 
 ## M4B Limitation
 

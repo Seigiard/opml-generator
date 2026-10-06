@@ -189,6 +189,7 @@ await Promise.allSettled([consumerTask, reconcileTask]);
 
 **Mirror structure** — /data mirrors /audiobooks:
 
+- Source files and folders are authoritative; /data is a generated cache and RSS reflects the current library.
 - Audio file → folder with `entry.xml`
 - Folder with episodes → `feed.xml` + `cover.jpg` + `_entry.xml`
 - Root → `feed.opml`
@@ -207,7 +208,7 @@ await Promise.allSettled([consumerTask, reconcileTask]);
 - **M4B = single episode** — no chapter extraction, users must split beforehand
 - **Supported audio**: .mp3 (audio/mpeg), .m4a (audio/mp4), .m4b (audio/mp4), .ogg (audio/ogg)
 - **Episode ordering**: sort by `(disc, track, filename)` tuple from ID3, fallback to natural filename sort
-- **Episode numbers persist** in entry.xml — stable across incremental updates, full renumber only on `/resync`
+- **Episode numbers in RSS**: assigned from 1 after sorting on every feed update; cached `episodeNumber` in entry.xml is ignored for RSS numbering
 
 ## Troubleshooting
 
@@ -237,3 +238,17 @@ Docker healthcheck uses `wget` (NOT `curl` — not in alpine image):
 ```bash
 wget -q --spider http://127.0.0.1/feed.opml
 ```
+
+## Agent skills
+
+### Issue tracker
+
+Track issues and specs in GitHub Issues for `Seigiard/opml-generator`. Before reading or publishing tickets, read `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five default triage labels. Before applying triage labels, read `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Use a single-context layout: root `GLOSSARY.md` and `docs/adr/`. Before exploring domain concepts or design decisions, read `docs/agents/domain.md`.
