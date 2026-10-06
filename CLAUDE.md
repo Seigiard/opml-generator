@@ -90,10 +90,14 @@ test/
 │       ├── handlers/    # Handler unit tests (mock deps)
 │       └── adapters/    # Adapter classification tests
 ├── integration/         # Requires docker (sharp, ffmpeg)
-│   └── effect/          # Queue + cascade flow tests
+│   ├── watcher-transport.test.ts # Real inotify framing, overflow routing
+│   └── effect/          # Queue, cascade, lifecycle, cache layout/boundary tests
 └── e2e/                 # Full system tests
     ├── nginx.test.ts    # nginx routing, OPML, range requests
+    ├── resync-auth.test.ts # Authenticated resync rebuild
+    ├── source-watcher-names.test.ts # Unrestricted names, public URLs, legacy reuse
     ├── shutdown.test.ts # Real TERM, deadline expiry, captured-cache restart
+    ├── shutdown-bootstrap.ts # SERVER_MODULE seam gating real filesystem operations
     └── event-logging.test.ts  # Event lifecycle tracing
 ```
 
@@ -113,6 +117,11 @@ src/
 ├── context.ts       # AppContext, HandlerDeps, buildContext()
 ├── queue.ts         # SimpleQueue<T> (unrolled linked list)
 ├── stopping.ts      # Filesystem guards with shared publication-lock identity
+├── cache-boundary.ts # Cache path containment and bounded parents
+├── cache-layout.js  # Shared Bun/njs private `~` cache codec (+ cache-layout.d.ts)
+├── cache-projection.ts # Typed interface to cache-layout.js
+├── cache-mirrors.ts # Structural cache traversal through `~` containers
+├── cache-upgrade.ts # Legacy/mixed cache detection and journaled upgrade
 ├── effect/          # Event handling (neverthrow + async/await)
 │   ├── types.ts     # RawBooksEvent, RawDataEvent, EventType
 │   ├── pass-lifecycle.ts # Synchronization pass ownership and completion tracking
@@ -129,6 +138,7 @@ src/
 ├── rss/             # Feed generation
 │   ├── types.ts     # PodcastInfo, EpisodeInfo, OpmlOutline
 │   ├── podcast-rss.ts # Podcast RSS 2.0 with iTunes namespace
+│   ├── episode-cache.ts # Reusable entry.xml validation
 │   └── opml.ts      # OPML 2.0 feed aggregation
 ├── logging/         # Structured logging
 │   ├── types.ts     # LogLevel, LogContext
@@ -165,7 +175,7 @@ The configured source root must remain a regular directory. Passes check it befo
 
 Source names are unrestricted. `src/cache-layout.js` is the shared Bun/njs codec; `cache-projection.ts` is its typed interface and `cache-mirrors.ts` owns structural traversal. Service names (`feed.xml`, `feed.opml`, `entry.xml`, `_entry.xml`, `cover.jpg`, log names), `.tmp` names, and literal `~` segments use a private `~` container. Other segments retain their existing cache layout. For example, source `Author/feed.xml` maps to `/data/Author/~/feed.xml`, while public RSS remains `/Author/feed.xml/feed.xml`. A source `~` maps to `~/~`; prefix-looking names such as `~feed.xml` remain ordinary. Public metadata URI resolution uses the same codec. Audio URLs and Episode GUID/filePath stay source-relative. The accepted decision is `docs/adr/0002-unrestricted-source-names-private-cache.md`.
 
-`cache-upgrade.ts` detects affected legacy/mixed directories. Upgrade pauses queue delivery and waits for active writers before its source snapshot, keeps admission open, and serializes mutation with the original OPML lock. It stages valid, fresh episode XML under the private `~/.upgrade` journal before pruning conflicting old directories. Recovery copies those bytes into canonical mirrors, then removes the journal. It never forces a metadata rebuild for a reusable entry. A `finally` resumes delivery unless stopping is permanent. Publication readiness is cleared during this mutation phase and restored by the completed pass.
+`cache-upgrade.ts` detects affected legacy/mixed directories. Upgrade pauses queue delivery and waits for active writers before its source snapshot, keeps admission open, and serializes mutation with the original OPML lock. It stages valid, fresh episode XML in a private `~/.upgrade[-N]` journal before pruning conflicting old directories. A regular `manifest.json` identifies the journal, because a legacy branch can occupy any directory name. Staged file names stay immutable until the manifest is replaced. Recovery copies those bytes into canonical mirrors, then removes the journal. Detection treats canonical `~` containers as current; only legacy/mixed nodes or a stale journal start an upgrade. It never forces a metadata rebuild for a reusable entry. A `finally` resumes delivery unless stopping is permanent. Publication readiness is cleared during this mutation phase and restored by the completed pass.
 
 ### Publication Recovery
 
@@ -263,7 +273,7 @@ await server.stop(true);
 - **data watcher ignores feed.xml/feed.opml writes** — otherwise infinite loop
 - **Publication and log exclusions apply only to the data watcher.** The source watcher must observe directories such as `events.jsonl`, including their moves out of the Library.
 - **Watcher fields are NUL-delimited, not line-delimited.** `watcher-events.ts` decodes parent/name/events and uses `JSON.stringify()` before invoking `wget -T 2`. Quotes, backslashes, and embedded newlines must remain valid notification fields. The serializer and wget inherit their worker's process group. Source inotify uses `--no-dereference`; data exclusions remain separate.
-- **Inotify formatting has a 4096-byte limit.** The serializer validates parent/name/events before forwarding. A damaged frame fails the owned worker group explicitly so later events cannot be silently desynchronized. Select `Q_OVERFLOW` in inotify and route its exact token to `/resync`; the tool does not emit `IN_Q_OVERFLOW`.
+- **Inotify formatting has a 4096-byte limit.** The serializer validates parent/name/events before forwarding. A damaged frame fails the owned worker group explicitly so later events cannot be silently desynchronized. Select `Q_OVERFLOW` in inotify and route the books token to `/resync`; the tool does not emit `IN_Q_OVERFLOW`. A data overflow sends nothing: `/data` holds only generated output, and reconciliation repairs it.
 - **Only entry.xml and \_entry.xml produce actionable events** from data watcher
 - **M4B = single episode** — no chapter extraction, users must split beforehand
 - **Supported audio**: .mp3 (audio/mpeg), .m4a (audio/mp4), .m4b (audio/mp4), .ogg (audio/ogg)

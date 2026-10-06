@@ -299,3 +299,200 @@ test("interrupted namespace copy recovers its staged legacy metadata without aud
     ready: env.app.isPublicationReady(),
   }).toEqual({ interrupted: false, recovered: true, rebuilds: 0, unchanged: true, ready: true });
 });
+
+test("punctuation-only and whitespace folder names publish usable podcast titles", async () => {
+  // #given
+  const env = await setup();
+
+  for (const folder of ["---", "   ", "my-awesome-book"]) {
+    for (const name of ["01.mp3", "02.mp3"])
+      await Bun.write(
+        join(env.filesPath, folder, name),
+        Bun.file("test/fixtures/audio/tagged.mp3"),
+      );
+  }
+
+  // #when
+  const successful = await env.app.runInitialSync();
+  const text = z.object({ "@_text": z.string() });
+
+  const titles = z
+    .object({ opml: z.object({ body: z.object({ outline: z.array(text) }) }) })
+    .parse(parser.parse(await Bun.file(join(env.dataPath, "feed.opml")).text()))
+    .opml.body.outline.map((item) => item["@_text"])
+    .sort();
+
+  // #then
+  expect({ successful, titles }).toEqual({
+    successful: true,
+    titles: ["---", "My awesome book", "Untitled"],
+  });
+});
+
+test("normal reconciliation after a reserved-name pass keeps readiness and watcher delivery", async () => {
+  // #given
+  const env = await setup();
+  const tagged = Bun.file("test/fixtures/audio/tagged.mp3");
+  await Bun.write(join(env.filesPath, "Author/feed.xml/01.mp3"), tagged);
+  expect(await env.app.runInitialSync()).toBe(true);
+  const opml = join(env.dataPath, "feed.opml");
+  const feed = join(env.dataPath, "Author/~/feed.xml/feed.xml");
+  const write = env.ctx.fs.atomicWrite;
+  let armed = true;
+  let entered!: () => void;
+  let release!: () => void;
+  let published!: () => void;
+
+  const held = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  const delivered = new Promise<void>((resolve) => {
+    published = resolve;
+  });
+
+  env.ctx.fs.atomicWrite = async (path, content) => {
+    if (path === opml && armed) {
+      armed = false;
+      entered();
+      await gate;
+    }
+
+    await write(path, content);
+
+    if (path === feed && content.includes("Author/feed.xml/02.mp3")) published();
+  };
+
+  // #when
+  const reconciliation = env.app.runPublicationPass("Reconciliation");
+  await held;
+  const ready = env.app.isPublicationReady();
+  await Bun.write(join(env.filesPath, "Author/feed.xml/02.mp3"), tagged);
+
+  env.app.admitBooksEvent({
+    parent: join(env.filesPath, "Author/feed.xml/"),
+    name: "02.mp3",
+    events: "CLOSE_WRITE",
+  });
+
+  await delivered;
+  release();
+  const successful = await reconciliation;
+
+  // #then
+  expect({ ready, successful }).toEqual({ ready: true, successful: true });
+});
+
+test("a legacy source branch at the journal name upgrades and reuses its metadata on restart", async () => {
+  // #given
+  const env = await setup();
+  const source = "~/.upgrade/manifest.json/track.mp3";
+  await Bun.write(join(env.filesPath, source), Bun.file("test/fixtures/audio/tagged.mp3"));
+  await Bun.write(join(env.filesPath, "Plain/01.mp3"), Bun.file("test/fixtures/audio/tagged.mp3"));
+  expect(await env.app.runInitialSync()).toBe(true);
+  const canonical = join(env.dataPath, "~/~/.upgrade/manifest.json/track.mp3/entry.xml");
+  const original = await Bun.file(canonical).text();
+  await rm(join(env.dataPath, "~"), { recursive: true });
+  await Bun.write(join(env.dataPath, source, "entry.xml"), original);
+  const audio = env.ctx.handlers.get("AudioFileCreated")!;
+  let rebuilds = 0;
+  env.ctx.handlers.register("AudioFileCreated", async (event, deps) => {
+    rebuilds++;
+
+    return audio(event, deps);
+  });
+
+  // #when
+  const upgraded = await env.app.runPublicationPass("Reconciliation");
+  const restarted = await env.app.runPublicationPass("Reconciliation");
+
+  const document = opmlSchema.parse(
+    parser.parse(await Bun.file(join(env.dataPath, "feed.opml")).text()),
+  );
+
+  // #then
+  expect({
+    upgraded,
+    restarted,
+    rebuilds,
+    unchanged: original === (await Bun.file(canonical).text()),
+    paths: document.opml.body.outline.map((item) => item["@_xmlUrl"]).sort(),
+  }).toEqual({
+    upgraded: true,
+    restarted: true,
+    rebuilds: 0,
+    unchanged: true,
+    paths: [
+      "{{{BASE_URL}}}/Plain/feed.xml",
+      "{{{BASE_URL}}}/~/.upgrade/manifest.json/feed.xml",
+    ].sort(),
+  });
+});
+
+test("repeated interrupted upgrades keep every staged legacy entry reusable", async () => {
+  // #given
+  const env = await setup();
+  const books = ["A", "B", "C"];
+
+  for (const book of books)
+    await Bun.write(
+      join(env.filesPath, book, "feed.xml/01.mp3"),
+      Bun.file("test/fixtures/audio/tagged.mp3"),
+    );
+  expect(await env.app.runInitialSync()).toBe(true);
+  const originals: string[] = [];
+
+  for (const book of books) {
+    const canonical = join(env.dataPath, book, "~/feed.xml/01.mp3/entry.xml");
+    originals.push(await Bun.file(canonical).text());
+    await rm(join(env.dataPath, book), { recursive: true });
+    await Bun.write(join(env.dataPath, book, "feed.xml/01.mp3/entry.xml"), originals.at(-1)!);
+  }
+
+  const second = join(env.dataPath, "B/~/feed.xml/01.mp3/entry.xml");
+  const write = env.ctx.fs.atomicWrite;
+  const audio = env.ctx.handlers.get("AudioFileCreated")!;
+  let interruption: "copy" | "manifest" | undefined = "copy";
+  let rebuilds = 0;
+  env.ctx.fs.atomicWrite = async (path, content) => {
+    if (interruption === "copy" && path === second) {
+      interruption = "manifest";
+      throw new Error("Interrupted canonical entry copy");
+    }
+
+    if (interruption === "manifest" && path.endsWith("/manifest.json")) {
+      interruption = undefined;
+      throw new Error("Interrupted journal replacement");
+    }
+
+    await write(path, content);
+  };
+
+  env.ctx.handlers.register("AudioFileCreated", async (event, deps) => {
+    rebuilds++;
+
+    return audio(event, deps);
+  });
+
+  // #when
+  const first = await env.app.runPublicationPass("Reconciliation");
+  const retried = await env.app.runPublicationPass("Reconciliation");
+  const recovered = await env.app.runPublicationPass("Reconciliation");
+  const actual: string[] = [];
+
+  for (const book of books)
+    actual.push(await Bun.file(join(env.dataPath, book, "~/feed.xml/01.mp3/entry.xml")).text());
+
+  // #then
+  expect({
+    first,
+    retried,
+    recovered,
+    rebuilds,
+    unchanged: JSON.stringify(actual) === JSON.stringify(originals),
+  }).toEqual({ first: false, retried: false, recovered: true, rebuilds: 0, unchanged: true });
+});

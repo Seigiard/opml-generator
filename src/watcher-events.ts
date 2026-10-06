@@ -65,6 +65,9 @@ try {
       const [parent, name, events] = frameSchema.parse(fields);
       fields = [];
       const overflow = events.split(",").includes("Q_OVERFLOW");
+
+      // DATA holds only generated output, so lost data events need no destructive resync.
+      if (overflow && endpoint === "data") continue;
       const body = overflow ? "" : JSON.stringify({ parent, name, events });
       const url = overflow ? `${baseUrl}/resync` : `${baseUrl}/events/${endpoint}`;
 
