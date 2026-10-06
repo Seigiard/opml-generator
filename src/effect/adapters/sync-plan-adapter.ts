@@ -1,4 +1,5 @@
-import { dirname, join } from "node:path";
+import { dirname, join, extname } from "node:path";
+import { AUDIO_EXTENSIONS } from "../../types.ts";
 import type { EventType } from "../types.ts";
 import type { SyncPlan } from "../../scanner.ts";
 
@@ -21,8 +22,11 @@ export function adaptSyncPlan(plan: SyncPlan, filesPath: string): EventType[] {
   const events: EventType[] = [];
 
   for (const path of plan.toDelete) {
-    const { parent, name } = parsePath(filesPath, path);
-    events.push({ _tag: "AudioFileDeleted", parent, name });
+    events.push({
+      _tag: "SourcePathSyncRequested",
+      path: join(filesPath, path),
+      isDirectory: !AUDIO_EXTENSIONS.includes(extname(path).slice(1).toLowerCase()),
+    });
   }
 
   for (const folder of plan.folders) {

@@ -9,14 +9,19 @@ export async function saveBufferAsImage(
   buffer: Buffer,
   destPath: string,
   maxSize: number,
+  beforeWrite?: () => void | Promise<void>,
 ): Promise<boolean> {
   try {
-    await mkdir(dirname(destPath), { recursive: true });
-    await sharp(buffer)
+    const image = await sharp(buffer)
       .resize(maxSize, maxSize, { fit: "inside", withoutEnlargement: true })
       .toColorspace("srgb")
       .jpeg({ quality: 90 })
-      .toFile(destPath);
+      .toBuffer();
+
+    await beforeWrite?.();
+    await mkdir(dirname(destPath), { recursive: true });
+    await beforeWrite?.();
+    await Bun.write(destPath, image);
 
     return true;
   } catch (error) {

@@ -2,24 +2,31 @@ import { readdir, stat } from "node:fs/promises";
 import { join, extname, relative } from "node:path";
 import type { FileInfo, FolderInfo } from "./types.ts";
 import { AUDIO_EXTENSIONS } from "./types.ts";
-import { ENTRY_FILE, FOLDER_ENTRY_FILE } from "./constants.ts";
+import { ENTRY_FILE } from "./constants.ts";
+import { isReusableEpisodeCache } from "./rss/episode-cache.ts";
+import { cachePath } from "./cache-projection.ts";
+import { cacheMirrors } from "./cache-mirrors.ts";
 
-export async function scanFiles(rootPath: string): Promise<FileInfo[]> {
+export async function scanFiles(rootPath: string, signal?: AbortSignal): Promise<FileInfo[]> {
   const files: FileInfo[] = [];
 
   async function scan(dirPath: string): Promise<void> {
+    signal?.throwIfAborted();
     const entries = await readdir(dirPath, { withFileTypes: true });
+    signal?.throwIfAborted();
 
     for (const entry of entries) {
       const fullPath = join(dirPath, entry.name);
 
       if (entry.isDirectory()) {
         await scan(fullPath);
+        signal?.throwIfAborted();
       } else if (entry.isFile()) {
         const ext = extname(entry.name).slice(1).toLowerCase();
 
         if (AUDIO_EXTENSIONS.includes(ext)) {
           const fileStat = await stat(fullPath);
+          signal?.throwIfAborted();
           files.push({
             path: fullPath,
             relativePath: relative(rootPath, fullPath),
@@ -33,6 +40,7 @@ export async function scanFiles(rootPath: string): Promise<FileInfo[]> {
   }
 
   await scan(rootPath);
+  signal?.throwIfAborted();
 
   return files;
 }
@@ -87,39 +95,38 @@ export function buildFolderStructure(files: FileInfo[]): FolderInfo[] {
   return folders;
 }
 
-async function scanDataMirror(dataPath: string): Promise<Set<string>> {
+async function scanDataMirror(dataPath: string, signal?: AbortSignal): Promise<Set<string>> {
   const paths = new Set<string>();
+  const fs = { stat, readdir: (path: string) => readdir(path) };
 
   async function scan(dirPath: string, relativePath: string): Promise<void> {
     try {
-      const entries = await readdir(dirPath, { withFileTypes: true });
+      signal?.throwIfAborted();
+      const entries = await cacheMirrors(dirPath, dataPath, fs, () => signal?.throwIfAborted());
+      signal?.throwIfAborted();
 
       for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-
-        if (entry.name.startsWith("_")) continue;
-
-        const entryPath = join(dirPath, entry.name);
-        const entryRelPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
-
+        const entryPath = entry.path;
+        const logicalName = entry.name;
+        const entryRelPath = relativePath ? `${relativePath}/${logicalName}` : logicalName;
+        paths.add(entryRelPath);
         const hasAudioEntry = await Bun.file(join(entryPath, ENTRY_FILE)).exists();
-        const hasFolderEntry = await Bun.file(join(entryPath, FOLDER_ENTRY_FILE)).exists();
+        signal?.throwIfAborted();
 
-        if (hasAudioEntry) {
-          paths.add(entryRelPath);
-        } else if (hasFolderEntry) {
-          paths.add(entryRelPath);
+        if (!hasAudioEntry) {
           await scan(entryPath, entryRelPath);
-        } else {
-          await scan(entryPath, entryRelPath);
+          signal?.throwIfAborted();
         }
       }
-    } catch {
-      // Directory doesn't exist
+    } catch (error) {
+      signal?.throwIfAborted();
+
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
     }
   }
 
   await scan(dataPath, "");
+  signal?.throwIfAborted();
 
   return paths;
 }
@@ -130,9 +137,15 @@ export interface SyncPlan {
   folders: FolderInfo[];
 }
 
-export async function createSyncPlan(files: FileInfo[], dataPath: string): Promise<SyncPlan> {
+export async function createSyncPlan(
+  files: FileInfo[],
+  dataPath: string,
+  signal?: AbortSignal,
+): Promise<SyncPlan> {
+  signal?.throwIfAborted();
   const folders = buildFolderStructure(files);
-  const existingPaths = await scanDataMirror(dataPath);
+  const existingPaths = await scanDataMirror(dataPath, signal);
+  signal?.throwIfAborted();
 
   const currentFilePaths = new Set(files.map((f) => f.relativePath));
   const currentFolderPaths = new Set(folders.map((f) => f.path).filter((p) => p !== ""));
@@ -142,23 +155,32 @@ export async function createSyncPlan(files: FileInfo[], dataPath: string): Promi
   const foldersToProcess: FolderInfo[] = [];
 
   for (const file of files) {
-    const dataDir = join(dataPath, file.relativePath);
+    const dataDir = cachePath(dataPath, file.relativePath);
     const entryFile = Bun.file(join(dataDir, ENTRY_FILE));
 
-    if (!(await entryFile.exists())) {
-      toProcess.push(file);
-    } else {
+    try {
       const entryStat = await stat(join(dataDir, ENTRY_FILE));
+      signal?.throwIfAborted();
 
       if (file.mtime > entryStat.mtimeMs) {
         toProcess.push(file);
+      } else {
+        const content = await entryFile.text();
+        signal?.throwIfAborted();
+
+        if (!isReusableEpisodeCache(content, file)) toProcess.push(file);
       }
+    } catch {
+      signal?.throwIfAborted();
+      // Unreadable metadata cannot be reused; the audio handler owns the rebuild result.
+      toProcess.push(file);
     }
   }
 
   for (const path of existingPaths) {
     if (!currentFilePaths.has(path) && !currentFolderPaths.has(path)) {
-      toDelete.push(path);
+      // A removed subtree needs one cleanup, not cascades into its removed descendants.
+      if (!toDelete.some((parent) => path.startsWith(`${parent}/`))) toDelete.push(path);
     }
   }
 

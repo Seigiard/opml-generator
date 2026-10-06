@@ -43,6 +43,7 @@ export interface LogContext {
   episode?: number;
   feeds?: number;
   trigger?: string;
+  outcome?: "completed" | "deadline";
 
   // Error context
   error?: string;

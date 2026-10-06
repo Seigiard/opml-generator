@@ -1,10 +1,12 @@
 services:
   opml:
+    init: true
+    stop_grace_period: 15s
     build:
       context: .
       target: production
     ports:
-      - "8080:80"
+      - "${TEST_PORT:-8080}:80"
     volumes:
       - ./files:/audiobooks
       - opml-data:/data
@@ -14,8 +16,9 @@ services:
       - PORT=3000
       - ADMIN_USER=admin
       - ADMIN_TOKEN=secret
+      - RECONCILE_INTERVAL=0
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/feed.opml"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/ready"]
       interval: 10s
       timeout: 5s
       retries: 3

@@ -25,6 +25,7 @@ const deps: HandlerDeps = {
     rm: async () => {},
     readdir: async () => [],
     stat: async () => ({ isDirectory: () => false, size: 0 }),
+    lstat: async () => ({ isDirectory: () => false, isFile: () => false, size: 0 }),
     exists: async () => false,
     writeFile: async () => {},
     atomicWrite: async () => {},

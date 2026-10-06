@@ -18,7 +18,7 @@
     "test:unit": "docker compose -f docker-compose.test.yml run --rm test bun test test/unit",
     "test:integration": "docker compose -f docker-compose.test.yml run --rm test bun test test/integration",
     "test:coverage": "docker compose -f docker-compose.test.yml run --rm test bun test --coverage",
-    "test:e2e": "docker compose -f docker-compose.e2e.yml up -d --build --wait && bun test test/e2e; docker compose -f docker-compose.e2e.yml down",
+    "test:e2e": "sh tools/test-e2e.sh",
     "test:all": "bun run test && bun run test:e2e",
     "lint:anti-slop": "oxlint --config .oxlintrc.anti-slop.json ."
   },

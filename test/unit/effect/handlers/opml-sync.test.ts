@@ -5,7 +5,7 @@ import type { EventType } from "../../../../src/effect/types.ts";
 import type { LogContext } from "../../../../src/logging/types.ts";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdir, rm, stat, readFile, readdir, rename } from "node:fs/promises";
+import { mkdir, rm, stat, lstat, readFile, readdir, rename } from "node:fs/promises";
 import { generatePodcastRss } from "../../../../src/rss/podcast-rss.ts";
 
 const TEST_DIR = join(tmpdir(), `opml-sync-test-${Date.now()}`);
@@ -38,6 +38,7 @@ function realDeps(): HandlerDeps {
       },
       rm: (path, options) => rm(path, options),
       readdir: (path) => readdir(path),
+      lstat: (path) => lstat(path),
       stat: async (path) => {
         const s = await stat(path);
 
@@ -191,20 +192,27 @@ describe("opmlSync handler", () => {
     expect(content).toContain("Audiobooks");
   });
 
-  test("skips unparseable feed.xml files", async () => {
+  test("rejects unparseable feed.xml files and retains previous OPML", async () => {
     // #given
     const goodDir = join(DATA_DIR, "Good", "Podcast");
     const badDir = join(DATA_DIR, "Bad", "Podcast");
     await mkdir(goodDir, { recursive: true });
     await mkdir(badDir, { recursive: true });
     await Bun.write(join(goodDir, "feed.xml"), makePodcastRss("Good Feed"));
+    const event: EventType = { _tag: "FeedXmlCreated", path: goodDir };
+    const deps = realDeps();
+    const initial = await opmlSync(event, deps);
+    expect(initial.isOk()).toBe(true);
+    const previous = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
     await Bun.write(join(badDir, "feed.xml"), "<<<not valid xml>>>");
     // #when
-    const event: EventType = { _tag: "FeedXmlCreated", path: goodDir };
-    await opmlSync(event, realDeps());
+    const result = await opmlSync(event, deps);
     // #then
     const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
-    expect(content).toContain("Good Feed");
+    expect({ successful: result.isOk(), preserved: content === previous }).toEqual({
+      successful: false,
+      preserved: true,
+    });
   });
 
   test("returns empty cascades (terminal handler)", async () => {

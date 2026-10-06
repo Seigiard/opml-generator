@@ -5,6 +5,8 @@ import type { DeduplicationService } from "../../context.ts";
 import { ENTRY_FILE, FOLDER_ENTRY_FILE } from "../../constants.ts";
 
 function classifyDataEvent(raw: RawDataEvent): EventType {
+  if (raw.events.split(",").includes("ISDIR")) return { _tag: "Ignored" };
+
   if (raw.name === ENTRY_FILE) {
     return { _tag: "EntryXmlChanged", parent: raw.parent };
   }

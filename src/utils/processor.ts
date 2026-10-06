@@ -18,6 +18,9 @@ export function normalizeFilenameTitle(filename: string): string {
 
   result = result.replace(/\s+/g, " ").trim();
 
+  // RSS and OPML need a nonempty title for names made only of separators or spaces.
+  if (!result) return filename.trim() || "Untitled";
+
   return result.charAt(0).toUpperCase() + result.slice(1);
 }
 

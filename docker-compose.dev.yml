@@ -1,5 +1,7 @@
 services:
   opml:
+    init: true
+    stop_grace_period: 15s
     build:
       context: .
       target: production
@@ -23,7 +25,7 @@ services:
       # - ADMIN_TOKEN=secret
       # - RECONCILE_INTERVAL=1800
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/feed.opml"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/ready"]
       interval: 10s
       timeout: 5s
       retries: 3

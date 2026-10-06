@@ -14,6 +14,7 @@ http {
     default_type application/octet-stream;
 
     js_import opml from /app/nginx-opml.js;
+    js_set $cache_uri opml.cache_uri;
 
     charset utf-8;
     charset_types text/xml application/xml application/atom+xml text/x-opml;
@@ -44,6 +45,12 @@ http {
             add_header Cache-Control "public, immutable";
         }
 
+        # Publication readiness from Bun lifecycle
+        location = /ready {
+            proxy_pass http://127.0.0.1:${BUN_PORT}/ready;
+            proxy_set_header Host $host;
+        }
+
         # Admin endpoint: /resync (only if auth configured)
         # AUTH_BLOCK_START
         location = /resync {
@@ -71,6 +78,7 @@ http {
         # Images - cache 1 day, then validate with ETag
         location ~ \.(jpg|jpeg|png|webp)$ {
             root /data;
+            try_files $cache_uri =404;
             expires 1d;
             add_header Cache-Control "public, must-revalidate";
         }
@@ -88,7 +96,7 @@ http {
         # XML feeds - njs replaces {{{BASE_URL}}} with request origin
         location ~ \.xml$ {
             root /data;
-            try_files $uri $uri/ =404;
+            try_files $cache_uri $cache_uri/ =404;
             js_header_filter opml.header_filter;
             js_body_filter opml.body_filter;
             add_header Cache-Control "no-cache";
@@ -98,7 +106,7 @@ http {
         # All other paths - serve from /data
         location / {
             root /data;
-            try_files $uri $uri/ =404;
+            try_files $cache_uri $cache_uri/ =404;
 
             # 503 for missing feed.opml (initializing)
             error_page 404 = @check_initializing;

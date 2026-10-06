@@ -1,7 +1,7 @@
 import { ok, err } from "neverthrow";
 import type { Result } from "neverthrow";
 import { join, relative } from "node:path";
-import { XMLParser } from "fast-xml-parser";
+import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { generateOpml } from "../../rss/opml.ts";
 import { encodeUrlPath } from "../../utils/processor.ts";
 import type { HandlerDeps, FileSystemService } from "../../context.ts";
@@ -9,9 +9,13 @@ import type { EventType } from "../types.ts";
 import { FEED_FILE, OPML_FILE } from "../../constants.ts";
 import type { OpmlOutline } from "../../rss/types.ts";
 import { z } from "zod";
+import { filesystemIdentity, cacheFileSystem } from "../../stopping.ts";
+import { assertCachePath } from "../../cache-boundary.ts";
+import { decodeRelative, isContainer } from "../../cache-projection.ts";
 
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
+  parseTagValue: false,
   attributeNamePrefix: "@_",
 });
 
@@ -28,13 +32,17 @@ const optionalText = z.string().optional().catch(undefined);
 const podcastFeedSchema = z.object({
   rss: z.object({
     channel: z.object({
-      title: z.unknown().optional(),
+      title: z.string().min(1),
       "itunes:author": optionalText,
       "itunes:image": z.object({ "@_href": optionalText }).optional().catch(undefined),
       description: optionalText,
     }),
   }),
 });
+
+const navigationFeedSchema = z.object({ feed: z.object({ title: z.string() }) });
+
+const absentPathError = z.object({ code: z.enum(["ENOENT", "ENOTDIR"]) });
 
 async function collectPodcastFeeds(
   dataRoot: string,
@@ -56,28 +64,29 @@ async function walkDirectory(
 
   try {
     items = await fs.readdir(dir);
-  } catch {
-    return;
+  } catch (error) {
+    if (absentPathError.safeParse(error).success) return;
+    throw error;
   }
 
   for (const item of items) {
     const itemPath = join(dir, item);
 
-    if (item === FEED_FILE) {
-      const feed = await parsePodcastFeed(itemPath, dir, dataRoot);
-
-      if (feed) feeds.push(feed);
-      continue;
-    }
-
     try {
       const itemStat = await fs.stat(itemPath);
 
       if (itemStat.isDirectory()) {
+        if (item === FEED_FILE && !isContainer(relative(dataRoot, dir)))
+          throw new Error(`Podcast metadata is a directory: ${itemPath}`);
         await walkDirectory(itemPath, dataRoot, feeds, fs);
+      } else if (item === FEED_FILE) {
+        const feed = await parsePodcastFeed(itemPath, dir, dataRoot);
+
+        if (feed) feeds.push(feed);
       }
-    } catch {
-      continue;
+    } catch (error) {
+      if (absentPathError.safeParse(error).success) continue;
+      throw error;
     }
   }
 }
@@ -89,15 +98,20 @@ async function parsePodcastFeed(
 ): Promise<DiscoveredFeed | null> {
   try {
     const content = await Bun.file(feedPath).text();
-    const parsed = podcastFeedSchema.parse(xmlParser.parse(content));
+
+    if (XMLValidator.validate(content) !== true) throw new Error(`Invalid feed XML: ${feedPath}`);
+    const document: unknown = xmlParser.parse(content);
+
+    if (navigationFeedSchema.safeParse(document).success) return null;
+    const parsed = podcastFeedSchema.parse(document);
 
     const channel = parsed?.rss?.channel;
     const channelTitle = channel?.title;
 
     if (!channelTitle) return null;
 
-    const relativePath = relative(dataRoot, feedDir);
-    const feedUrl = `/${encodeUrlPath(relativePath)}/${FEED_FILE}`;
+    const relativePath = decodeRelative(relative(dataRoot, feedDir));
+    const feedUrl = `/${encodeUrlPath(join(relativePath, FEED_FILE))}`;
 
     const feed: DiscoveredFeed = { title: String(channelTitle), feedUrl };
 
@@ -120,8 +134,35 @@ async function parsePodcastFeed(
     }
 
     return feed;
-  } catch {
-    return null;
+  } catch (error) {
+    if (absentPathError.safeParse(error).success) return null;
+    throw error;
+  }
+}
+
+const pendingPublications = new WeakMap<FileSystemService, Promise<void>>();
+
+export async function withPublicationLock<T>(
+  fs: FileSystemService,
+  operation: () => Promise<T>,
+): Promise<T> {
+  fs = filesystemIdentity(fs);
+  const previous = pendingPublications.get(fs);
+  let release!: () => void;
+
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  pendingPublications.set(fs, current);
+  await previous;
+
+  try {
+    return await operation();
+  } finally {
+    release();
+
+    if (pendingPublications.get(fs) === current) pendingPublications.delete(fs);
   }
 }
 
@@ -129,9 +170,31 @@ export async function opmlSync(
   event: EventType,
   deps: HandlerDeps,
 ): Promise<Result<readonly EventType[], Error>> {
-  if (event._tag !== "FeedXmlCreated" && event._tag !== "FeedXmlDeleted") return ok([]);
+  if (
+    event._tag !== "FeedXmlCreated" &&
+    event._tag !== "FeedXmlDeleted" &&
+    event._tag !== "FeedXmlChanged"
+  )
+    return ok([]);
 
-  const { config, logger, fs } = deps;
+  try {
+    assertCachePath(event.path, deps.config.dataPath);
+  } catch (error) {
+    return err(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  const publication = withPublicationLock(deps.fs, () => publishOpml(event, deps));
+  deps.logger.debug("OpmlSync", "Publication requested", { trigger: event._tag });
+
+  return publication;
+}
+
+async function publishOpml(
+  event: EventType,
+  deps: HandlerDeps,
+): Promise<Result<readonly EventType[], Error>> {
+  const { config, logger } = deps;
+  const fs = cacheFileSystem(deps);
 
   logger.info("OpmlSync", "Regenerating OPML", { trigger: event._tag });
 
@@ -139,8 +202,8 @@ export async function opmlSync(
 
   try {
     feeds = await collectPodcastFeeds(config.dataPath, fs);
-  } catch {
-    feeds = [];
+  } catch (error) {
+    return err(error instanceof Error ? error : new Error(String(error)));
   }
 
   feeds.sort((a, b) => a.title.localeCompare(b.title));

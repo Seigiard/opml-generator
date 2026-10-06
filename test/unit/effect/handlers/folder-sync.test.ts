@@ -37,6 +37,7 @@ function makeDeps(): HandlerDeps {
       rm: async () => {},
       readdir: async () => [],
       stat: async () => ({ isDirectory: () => false, size: 0 }),
+      lstat: async () => ({ isDirectory: () => true, isFile: () => false, size: 0 }),
       exists: async () => false,
       writeFile: async () => {},
       atomicWrite: async (path, content) => {

@@ -11,7 +11,9 @@ export interface RawDataEvent {
 }
 
 export type EventType =
+  | { _tag: "SourcePathSyncRequested"; path: string; isDirectory: boolean }
   | { _tag: "AudioFileCreated"; parent: string; name: string }
+  | { _tag: "AudioMirrorSyncRequested"; parent: string; name: string }
   | { _tag: "AudioFileDeleted"; parent: string; name: string }
   | { _tag: "FolderCreated"; parent: string; name: string }
   | { _tag: "FolderDeleted"; parent: string; name: string }
@@ -20,4 +22,7 @@ export type EventType =
   | { _tag: "FolderMetaSyncRequested"; path: string }
   | { _tag: "FeedXmlCreated"; path: string }
   | { _tag: "FeedXmlDeleted"; path: string }
+  | { _tag: "FeedXmlChanged"; path: string }
   | { _tag: "Ignored" };
+
+export type PassScopedEvent = EventType & { readonly __passId?: string };

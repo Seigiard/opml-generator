@@ -18,7 +18,7 @@ Podcast RSS and OPML feed generator for locally stored audiobooks and podcasts.
 - Root OPML file aggregates all podcast feeds
 - ID3 metadata extraction (title, artist, album, track, duration, cover art)
 - Folder-level cover art (embedded or standalone image files)
-- Stable episode numbering across incremental updates
+- Episode numbering follows the current sorted listening order
 - HTTP Range request support for seeking/streaming
 - File watching with automatic feed regeneration
 - Full resync via authenticated `/resync` endpoint
@@ -42,6 +42,8 @@ Podcast RSS and OPML feed generator for locally stored audiobooks and podcasts.
 services:
   opml:
     image: ghcr.io/seigiard/opml-generator:latest
+    init: true
+    stop_grace_period: 15s
     ports:
       - "8080:80"
     volumes:
@@ -71,6 +73,7 @@ docker compose up -d
 ```bash
 docker run -d \
   --name opml \
+  --init --stop-timeout=15 \
   -p 8080:80 \
   -v /path/to/your/audiobooks:/audiobooks:ro \
   -v opml-data:/data \
@@ -100,16 +103,38 @@ docker compose up -d --build
 
 ## API
 
-| Endpoint                    | Description                                 |
-| --------------------------- | ------------------------------------------- |
-| `GET /`                     | Redirect to /feed.opml                      |
-| `GET /feed.opml`            | Root OPML (aggregates all podcast feeds)    |
-| `GET /data/{path}/feed.xml` | Individual podcast RSS feed                 |
-| `GET /audiobooks/{path}`    | Stream audio file (supports Range requests) |
-| `GET /static/*`             | Static assets                               |
-| `POST /resync`              | Trigger full resync (requires Basic Auth)   |
+| Endpoint                 | Description                                 |
+| ------------------------ | ------------------------------------------- |
+| `GET /`                  | Redirect to /feed.opml                      |
+| `GET /feed.opml`         | Root OPML (aggregates all podcast feeds)    |
+| `GET /{path}/feed.xml`   | Individual podcast RSS feed                 |
+| `GET /audiobooks/{path}` | Stream audio file (supports Range requests) |
+| `GET /static/*`          | Static assets                               |
+| `POST /resync`           | Trigger full resync (requires Basic Auth)   |
+| `GET /ready`             | Publication readiness (`200` or `503`)      |
+
+`/resync` returns `202` when the rebuild is accepted. This response does not mean
+that publication is complete. During initial sync, reconciliation, or another
+resync, it returns `409` and does not defer the request. Resync waits for the
+active handler before clearing generated data and rereading source metadata.
+Source notifications remain accepted during the reset and rebuild. `/ready`
+returns `503` after reset starts and `200` after successful publication. A failed
+rebuild releases the pass so an authenticated retry can recover publication.
 
 Returns 503 with `Retry-After: 5` if `feed.opml` doesn't exist yet (initial sync in progress).
+
+## Shutdown and Restart
+
+TERM and INT handling is active during startup, reconciliation, resync, and ordinary updates.
+Shutdown closes event and resync admission immediately; the internal endpoints return `503`.
+It stops new handlers and passes, and gives the active handler up to 8 seconds to finish.
+Pending publication work is recovered on the next startup from the unchanged source files and remaining cache.
+Keep the `/data` volume across restart.
+Readiness stays `503` until that startup has repaired RSS and OPML successfully, even if an old OPML file survives.
+
+Use the configured 15-second container stop timeout.
+The entrypoint forwards signals and waits for its children within that budget.
+An unexpected child failure produces a nonzero container exit.
 
 ## Directory Structure
 

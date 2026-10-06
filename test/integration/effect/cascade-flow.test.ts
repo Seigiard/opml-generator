@@ -9,6 +9,7 @@ import {
   mkdir,
   rm,
   stat,
+  lstat,
   readFile,
   copyFile,
   readdir,
@@ -47,6 +48,7 @@ function realDeps(): HandlerDeps {
       },
       rm: (path, options) => rm(path, options),
       readdir: (path) => readdir(path),
+      lstat: (path) => lstat(path),
       stat: async (path) => {
         const s = await stat(path);
 
@@ -114,7 +116,6 @@ describe("Cascade Flow Integration", () => {
     const audioResult = await audioSync(audioEvent, realDeps());
 
     expect(audioResult.isOk()).toBe(true);
-    expect(audioResult._unsafeUnwrap()).toEqual([]);
 
     const episodeDataPath = join(DATA_DIR, "Author", "Album", "01.mp3");
     const episodeEntryPath = join(episodeDataPath, "entry.xml");

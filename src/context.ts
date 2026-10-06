@@ -1,9 +1,11 @@
-import { mkdir, rm, readdir, stat, rename, symlink, unlink } from "node:fs/promises";
+import { mkdir, rm, readdir, stat, lstat, rename, symlink, unlink } from "node:fs/promises";
 import { config } from "./config.ts";
 import { log } from "./logging/index.ts";
 import { SimpleQueue } from "./queue.ts";
 import type { LogContext } from "./logging/types.ts";
 import type { EventType } from "./effect/types.ts";
+import type { PassScopedEvent } from "./effect/types.ts";
+import { PassLifecycle } from "./effect/pass-lifecycle.ts";
 import type { LogErrorInput } from "./logging/error-schema.ts";
 
 export interface ConfigService {
@@ -25,6 +27,7 @@ export interface FileSystemService {
   rm(path: string, options?: { recursive?: boolean }): Promise<void>;
   readdir(path: string): Promise<string[]>;
   stat(path: string): Promise<{ isDirectory(): boolean; size: number }>;
+  lstat(path: string): Promise<{ isDirectory(): boolean; isFile(): boolean; size: number }>;
   exists(path: string): Promise<boolean>;
   writeFile(path: string, content: string): Promise<void>;
   atomicWrite(path: string, content: string): Promise<void>;
@@ -51,8 +54,9 @@ export interface AppContext {
   readonly logger: LoggerService;
   readonly fs: FileSystemService;
   readonly dedup: DeduplicationService;
-  readonly queue: SimpleQueue<EventType>;
+  readonly queue: SimpleQueue<PassScopedEvent>;
   readonly handlers: HandlerRegistryService;
+  readonly lifecycle: PassLifecycle;
 }
 
 export type HandlerDeps = Pick<AppContext, "config" | "logger" | "fs">;
@@ -83,6 +87,7 @@ export async function buildContext(): Promise<AppContext> {
 
       return { isDirectory: () => s.isDirectory(), size: s.size };
     },
+    lstat: (path) => lstat(path),
     exists: async (path) => {
       try {
         return await Bun.file(path).exists();
@@ -130,9 +135,20 @@ export async function buildContext(): Promise<AppContext> {
     },
   };
 
-  const queue = new SimpleQueue<EventType>((event) =>
-    event._tag === "FolderMetaSyncRequested" ? `${event._tag}:${event.path}` : undefined,
-  );
+  const queue = new SimpleQueue<PassScopedEvent>((event) => {
+    if (event._tag === "FolderMetaSyncRequested" || event._tag === "SourcePathSyncRequested")
+      return `${event._tag}:${event.path}`;
+
+    if (
+      event.__passId == null &&
+      (event._tag === "FeedXmlCreated" ||
+        event._tag === "FeedXmlDeleted" ||
+        event._tag === "FeedXmlChanged")
+    )
+      return "OPML";
+
+    return undefined;
+  });
 
   const handlerMap = new Map<string, AsyncHandler>();
 
@@ -148,5 +164,6 @@ export async function buildContext(): Promise<AppContext> {
     dedup,
     queue,
     handlers,
+    lifecycle: new PassLifecycle(),
   };
 }

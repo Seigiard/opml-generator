@@ -1,8 +1,11 @@
 import { ok, err } from "neverthrow";
 import type { Result } from "neverthrow";
-import { dirname, join, relative } from "node:path";
+import { join, relative } from "node:path";
+import { cacheFileSystem } from "../../stopping.ts";
 import type { HandlerDeps } from "../../context.ts";
 import type { EventType } from "../types.ts";
+import { assertCachePath, cacheParent } from "../../cache-boundary.ts";
+import { cachePath } from "../../cache-projection.ts";
 
 export async function folderCleanup(
   event: EventType,
@@ -11,15 +14,17 @@ export async function folderCleanup(
   if (event._tag !== "FolderDeleted") return ok([]);
 
   const { parent, name } = event;
-  const { config, logger, fs } = deps;
+  const { config, logger } = deps;
+  const fs = cacheFileSystem(deps);
 
   const folderPath = join(parent, name);
   const relativePath = relative(config.filesPath, folderPath);
-  const folderDataDir = join(config.dataPath, relativePath);
+  const folderDataDir = cachePath(config.dataPath, relativePath);
 
   logger.info("FolderCleanup", "Removing", { path: relativePath });
 
   try {
+    assertCachePath(folderDataDir, config.dataPath, false);
     await fs.rm(folderDataDir, { recursive: true });
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
@@ -31,11 +36,10 @@ export async function folderCleanup(
 
   logger.info("FolderCleanup", "Done", { path: relativePath });
 
-  const parentDataDir = dirname(folderDataDir);
+  const parentDataDir = cacheParent(folderDataDir, config.dataPath);
 
-  if (parentDataDir !== config.dataPath && parentDataDir !== ".") {
-    return ok([{ _tag: "FolderMetaSyncRequested", path: parentDataDir }] as const);
-  }
-
-  return ok([]);
+  return ok([
+    ...(parentDataDir ? [{ _tag: "FolderMetaSyncRequested" as const, path: parentDataDir }] : []),
+    { _tag: "FeedXmlDeleted", path: folderDataDir },
+  ]);
 }

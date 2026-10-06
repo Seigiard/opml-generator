@@ -49,6 +49,7 @@ function makeDeps(): HandlerDeps {
       },
       readdir: async () => [],
       stat: async () => ({ isDirectory: () => false, size: 0 }),
+      lstat: async () => ({ isDirectory: () => true, isFile: () => false, size: 0 }),
       exists: async () => false,
       writeFile: async () => {},
       atomicWrite: async () => {},
@@ -74,7 +75,7 @@ describe("folderCleanup handler", () => {
     expect(result._unsafeUnwrap()).toEqual([]);
   });
 
-  test("removes folder and cascades to parent", async () => {
+  test("removes folder", async () => {
     // #given
     const event: EventType = { _tag: "FolderDeleted", parent: "/audiobooks/Author", name: "Book" };
     // #when
@@ -82,19 +83,6 @@ describe("folderCleanup handler", () => {
     // #then
     expect(result.isOk()).toBe(true);
     expect(mockFs.rmCalls[0]!.path).toBe("/data/Author/Book");
-    const cascades = result._unsafeUnwrap();
-    expect(cascades).toHaveLength(1);
-    expect(cascades[0]).toEqual({ _tag: "FolderMetaSyncRequested", path: "/data/Author" });
-  });
-
-  test("no cascade when at root level", async () => {
-    // #given
-    const event: EventType = { _tag: "FolderDeleted", parent: "/audiobooks", name: "Book" };
-    // #when
-    const result = await folderCleanup(event, makeDeps());
-    // #then
-    expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual([]);
   });
 
   test("suppresses ENOENT error", async () => {

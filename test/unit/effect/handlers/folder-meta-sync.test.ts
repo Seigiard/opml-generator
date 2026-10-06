@@ -5,7 +5,7 @@ import type { EventType } from "../../../../src/effect/types.ts";
 import type { LogContext } from "../../../../src/logging/types.ts";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdir, rm, stat, readFile, readdir, rename } from "node:fs/promises";
+import { mkdir, rm, stat, lstat, readFile, readdir, rename } from "node:fs/promises";
 import { XMLBuilder } from "fast-xml-parser";
 
 const TEST_DIR = join(tmpdir(), `folder-meta-test-${Date.now()}`);
@@ -49,6 +49,7 @@ function realDeps(): HandlerDeps {
       },
       rm: (path, options) => rm(path, options),
       readdir: (path) => readdir(path),
+      lstat: (path) => lstat(path),
       stat: async (path) => {
         const s = await stat(path);
 
@@ -357,77 +358,6 @@ describe("folderMetaSync handler", () => {
     const pos029 = content.indexOf("Flashback_029");
     expect(pos007).toBeLessThan(pos023);
     expect(pos023).toBeLessThan(pos029);
-  });
-
-  test("returns FeedXmlCreated when feed.xml is new", async () => {
-    // #given
-    const albumDir = join(DATA_DIR, "Author", "Album");
-    const sourceDir = join(FILES_DIR, "Author", "Album");
-    await mkdir(albumDir, { recursive: true });
-    await mkdir(sourceDir, { recursive: true });
-
-    await writeEpisodeEntry(albumDir, "01.mp3", {
-      title: "Track 1",
-      fileName: "01.mp3",
-      filePath: "Author/Album/01.mp3",
-      fileSize: 1000,
-      mimeType: "audio/mpeg",
-      episodeNumber: 1,
-      pubDate: "2024-01-15T10:00:00.000Z",
-      guid: "Author/Album/01.mp3",
-    });
-
-    // #when
-    const result = await folderMetaSync(folderMetaSyncEvent(albumDir), realDeps());
-
-    // #then
-    expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual([{ _tag: "FeedXmlCreated", path: albumDir }]);
-  });
-
-  test("returns empty cascades when feed.xml already existed", async () => {
-    // #given
-    const albumDir = join(DATA_DIR, "Author", "Album");
-    const sourceDir = join(FILES_DIR, "Author", "Album");
-    await mkdir(albumDir, { recursive: true });
-    await mkdir(sourceDir, { recursive: true });
-
-    await Bun.write(join(albumDir, "feed.xml"), "<existing/>");
-
-    await writeEpisodeEntry(albumDir, "01.mp3", {
-      title: "Track 1",
-      fileName: "01.mp3",
-      filePath: "Author/Album/01.mp3",
-      fileSize: 1000,
-      mimeType: "audio/mpeg",
-      episodeNumber: 1,
-      pubDate: "2024-01-15T10:00:00.000Z",
-      guid: "Author/Album/01.mp3",
-    });
-
-    // #when
-    const result = await folderMetaSync(folderMetaSyncEvent(albumDir), realDeps());
-
-    // #then
-    expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual([]);
-  });
-
-  test("returns FeedXmlDeleted when all episodes removed", async () => {
-    // #given
-    const albumDir = join(DATA_DIR, "Author", "Album");
-    const sourceDir = join(FILES_DIR, "Author", "Album");
-    await mkdir(albumDir, { recursive: true });
-    await mkdir(sourceDir, { recursive: true });
-
-    await Bun.write(join(albumDir, "feed.xml"), "<existing/>");
-
-    // #when
-    const result = await folderMetaSync(folderMetaSyncEvent(albumDir), realDeps());
-
-    // #then
-    expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual([{ _tag: "FeedXmlDeleted", path: albumDir }]);
   });
 
   test("writes _entry.xml for non-root folders", async () => {

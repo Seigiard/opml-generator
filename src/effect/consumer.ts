@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { AppContext } from "../context.ts";
-import type { EventType } from "./types.ts";
+import type { EventType, PassScopedEvent } from "./types.ts";
+import { guardFileSystem } from "../stopping.ts";
 
 function generateEventId(event: EventType, path: string | undefined): string {
   const timestamp = Date.now();
@@ -19,23 +20,42 @@ export function getEventPath(event: EventType): string | undefined {
   return undefined;
 }
 
+function isPassFinalOpmlHint(event: PassScopedEvent): boolean {
+  return (
+    event.__passId != null &&
+    (event._tag === "FeedXmlCreated" ||
+      event._tag === "FeedXmlDeleted" ||
+      event._tag === "FeedXmlChanged")
+  );
+}
+
 export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promise<void> {
   let eventCount = 0;
   ctx.logger.info("Consumer", "Started processing events");
 
-  while (!signal.aborted) {
-    let event: EventType;
+  while (!signal.aborted && !ctx.queue.isStopped()) {
+    let event: PassScopedEvent;
 
     try {
       event = await ctx.queue.take(signal);
     } catch {
-      if (signal.aborted) break;
+      if (signal.aborted || ctx.queue.isStopped()) break;
       throw new Error("Queue take failed unexpectedly");
+    }
+
+    if (signal.aborted || ctx.queue.isStopped()) {
+      ctx.lifecycle.complete(event, new Error("Application stopping"));
+      ctx.queue.complete();
+      break;
     }
 
     const handler = ctx.handlers.get(event._tag);
 
-    if (!handler) continue;
+    if (!handler || isPassFinalOpmlHint(event)) {
+      ctx.lifecycle.complete(event);
+      ctx.queue.complete();
+      continue;
+    }
 
     const path = getEventPath(event);
     const eventId = generateEventId(event, path);
@@ -49,7 +69,12 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
     });
 
     try {
-      const deps = { config: ctx.config, logger: ctx.logger, fs: ctx.fs };
+      const deps = {
+        config: ctx.config,
+        logger: ctx.logger,
+        fs: guardFileSystem(ctx.fs, () => ctx.queue.checkDeadline(), ctx.config.dataPath),
+      };
+
       const result = await handler(event, deps);
       const duration = Date.now() - startTime;
 
@@ -70,8 +95,10 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
             cascade_count: result.value.length,
             cascade_tags: result.value.map((e) => e._tag),
           });
-          ctx.queue.enqueueMany(result.value);
+          ctx.lifecycle.enqueueCascades(ctx.queue, event, result.value);
         }
+
+        ctx.lifecycle.complete(event);
       } else {
         ctx.logger.error("Consumer", "handler failed", result.error, {
           event_type: "handler_error",
@@ -79,12 +106,16 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
           event_tag: event._tag,
           duration_ms: duration,
         });
+        ctx.lifecycle.complete(event, result.error);
       }
     } catch (err) {
       ctx.logger.error("Consumer", "unexpected handler throw", err, {
         event_tag: event._tag,
       });
+      ctx.lifecycle.complete(event, err instanceof Error ? err : new Error(String(err)));
     }
+
+    ctx.queue.complete();
 
     if (++eventCount % 100 === 0) Bun.gc(true);
   }
