@@ -1,5 +1,7 @@
 services:
   opml:
+    init: true
+    stop_grace_period: 15s
     build:
       context: .
       target: production

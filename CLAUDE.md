@@ -93,6 +93,7 @@ test/
 │   └── effect/          # Queue + cascade flow tests
 └── e2e/                 # Full system tests
     ├── nginx.test.ts    # nginx routing, OPML, range requests
+    ├── shutdown.test.ts # Real TERM, deadline expiry, captured-cache restart
     └── event-logging.test.ts  # Event lifecycle tracing
 ```
 
@@ -110,6 +111,7 @@ src/
 ├── watcher.sh       # inotifywait → POST /events
 ├── context.ts       # AppContext, HandlerDeps, buildContext()
 ├── queue.ts         # SimpleQueue<T> (unrolled linked list)
+├── stopping.ts      # Filesystem guards with shared publication-lock identity
 ├── effect/          # Event handling (neverthrow + async/await)
 │   ├── types.ts     # RawBooksEvent, RawDataEvent, EventType
 │   ├── pass-lifecycle.ts # Synchronization pass ownership and completion tracking
@@ -159,6 +161,14 @@ Source notifications enter through `ApplicationLifecycle.admitBooksEvent()`. The
 - Cache scanning includes directories with missing metadata markers. Cleanup removes only the highest obsolete subtree so descendant cascades cannot recreate removed folders.
 - `ApplicationLifecycle.startReconciliation()` owns interval scheduling. Busy intervals are skipped without a deferred run; the next configured interval retries. Interval `0` creates no timer. Pass failures retain their unsuccessful result while independent handlers continue.
 
+### Bounded Shutdown
+
+`runServer()` installs TERM and INT handling before it awaits context setup or starts initial synchronization. `ApplicationLifecycle.startProcessing()` owns the consumer. The lifecycle also owns the active pass and reconciliation task. `shutdown()` closes admission and readiness immediately, permanently stops queue delivery, and cancels pass completion waits. It gives the active handler up to 8 seconds to finish. It returns `completed` or `deadline`; the server then closes HTTP and exits. Pass setup, reset iterations, scans, and final OPML check stopping after awaited operations. An expired handler cannot begin another filesystem operation. Guarded filesystem services preserve the original OPML lock identity.
+
+Queue `pause()`/`resume()` remain temporary reset controls. Permanent `stop()` cannot be undone by a reset's `finally`. Pending cascades stay unpublished at exit. A fresh initial pass repairs the remaining cache and publication from current sources.
+
+The shell entrypoint forwards signals promptly and waits for Bun, nginx, and the watcher. Unexpected child exits fail the container. Watcher pipelines run in owned process groups so inotify and in-flight wget receive TERM together. Compose uses an init reaper and a 15-second stop grace period: the 8-second application budget plus bounded helper cleanup.
+
 ## Architecture: Event Processing
 
 1. **Adapters** (`adapters/*.ts`) — raw inotify → typed EventType
@@ -199,15 +209,15 @@ try {
 }
 ```
 
-**Graceful shutdown** — AbortController:
+**Graceful shutdown** — lifecycle ownership:
 
 ```typescript
-const controller = new AbortController();
-const consumerTask = startConsumer(ctx, controller.signal);
+const lifecycle = new ApplicationLifecycle(ctx);
+lifecycle.startProcessing();
+void lifecycle.runInitialSync();
 // ...
-server.stop();
-controller.abort();
-await Promise.allSettled([consumerTask, reconcileTask]);
+const outcome = await lifecycle.shutdown();
+await server.stop(true);
 ```
 
 **Mirror structure** — /data mirrors /audiobooks:
@@ -218,6 +228,8 @@ await Promise.allSettled([consumerTask, reconcileTask]);
 - Root → `feed.opml`
 
 ## Constraints & Gotchas
+
+- `test/e2e/shutdown.test.ts` builds isolated production containers and mounts `shutdown-bootstrap.ts` through the internal `SERVER_MODULE` entrypoint seam. The bootstrap only gates real filesystem operations. The production server still owns signals, HTTP, handlers, and shutdown. Its tests use real TERM, Docker terminal states, child wait statuses, and captured cache across restart. Run it alone with `bun test test/e2e/shutdown.test.ts` or as part of `bun run test:e2e`.
 
 - Anti-slop rules are vendored from `dmmulroy/anti-slop` at `tools/oxlint/anti-slop/`; `UPSTREAM.md` records the source revision. `bun run lint:anti-slop` checks owned JS/TS, including tests, and runs in a separate CI job. Oxlint and `@oxlint/plugins` are pinned together; `oxlint-tsgolint` matches Oxlint's peer requirement.
 

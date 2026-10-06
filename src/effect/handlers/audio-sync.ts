@@ -10,6 +10,7 @@ import { saveBufferAsImage, COVER_MAX_SIZE } from "../../utils/image.ts";
 import type { HandlerDeps, FileSystemService } from "../../context.ts";
 import type { EventType } from "../types.ts";
 import { ENTRY_FILE, COVER_FILE } from "../../constants.ts";
+import { checkFileSystemAccess } from "../../stopping.ts";
 
 const xmlBuilder = new XMLBuilder({
   ignoreAttributes: false,
@@ -218,7 +219,9 @@ async function handleFolderCover(
     if (folderCoverPath) {
       try {
         const coverBuffer = Buffer.from(await Bun.file(folderCoverPath).arrayBuffer());
-        await saveBufferAsImage(coverBuffer, coverPath, COVER_MAX_SIZE);
+        await saveBufferAsImage(coverBuffer, coverPath, COVER_MAX_SIZE, () =>
+          checkFileSystemAccess(fs),
+        );
 
         return;
       } catch {
@@ -236,7 +239,9 @@ async function handleFolderCover(
 
     if (embeddedCover) {
       try {
-        await saveBufferAsImage(embeddedCover.data, coverPath, COVER_MAX_SIZE);
+        await saveBufferAsImage(embeddedCover.data, coverPath, COVER_MAX_SIZE, () =>
+          checkFileSystemAccess(fs),
+        );
       } catch {
         // ignore cover save failures
       }

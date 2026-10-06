@@ -9,9 +9,12 @@ export async function saveBufferAsImage(
   buffer: Buffer,
   destPath: string,
   maxSize: number,
+  beforeWrite?: () => void,
 ): Promise<boolean> {
   try {
+    beforeWrite?.();
     await mkdir(dirname(destPath), { recursive: true });
+    beforeWrite?.();
     await sharp(buffer)
       .resize(maxSize, maxSize, { fit: "inside", withoutEnlargement: true })
       .toColorspace("srgb")

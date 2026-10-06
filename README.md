@@ -42,6 +42,8 @@ Podcast RSS and OPML feed generator for locally stored audiobooks and podcasts.
 services:
   opml:
     image: ghcr.io/seigiard/opml-generator:latest
+    init: true
+    stop_grace_period: 15s
     ports:
       - "8080:80"
     volumes:
@@ -71,6 +73,7 @@ docker compose up -d
 ```bash
 docker run -d \
   --name opml \
+  --init --stop-timeout=15 \
   -p 8080:80 \
   -v /path/to/your/audiobooks:/audiobooks:ro \
   -v opml-data:/data \
@@ -119,6 +122,19 @@ returns `503` after reset starts and `200` after successful publication. A faile
 rebuild releases the pass so an authenticated retry can recover publication.
 
 Returns 503 with `Retry-After: 5` if `feed.opml` doesn't exist yet (initial sync in progress).
+
+## Shutdown and Restart
+
+TERM and INT handling is active during startup, reconciliation, resync, and ordinary updates.
+Shutdown closes event and resync admission immediately; the internal endpoints return `503`.
+It stops new handlers and passes, and gives the active handler up to 8 seconds to finish.
+Pending publication work is recovered on the next startup from the unchanged source files and remaining cache.
+Keep the `/data` volume across restart.
+Readiness stays `503` until that startup has repaired RSS and OPML successfully, even if an old OPML file survives.
+
+Use the configured 15-second container stop timeout.
+The entrypoint forwards signals and waits for its children within that budget.
+An unexpected child failure produces a nonzero container exit.
 
 ## Directory Structure
 

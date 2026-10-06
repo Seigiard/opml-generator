@@ -9,6 +9,7 @@ import type { EventType } from "../types.ts";
 import { FEED_FILE, OPML_FILE } from "../../constants.ts";
 import type { OpmlOutline } from "../../rss/types.ts";
 import { z } from "zod";
+import { filesystemIdentity } from "../../stopping.ts";
 
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
@@ -132,6 +133,7 @@ export async function withPublicationLock<T>(
   fs: FileSystemService,
   operation: () => Promise<T>,
 ): Promise<T> {
+  fs = filesystemIdentity(fs);
   const previous = pendingPublications.get(fs);
   let release!: () => void;
 

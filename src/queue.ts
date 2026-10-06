@@ -105,6 +105,8 @@ export class SimpleQueue<T> {
   private dirtyKeys = new Set<string>();
   private active = 0;
   private paused = false;
+  private readonly stopping = new AbortController();
+  private expired = false;
   private inactiveWaiters: Array<() => void> = [];
   private idleWaiters: Array<() => void> = [];
   private waiters: Array<{
@@ -155,6 +157,8 @@ export class SimpleQueue<T> {
   }
 
   async take(signal?: AbortSignal): Promise<T> {
+    if (this.stopping.signal.aborted) throw this.stopping.signal.reason;
+
     if (!this.paused && this.buffer.length > 0) {
       while (this.buffer.length > 0) {
         const item = this.buffer.shift()!;
@@ -180,18 +184,29 @@ export class SimpleQueue<T> {
         const idx = this.waiters.indexOf(entry);
 
         if (idx !== -1) this.waiters.splice(idx, 1);
+        this.stopping.signal.removeEventListener("abort", onStop);
         reject(signal!.reason);
+      };
+
+      const onStop = () => {
+        const idx = this.waiters.indexOf(entry);
+
+        if (idx !== -1) this.waiters.splice(idx, 1);
+        signal?.removeEventListener("abort", onAbort);
+        reject(this.stopping.signal.reason);
       };
 
       const entry = {
         resolve: (item: T) => {
           signal?.removeEventListener("abort", onAbort);
+          this.stopping.signal.removeEventListener("abort", onStop);
           resolve(item);
         },
       };
 
       this.waiters.push(entry);
       signal?.addEventListener("abort", onAbort, { once: true });
+      this.stopping.signal.addEventListener("abort", onStop, { once: true });
     });
   }
 
@@ -224,6 +239,7 @@ export class SimpleQueue<T> {
   }
 
   resume(): void {
+    if (this.isStopped()) return;
     this.paused = false;
 
     while (this.waiters.length > 0 && this.buffer.length > 0) {
@@ -239,5 +255,24 @@ export class SimpleQueue<T> {
       this.active++;
       this.waiters.shift()!.resolve(item);
     }
+  }
+
+  isStopped(): boolean {
+    return this.stopping.signal.aborted;
+  }
+
+  stop(): Promise<void> {
+    const inactive = this.pause();
+    this.stopping.abort(new Error("Application stopping"));
+
+    return inactive;
+  }
+
+  expire(): void {
+    this.expired = true;
+  }
+
+  checkDeadline(): void {
+    if (this.expired) throw new Error("Shutdown deadline expired");
   }
 }

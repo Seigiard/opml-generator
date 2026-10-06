@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { AppContext } from "../context.ts";
 import type { EventType, PassScopedEvent } from "./types.ts";
+import { guardFileSystem } from "../stopping.ts";
 
 function generateEventId(event: EventType, path: string | undefined): string {
   const timestamp = Date.now();
@@ -32,14 +33,20 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
   let eventCount = 0;
   ctx.logger.info("Consumer", "Started processing events");
 
-  while (!signal.aborted) {
+  while (!signal.aborted && !ctx.queue.isStopped()) {
     let event: PassScopedEvent;
 
     try {
       event = await ctx.queue.take(signal);
     } catch {
-      if (signal.aborted) break;
+      if (signal.aborted || ctx.queue.isStopped()) break;
       throw new Error("Queue take failed unexpectedly");
+    }
+
+    if (signal.aborted || ctx.queue.isStopped()) {
+      ctx.lifecycle.complete(event, new Error("Application stopping"), ctx.queue.keyFor(event));
+      ctx.queue.complete();
+      break;
     }
 
     const handler = ctx.handlers.get(event._tag);
@@ -63,7 +70,12 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
     });
 
     try {
-      const deps = { config: ctx.config, logger: ctx.logger, fs: ctx.fs };
+      const deps = {
+        config: ctx.config,
+        logger: ctx.logger,
+        fs: guardFileSystem(ctx.fs, () => ctx.queue.checkDeadline()),
+      };
+
       const result = await handler(event, deps);
       const duration = Date.now() - startTime;
 

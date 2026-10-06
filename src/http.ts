@@ -17,6 +17,8 @@ export function createHttpHandler(ctx: AppContext, lifecycle: ApplicationLifecyc
 
       try {
         const body = await req.json();
+
+        if (!lifecycle.isAdmissionReady()) return new Response("Queue not ready", { status: 503 });
         const parsed = watcherEventSchema.safeParse(body);
 
         if (!parsed.success) {

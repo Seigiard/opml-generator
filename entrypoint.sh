@@ -1,6 +1,19 @@
 #!/bin/sh
 set -e
 
+NGINX_PID=
+BUN_PID=
+WATCHER_PID=
+STOPPING=0
+forward_stop() {
+  STOPPING=1
+  echo "[entrypoint] Shutting down..."
+  for pid in "$BUN_PID" "$WATCHER_PID" "$NGINX_PID"; do
+    [ -z "$pid" ] || kill -TERM "$pid" 2>/dev/null || true
+  done
+}
+trap forward_stop TERM INT
+
 BUN_PORT="${PORT:-3000}"
 export BUN_PORT
 
@@ -35,41 +48,68 @@ if [ "$AUTH_ENABLED" = "0" ]; then
 fi
 
 cp /tmp/nginx.conf /etc/nginx/nginx.conf
+[ "$STOPPING" = 0 ] || exit 0
 
 echo "[entrypoint] Starting nginx..."
 nginx &
 NGINX_PID=$!
+[ "$STOPPING" = 0 ] || forward_stop
 
 echo "[entrypoint] Starting Bun server on port $BUN_PORT..."
 if [ "$DEV_MODE" = "true" ]; then
-  bun --smol run --watch /app/src/server.ts &
+  bun --smol run --watch "${SERVER_MODULE:-/app/src/server.ts}" &
 else
-  bun --smol run /app/src/server.ts &
+  bun --smol run "${SERVER_MODULE:-/app/src/server.ts}" &
 fi
 BUN_PID=$!
+[ "$STOPPING" = 0 ] || forward_stop
 
 echo "[entrypoint] Starting watcher..."
 sh /app/src/watcher.sh &
 WATCHER_PID=$!
-
-# Graceful shutdown handler
-cleanup() {
-  echo "[entrypoint] Shutting down..."
-  kill "$WATCHER_PID" 2>/dev/null || true
-  kill "$BUN_PID" 2>/dev/null || true
-  kill "$NGINX_PID" 2>/dev/null || true
-  wait
-  exit 0
-}
-
-trap cleanup SIGTERM SIGINT
+[ "$STOPPING" = 0 ] || forward_stop
 
 echo "[entrypoint] All processes started. Monitoring..."
-
-while true; do
-  kill -0 "$BUN_PID" 2>/dev/null || { echo "[entrypoint] Bun process died"; break; }
-  kill -0 "$NGINX_PID" 2>/dev/null || { echo "[entrypoint] nginx process died"; break; }
-  sleep 5
+STATUS=0
+while [ "$STOPPING" = 0 ]; do
+  for pid in "$BUN_PID" "$WATCHER_PID" "$NGINX_PID"; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "[entrypoint] Child $pid exited unexpectedly"
+      STATUS=1
+      forward_stop
+      break
+    fi
+  done
+  sleep 0.2 &
+  TICK_PID=$!
+  wait "$TICK_PID" || true
 done
 
-cleanup
+# Repeated signals must not interrupt the owned child waits.
+trap '' TERM INT
+kill "$TICK_PID" 2>/dev/null || true
+wait "$TICK_PID" 2>/dev/null || true
+# The application has 8 seconds. Helpers have an additional 3 seconds.
+# A caught signal resets to default in the child. Inheriting an ignored TERM
+# would lose a cancellation sent before the watchdog installs its own trap.
+trap ':' TERM INT
+(
+  SLEEP_PID=
+  trap '[ -z "$SLEEP_PID" ] || kill "$SLEEP_PID" 2>/dev/null || true; exit 0' TERM INT
+  sleep 11 &
+  SLEEP_PID=$!
+  wait "$SLEEP_PID"
+  echo "[entrypoint] Child shutdown deadline expired" >&2
+  kill -KILL "$BUN_PID" "$WATCHER_PID" "$NGINX_PID" 2>/dev/null || true
+) &
+DEADLINE_PID=$!
+trap '' TERM INT
+for pid in "$BUN_PID" "$WATCHER_PID" "$NGINX_PID"; do
+  child_status=0
+  wait "$pid" || child_status=$?
+  echo "[entrypoint] Reaped $pid status=$child_status"
+  [ "$child_status" = 0 ] || STATUS=1
+done
+kill "$DEADLINE_PID" 2>/dev/null || true
+wait "$DEADLINE_PID" 2>/dev/null || true
+exit "$STATUS"
