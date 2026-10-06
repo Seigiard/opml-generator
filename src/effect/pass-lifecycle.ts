@@ -2,10 +2,7 @@ import type { SimpleQueue } from "../queue.ts";
 import type { EventType, PassScopedEvent } from "./types.ts";
 
 interface PassState {
-  readonly id: string;
   pending: number;
-  readonly directKeys: Set<string>;
-  readonly coalescedKeys: Set<string>;
   readonly errors: Error[];
   readonly promise: Promise<void>;
   resolve: () => void;
@@ -14,6 +11,7 @@ interface PassState {
 export class PassLifecycle {
   private nextId = 0;
   private readonly passes = new Map<string, PassState>();
+  private readonly owners = new WeakMap<PassScopedEvent, Set<string>>();
 
   startPass(): string {
     const id = `pass-${++this.nextId}`;
@@ -24,10 +22,7 @@ export class PassLifecycle {
     });
 
     this.passes.set(id, {
-      id,
       pending: 0,
-      directKeys: new Set(),
-      coalescedKeys: new Set(),
       errors: [],
       promise,
       resolve,
@@ -54,21 +49,17 @@ export class PassLifecycle {
     }
 
     const scopedEvent = { ...event, __passId: passId };
-    const key = queue.keyFor(scopedEvent);
-    const accepted = queue.enqueue(scopedEvent);
+    const accepted = queue.enqueue(scopedEvent, true);
+    const occurrence = accepted ? scopedEvent : queue.pendingFor(scopedEvent);
 
-    if (accepted) {
-      state.pending++;
+    if (!occurrence) return;
+    const owners = this.owners.get(occurrence) ?? new Set<string>();
 
-      if (key) state.directKeys.add(key);
+    if (owners.has(passId)) return;
 
-      return;
-    }
-
-    if (!key || state.directKeys.has(key) || state.coalescedKeys.has(key)) return;
-
+    owners.add(passId);
+    this.owners.set(occurrence, owners);
     state.pending++;
-    state.coalescedKeys.add(key);
   }
 
   enqueueCascades(
@@ -76,18 +67,9 @@ export class PassLifecycle {
     parent: PassScopedEvent,
     cascades: readonly EventType[],
   ): void {
-    const owners = new Set<string>();
+    const owners = this.owners.get(parent);
 
-    if (parent.__passId) owners.add(parent.__passId);
-    const key = queue.keyFor(parent);
-
-    if (key) {
-      for (const state of this.passes.values()) {
-        if (state.coalescedKeys.has(key)) owners.add(state.id);
-      }
-    }
-
-    if (owners.size === 0) {
+    if (!owners || owners.size === 0) {
       queue.enqueueMany(cascades);
 
       return;
@@ -96,26 +78,17 @@ export class PassLifecycle {
     for (const passId of owners) this.enqueueMany(queue, cascades, passId);
   }
 
-  complete(event: PassScopedEvent, error?: Error, key?: string | null): void {
-    const passId = event.__passId;
+  complete(event: PassScopedEvent, error?: Error): void {
+    const owners = this.owners.get(event);
+    this.owners.delete(event);
 
-    if (passId) this.completePassEvent(passId, error, key);
+    if (!owners) return;
 
-    if (!key) return;
+    for (const passId of owners) {
+      const state = this.passes.get(passId);
 
-    for (const state of this.passes.values()) {
-      if (!state.coalescedKeys.delete(key)) continue;
-      this.completePassState(state, error);
+      if (state) this.completePassState(state, error);
     }
-  }
-
-  private completePassEvent(passId: string, error?: Error, key?: string | null): void {
-    const state = this.passes.get(passId);
-
-    if (!state) return;
-
-    if (key) state.directKeys.delete(key);
-    this.completePassState(state, error);
   }
 
   private completePassState(state: PassState, error?: Error): void {

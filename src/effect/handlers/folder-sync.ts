@@ -6,6 +6,7 @@ import { encodeUrlPath, normalizeFilenameTitle } from "../../utils/processor.ts"
 import type { HandlerDeps } from "../../context.ts";
 import type { EventType } from "../types.ts";
 import { FEED_FILE, FOLDER_ENTRY_FILE } from "../../constants.ts";
+import { prepareMirrorKind } from "./mirror-kind.ts";
 
 const xmlBuilder = new XMLBuilder({
   ignoreAttributes: false,
@@ -30,11 +31,12 @@ export async function folderSync(
   logger.info("FolderSync", "Processing", { path: relativePath || "(root)" });
 
   try {
+    await prepareMirrorKind(folderDataDir, true, fs);
     await fs.mkdir(folderDataDir, { recursive: true });
 
     if (relativePath !== "") {
       const folderName = normalizeFilenameTitle(basename(relativePath));
-      const selfHref = `/${encodeUrlPath(relativePath)}/${FEED_FILE}`;
+      const selfHref = `/${encodeUrlPath(join(relativePath, FEED_FILE))}`;
 
       // SAFETY: XMLBuilder.build returns XML text, not its untyped input object.
       const entryXml = xmlBuilder.build({

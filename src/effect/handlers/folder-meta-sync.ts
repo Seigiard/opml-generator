@@ -114,6 +114,13 @@ export async function folderMetaSync(
     try {
       const s = await fs.stat(sourceFolder);
       sourceFolderExists = s.isDirectory();
+
+      if (
+        !sourceFolderExists &&
+        AUDIO_EXTENSIONS.includes(extname(sourceFolder).slice(1).toLowerCase())
+      ) {
+        return ok([{ _tag: "SourcePathSyncRequested", path: sourceFolder, isDirectory: false }]);
+      }
     } catch (error) {
       if (
         !(
@@ -198,9 +205,12 @@ export async function folderMetaSync(
         parentRelativePath !== "." ? parentRelativePath.split("/").pop() : undefined;
 
       const coverExists = await fs.exists(join(normalizedDir, COVER_FILE));
-      const coverUrl = coverExists ? `/${encodeUrlPath(relativePath)}/${COVER_FILE}` : undefined;
 
-      const selfUrl = `/${encodeUrlPath(relativePath)}/${FEED_FILE}`;
+      const coverUrl = coverExists
+        ? `/${encodeUrlPath(join(relativePath, COVER_FILE))}`
+        : undefined;
+
+      const selfUrl = `/${encodeUrlPath(join(relativePath, FEED_FILE))}`;
 
       const podcastInfo: PodcastInfo = {
         title: podcastTitle,
@@ -242,7 +252,7 @@ export async function folderMetaSync(
       const entryOutputPath = join(normalizedDir, FOLDER_ENTRY_FILE);
       const rawFolderName = relativePath.split("/").pop() || "";
       const folderName = normalizeFilenameTitle(rawFolderName);
-      const selfHref = `/${encodeUrlPath(relativePath)}/${FEED_FILE}`;
+      const selfHref = `/${encodeUrlPath(join(relativePath, FEED_FILE))}`;
 
       // SAFETY: XMLBuilder.build returns XML text with this builder configuration.
       const folderEntryXml = xmlBuilder.build({

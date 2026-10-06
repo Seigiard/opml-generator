@@ -3,6 +3,7 @@ import { ok, err, type Result } from "neverthrow";
 import type { HandlerDeps } from "../../context.ts";
 import { AUDIO_EXTENSIONS } from "../../types.ts";
 import type { EventType } from "../types.ts";
+import { prepareMirrorKind } from "./mirror-kind.ts";
 
 export async function sourcePathSync(
   event: EventType,
@@ -31,15 +32,22 @@ export async function sourcePathSync(
     }
 
     if (!current.isDirectory()) {
-      return ok([{ _tag: "AudioFileCreated", parent, name }]);
+      const isAudio = AUDIO_EXTENSIONS.includes(extname(name).slice(1).toLowerCase());
+
+      return ok([{ _tag: isAudio ? "AudioFileCreated" : "FolderDeleted", parent, name }]);
     }
 
     const dataDir = join(deps.config.dataPath, relative(deps.config.filesPath, event.path));
+    await prepareMirrorKind(dataDir, true, deps.fs);
     const names = new Set(await deps.fs.readdir(event.path));
+    const cachedNames = new Set<string>();
 
     try {
       for (const child of await deps.fs.readdir(dataDir)) {
-        if ((await deps.fs.stat(join(dataDir, child))).isDirectory()) names.add(child);
+        if ((await deps.fs.stat(join(dataDir, child))).isDirectory()) {
+          names.add(child);
+          cachedNames.add(child);
+        }
       }
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
@@ -58,7 +66,11 @@ export async function sourcePathSync(
         isDirectory = !AUDIO_EXTENSIONS.includes(extname(child).slice(1).toLowerCase());
       }
 
-      if (isDirectory || AUDIO_EXTENSIONS.includes(extname(child).slice(1).toLowerCase())) {
+      if (
+        cachedNames.has(child) ||
+        isDirectory ||
+        AUDIO_EXTENSIONS.includes(extname(child).slice(1).toLowerCase())
+      ) {
         cascades.push({ _tag: "SourcePathSyncRequested", path, isDirectory });
       }
     }

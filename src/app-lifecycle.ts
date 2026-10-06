@@ -181,11 +181,11 @@ export class ApplicationLifecycle {
     await this.ctx.fs.mkdir(this.ctx.config.dataPath, { recursive: true });
     this.checkRunning();
 
-    const files = await scanFiles(this.ctx.config.filesPath);
+    const files = await scanFiles(this.ctx.config.filesPath, this.stopping.signal);
     this.checkRunning();
     this.ctx.logger.info(logTag, "Audio files found", { audio_files_found: files.length });
 
-    const plan = await createSyncPlan(files, this.ctx.config.dataPath);
+    const plan = await createSyncPlan(files, this.ctx.config.dataPath, this.stopping.signal);
     this.checkRunning();
     this.ctx.logger.info(logTag, "Sync plan created", {
       audio_files_process: plan.toProcess.length,

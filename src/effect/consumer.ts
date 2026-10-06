@@ -44,16 +44,15 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
     }
 
     if (signal.aborted || ctx.queue.isStopped()) {
-      ctx.lifecycle.complete(event, new Error("Application stopping"), ctx.queue.keyFor(event));
+      ctx.lifecycle.complete(event, new Error("Application stopping"));
       ctx.queue.complete();
       break;
     }
 
     const handler = ctx.handlers.get(event._tag);
-    const coalescingKey = ctx.queue.keyFor(event);
 
     if (!handler || isPassFinalOpmlHint(event)) {
-      ctx.lifecycle.complete(event, undefined, coalescingKey);
+      ctx.lifecycle.complete(event);
       ctx.queue.complete();
       continue;
     }
@@ -99,7 +98,7 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
           ctx.lifecycle.enqueueCascades(ctx.queue, event, result.value);
         }
 
-        ctx.lifecycle.complete(event, undefined, coalescingKey);
+        ctx.lifecycle.complete(event);
       } else {
         ctx.logger.error("Consumer", "handler failed", result.error, {
           event_type: "handler_error",
@@ -107,17 +106,13 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
           event_tag: event._tag,
           duration_ms: duration,
         });
-        ctx.lifecycle.complete(event, result.error, coalescingKey);
+        ctx.lifecycle.complete(event, result.error);
       }
     } catch (err) {
       ctx.logger.error("Consumer", "unexpected handler throw", err, {
         event_tag: event._tag,
       });
-      ctx.lifecycle.complete(
-        event,
-        err instanceof Error ? err : new Error(String(err)),
-        coalescingKey,
-      );
+      ctx.lifecycle.complete(event, err instanceof Error ? err : new Error(String(err)));
     }
 
     ctx.queue.complete();

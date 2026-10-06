@@ -11,6 +11,7 @@ import type { HandlerDeps, FileSystemService } from "../../context.ts";
 import type { EventType } from "../types.ts";
 import { ENTRY_FILE, COVER_FILE } from "../../constants.ts";
 import { checkFileSystemAccess } from "../../stopping.ts";
+import { prepareMirrorKind } from "./mirror-kind.ts";
 
 const xmlBuilder = new XMLBuilder({
   ignoreAttributes: false,
@@ -60,6 +61,14 @@ export async function audioSync(
 
   try {
     const fileStat = await fs.stat(filePath);
+
+    if (fileStat.isDirectory() || !MIME_TYPES.has(ext)) {
+      return ok([
+        { _tag: "SourcePathSyncRequested", path: filePath, isDirectory: fileStat.isDirectory() },
+      ]);
+    }
+
+    await prepareMirrorKind(episodeDataDir, false, fs);
     await fs.mkdir(episodeDataDir, { recursive: true });
 
     let metadata: AudioMetadata;

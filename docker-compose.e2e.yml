@@ -16,6 +16,7 @@ services:
       - PORT=3000
       - ADMIN_USER=admin
       - ADMIN_TOKEN=secret
+      - RECONCILE_INTERVAL=0
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/ready"]
       interval: 10s

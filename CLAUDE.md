@@ -39,7 +39,7 @@ Gracefully shutdown after tests.
 docker compose -f docker-compose.dev.yml up          # start
 docker compose -f docker-compose.dev.yml logs -f     # logs
 curl http://localhost:8080/feed.opml                 # test OPML
-curl http://localhost:8080/data/Author/Book/feed.xml # test podcast RSS
+curl http://localhost:8080/Author/Book/feed.xml # test podcast RSS
 curl -u admin:secret http://localhost:8080/resync    # force resync
 ```
 
@@ -141,7 +141,7 @@ src/
 nginx:80 (external)          Bun:3000 (localhost only)
 ├── /feed.opml → /data/      ├── GET /ready ← publication readiness
 ├── healthcheck → /ready     ├── POST /events/books ← books watcher
-├── /data/* → static files   ├── POST /events/data ← data watcher
+├── /{path} → /data files    ├── POST /events/data ← data watcher
 ├── /resync → auth → proxy   └── POST /resync ← nginx
 └── /* → 404
 ```
@@ -150,12 +150,18 @@ nginx:80 (external)          Bun:3000 (localhost only)
 
 Initial sync, reconciliation, and resync run through `ApplicationLifecycle` as lifecycle-owned passes. A pass tags its planned events and mandatory cascades, waits for active handlers and queued covered work, and preserves ownership through cascades of coalesced metadata events. It suppresses pass-scoped `FeedXmlCreated`/`FeedXmlChanged`/`FeedXmlDeleted` hints and writes one final `feed.opml` after covered RSS work completes. OPML collection and writing are serialized per filesystem service so ordinary watcher publication cannot race the pass-final write. Watcher admission is ready before publication readiness. A successful recovery pass can establish readiness after failed startup; nginx `GET /ready` proxies this state. Accepted synchronization decisions live in `docs/adr/0001-filesystem-authoritative-synchronization.md`.
 
+Pass ownership belongs to a delivered event occurrence. Coalescing adopts the pending occurrence, so an older active handler at the same path cannot complete it or transfer its failures. `SimpleQueue.enqueue(event, true)` preserves a covered occurrence's queue position. Later ordinary duplicates coalesce into one ordinary follow-up instead of rotating covered work.
+
 Resync reserves the pass before HTTP `202` returns. Any active pass causes HTTP `409` without a deferred request. `runResync()` pauses queue delivery and waits for active deliveries before deleting cache entries under the OPML publication lock. Source and data notifications remain queued during reset. A `finally` resumes delivery on success or failure. The rebuild rereads source metadata and uses normal pass-scoped RSS and final OPML completion. Reset clears publication readiness; successful rebuild restores it. `getActivePass()` exposes the owned task for lifecycle coordination. The server uses `createHttpHandler()` for the production HTTP boundary.
 
 Source notifications enter through `ApplicationLifecycle.admitBooksEvent()`. They enqueue `SourcePathSyncRequested` hints, which check current filesystem state and reconcile directory descendants. Pending hints coalesce by path. Admission avoids TTL filtering because a repeated notification can describe a newer same-path replacement. Scan-planned deletions use the same current-state check. Audio metadata writes trigger folder RSS directly; folder RSS triggers parent navigation and OPML, including changes to existing podcast information. Empty cache branches are pruned only when their source subtree has no supported audio. `waitForIdle()` observes pending events and active consumer work for integration callers; pass completion remains scoped to the pass.
 
+Source type changes remove the obsolete cache representation before rebuilding. Episode mirrors retain only `entry.xml`; folder mirrors remove that episode marker. Metadata requests for a path now occupied by supported audio reconcile the file rather than delete its new cache. Unsupported regular files remove obsolete mirrors and cannot become episodes. `src/effect/handlers/mirror-kind.ts` owns the representation cleanup.
+
 ### Publication Recovery
 
+- OPML collection propagates directory, stat, read, and podcast XML errors. A failed collection leaves the previous OPML intact and fails the pass. Missing paths and valid navigation feeds are excluded normally.
+- Root-level audio publishes a podcast at `/feed.xml`. Build feed and cover URLs from joined relative paths so the empty root path does not add a second slash.
 - Scanner cache reuse requires a fresh `entry.xml` timestamp and valid episode XML, including source path identity, file size, MIME type, and usable dates and numbers. `src/rss/episode-cache.ts` owns this validation.
 - Every pass regenerates the audio-derived folder hierarchy and RSS, even when all episode metadata is reusable. Final OPML publication repairs missing or stale navigation without watcher notifications.
 - Cache scanning includes directories with missing metadata markers. Cleanup removes only the highest obsolete subtree so descendant cascades cannot recreate removed folders.
@@ -166,6 +172,8 @@ Source notifications enter through `ApplicationLifecycle.admitBooksEvent()`. The
 `runServer()` installs TERM and INT handling before it awaits context setup or starts initial synchronization. `ApplicationLifecycle.startProcessing()` owns the consumer. The lifecycle also owns the active pass and reconciliation task. `shutdown()` closes admission and readiness immediately, permanently stops queue delivery, and cancels pass completion waits. It gives the active handler up to 8 seconds to finish. It returns `completed` or `deadline`; the server then closes HTTP and exits. Pass setup, reset iterations, scans, and final OPML check stopping after awaited operations. An expired handler cannot begin another filesystem operation. Guarded filesystem services preserve the original OPML lock identity.
 
 Queue `pause()`/`resume()` remain temporary reset controls. Permanent `stop()` cannot be undone by a reset's `finally`. Pending cascades stay unpublished at exit. A fresh initial pass repairs the remaining cache and publication from current sources.
+
+`scanFiles()` and `createSyncPlan()` accept the lifecycle's optional `AbortSignal`. Source traversal, cache traversal, and metadata validation check it after awaited operations. Cancellation escapes the cache-reuse fallback so a stopped scan cannot start another read or stat.
 
 The shell entrypoint forwards signals promptly and waits for Bun, nginx, and the watcher. Unexpected child exits fail the container. Watcher pipelines run in owned process groups so inotify and in-flight wget receive TERM together. Compose uses an init reaper and a 15-second stop grace period: the 8-second application budget plus bounded helper cleanup.
 
@@ -241,6 +249,7 @@ await server.stop(true);
 - **Healthcheck**: Docker image is Alpine without curl — use `wget`
 - **Handlers return events, never call each other** — cascade via `EventType[]` return values, consumer enqueues them
 - **data watcher ignores feed.xml/feed.opml writes** — otherwise infinite loop
+- **Publication and log exclusions apply only to the data watcher.** The source watcher must observe directories such as `events.jsonl`, including their moves out of the Library.
 - **Only entry.xml and \_entry.xml produce actionable events** from data watcher
 - **M4B = single episode** — no chapter extraction, users must split beforehand
 - **Supported audio**: .mp3 (audio/mpeg), .m4a (audio/mp4), .m4b (audio/mp4), .ogg (audio/ogg)

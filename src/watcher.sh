@@ -10,8 +10,12 @@ SERVER_URL="http://127.0.0.1:$BUN_PORT"
 if [ "${1:-}" = worker ]; then
   directory=$2
   endpoint=$3
+  set --
+  if [ "$endpoint" = data ]; then
+    set -- --exclude '(feed\.xml|feed\.opml|events\.jsonl|errors\.jsonl)$'
+  fi
   inotifywait -m -r -e close_write -e delete -e moved_from -e moved_to -e create \
-    --exclude '(feed\.xml|feed\.opml|events\.jsonl|errors\.jsonl)$' \
+    "$@" \
     --format '{"parent":"%w","name":"%f","events":"%e"}' \
     "$directory" 2>/dev/null | while read -r line; do
       case "$line" in

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, rename, rm } from "node:fs/promises";
+import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { XMLParser } from "fast-xml-parser";
 import { z } from "zod";
@@ -139,6 +139,43 @@ describe("source watcher publication through ApplicationLifecycle", () => {
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   });
 
+  test.each(["watcher", "recovery"])(
+    "%s removes a published folder replaced by an unsupported regular file",
+    async (mode) => {
+      // #given
+      const lib = await library();
+      await lib.audio("Author/Book/old.mp3");
+      await lib.audio("Keeper/Other/keep.mp3");
+      expect(await lib.app.runInitialSync()).toBe(true);
+      await rm(join(lib.filesPath, "Author/Book"), { recursive: true });
+      await Bun.write(join(lib.filesPath, "Author/Book"), "not audio");
+
+      // #when
+      if (mode === "watcher") {
+        lib.app.admitBooksEvent({
+          parent: join(lib.filesPath, "Author"),
+          name: "Book",
+          events: "DELETE,ISDIR",
+        });
+      } else {
+        expect(await lib.app.runPublicationPass("Recovery")).toBe(true);
+      }
+
+      await lib.app.waitForIdle();
+
+      // #then
+      expect({
+        subscriptions: await subscriptions(lib.dataPath),
+        mirror: (await lib.ctx.fs.readdir(lib.dataPath)).sort(),
+      }).toEqual({
+        subscriptions: [
+          { title: "keep", author: "Keeper", url: "{{{BASE_URL}}}/Keeper/Other/feed.xml" },
+        ],
+        mirror: ["Keeper", "feed.opml", "feed.xml"],
+      });
+    },
+  );
+
   test("audio addition publishes RSS, OPML and navigation without data notifications", async () => {
     // #given
     const lib = await library();
@@ -174,6 +211,111 @@ describe("source watcher publication through ApplicationLifecycle", () => {
     const navigation = parser.parse(await Bun.file(join(lib.dataPath, "feed.xml")).text());
     expect(navigation.feed.item.link).toBe("/Author/feed.xml");
   });
+
+  test("audio directly in the Library root publishes canonical RSS self and subscription URLs", async () => {
+    // #given
+    const lib = await library();
+    await lib.audio("root.mp3");
+
+    // #when
+    const successful = await lib.app.runInitialSync();
+    const document = parser.parse(await Bun.file(join(lib.dataPath, "feed.xml")).text());
+
+    const self = z
+      .object({
+        rss: z.object({ channel: z.object({ "atom:link": z.object({ "@_href": z.string() }) }) }),
+      })
+      .parse(document);
+
+    // #then
+    expect({
+      successful,
+      self: self.rss.channel["atom:link"]["@_href"],
+      podcast: await podcast(lib.dataPath, ""),
+      subscriptions: await subscriptions(lib.dataPath),
+    }).toEqual({
+      successful: true,
+      self: "{{{BASE_URL}}}/feed.xml",
+      podcast: {
+        title: "root",
+        author: undefined,
+        episodes: [{ title: "root", guid: "root.mp3", number: 1 }],
+      },
+      subscriptions: [{ title: "root", author: undefined, url: "{{{BASE_URL}}}/feed.xml" }],
+    });
+  });
+
+  test.each(["watcher", "recovery"])(
+    "%s replaces a folder with an audio file and then restores a folder at that path",
+    async (mode) => {
+      // #given
+      const lib = await library();
+      await lib.audio("Author/Book.mp3/old.mp3");
+      expect(await lib.app.runInitialSync()).toBe(true);
+      await rm(join(lib.filesPath, "Author/Book.mp3"), { recursive: true });
+      await lib.audio("Author/Book.mp3", "tagged.mp3");
+
+      const reconcile = async (events: string) => {
+        if (mode === "watcher") {
+          lib.app.admitBooksEvent({
+            parent: join(lib.filesPath, "Author"),
+            name: "Book.mp3",
+            events,
+          });
+        } else {
+          expect(await lib.app.runPublicationPass("Recovery")).toBe(true);
+        }
+
+        await lib.app.waitForIdle();
+      };
+
+      // #when
+      await reconcile("DELETE,ISDIR");
+
+      const asFile = {
+        podcast: await podcast(lib.dataPath, "Author"),
+        subscriptions: await subscriptions(lib.dataPath),
+        cache: (await lib.ctx.fs.readdir(join(lib.dataPath, "Author/Book.mp3"))).sort(),
+      };
+
+      await rm(join(lib.filesPath, "Author/Book.mp3"));
+      await lib.audio("Author/Book.mp3/current.mp3");
+      await reconcile("DELETE");
+
+      // #then
+      expect({
+        asFile,
+        asFolder: {
+          podcast: await podcast(lib.dataPath, "Author/Book.mp3"),
+          subscriptions: await subscriptions(lib.dataPath),
+          episodeMarker: await Bun.file(join(lib.dataPath, "Author/Book.mp3/entry.xml")).exists(),
+        },
+      }).toEqual({
+        asFile: {
+          podcast: {
+            title: "Test Title",
+            author: undefined,
+            episodes: [{ title: "Test Title", guid: "Author/Book.mp3", number: 1 }],
+          },
+          subscriptions: [
+            { title: "Test Title", author: undefined, url: "{{{BASE_URL}}}/Author/feed.xml" },
+          ],
+          cache: ["entry.xml"],
+        },
+        asFolder: {
+          podcast: {
+            title: "current",
+            author: "Author",
+            episodes: [{ title: "current", guid: "Author/Book.mp3/current.mp3", number: 1 }],
+          },
+          subscriptions: [
+            { title: "current", author: "Author", url: "{{{BASE_URL}}}/Author/Book.mp3/feed.xml" },
+          ],
+          episodeMarker: false,
+        },
+      });
+    },
+  );
 
   test("delayed deletion after recreation publishes the current file at the same Episode identity", async () => {
     // #given
@@ -700,6 +842,300 @@ describe("source watcher publication through ApplicationLifecycle", () => {
     });
   });
 
+  test.each(["readdir", "stat", "unreadable feed", "malformed feed", "invalid podcast"])(
+    "final OPML %s failure keeps prior subscriptions and fails readiness until recovery",
+    async (fault) => {
+      // #given
+      const lib = await library();
+      await lib.audio("Author/Book/01.mp3");
+      expect(await lib.app.runInitialSync()).toBe(true);
+      const app = new ApplicationLifecycle(lib.ctx);
+      const previousOpml = await Bun.file(join(lib.dataPath, "feed.opml")).text();
+      const feedPath = join(lib.dataPath, "Author/Book/feed.xml");
+      const previousFeed = await Bun.file(feedPath).text();
+      const readBase = lib.ctx.fs.readdir;
+      const statBase = lib.ctx.fs.stat;
+      const infoBase = lib.ctx.logger.info;
+      let collecting = false;
+      let enabled = true;
+      lib.ctx.logger.info = (tag, message, context) => {
+        infoBase(tag, message, context);
+
+        if (tag === "OpmlSync" && message === "Regenerating OPML") collecting = true;
+      };
+
+      lib.ctx.fs.readdir = async (path) => {
+        if (collecting && enabled) {
+          if (fault === "readdir" && path === join(lib.dataPath, "Author/Book")) {
+            throw Object.assign(new Error("controlled OPML directory access failure"), {
+              code: "EACCES",
+            });
+          }
+
+          if (path === lib.dataPath && fault === "unreadable feed") {
+            await rm(feedPath);
+            await mkdir(feedPath);
+          }
+
+          if (path === lib.dataPath && fault === "malformed feed") {
+            await Bun.write(feedPath, "<rss><channel><title>broken");
+          }
+
+          if (path === lib.dataPath && fault === "invalid podcast") {
+            await Bun.write(
+              feedPath,
+              "<rss><channel><description>Missing title</description></channel></rss>",
+            );
+          }
+        }
+
+        return readBase(path);
+      };
+
+      lib.ctx.fs.stat = async (path) => {
+        if (
+          collecting &&
+          enabled &&
+          fault === "stat" &&
+          path === join(lib.dataPath, "Author/Book")
+        ) {
+          throw Object.assign(new Error("controlled OPML stat failure"), { code: "EIO" });
+        }
+
+        return statBase(path);
+      };
+
+      // #when
+      const failed = await app.runInitialSync();
+
+      const afterFailure = {
+        successful: failed,
+        ready: app.isPublicationReady(),
+        preserved: (await Bun.file(join(lib.dataPath, "feed.opml")).text()) === previousOpml,
+        subscriptions: await subscriptions(lib.dataPath),
+      };
+
+      enabled = false;
+      await rm(feedPath, { recursive: true });
+      await Bun.write(feedPath, previousFeed);
+      const recovery = await app.runPublicationPass("Recovery");
+
+      // #then
+      expect({
+        afterFailure,
+        recovery,
+        ready: app.isPublicationReady(),
+        subscriptions: await subscriptions(lib.dataPath),
+      }).toEqual({
+        afterFailure: {
+          successful: false,
+          ready: false,
+          preserved: true,
+          subscriptions: [
+            { title: "01", author: "Author", url: "{{{BASE_URL}}}/Author/Book/feed.xml" },
+          ],
+        },
+        recovery: true,
+        ready: true,
+        subscriptions: [
+          { title: "01", author: "Author", url: "{{{BASE_URL}}}/Author/Book/feed.xml" },
+        ],
+      });
+    },
+  );
+
+  test("a failed older active source hint cannot consume a pending occurrence adopted by recovery", async () => {
+    // #given
+    const lib = await library();
+    await lib.audio("Removed/old.mp3");
+    await lib.audio("Keeper/Book/keep.mp3");
+    expect(await lib.app.runInitialSync()).toBe(true);
+    await rm(join(lib.filesPath, "Removed"), { recursive: true });
+    const oldEntered = deferred();
+    const releaseOld = deferred();
+    const planned = deferred();
+    cleanups.push(async () => {
+      releaseOld.resolve();
+    });
+    const readStat = lib.ctx.fs.stat;
+    const info = lib.ctx.logger.info;
+    let old = true;
+    lib.ctx.fs.stat = async (path) => {
+      if (path === join(lib.filesPath, "Removed") && old) {
+        old = false;
+
+        try {
+          await readStat(path);
+        } catch (error) {
+          if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+        }
+
+        oldEntered.resolve();
+        await releaseOld.promise;
+        throw Object.assign(new Error("older ordinary source operation denied"), {
+          code: "EACCES",
+        });
+      }
+
+      return readStat(path);
+    };
+
+    lib.ctx.logger.info = (tag, message, context) => {
+      info(tag, message, context);
+
+      if (tag === "InitialSync" && message === "Sync plan created") planned.resolve();
+    };
+
+    const hint = { parent: lib.filesPath, name: "Removed", events: "DELETE,ISDIR" };
+    lib.app.admitBooksEvent(hint);
+    await oldEntered.promise;
+    lib.app.admitBooksEvent(hint);
+    const app = new ApplicationLifecycle(lib.ctx);
+
+    // #when
+    const initial = app.runInitialSync();
+    await planned.promise;
+    await stat(join(lib.filesPath, "Keeper/Book/keep.mp3"));
+    releaseOld.resolve();
+    const successful = await initial;
+    await app.waitForIdle();
+
+    // #then
+    expect({
+      successful,
+      ready: app.isPublicationReady(),
+      subscriptions: await subscriptions(lib.dataPath),
+      removedCache: await Bun.file(join(lib.dataPath, "Removed/old.mp3/entry.xml")).exists(),
+    }).toEqual({
+      successful: true,
+      ready: true,
+      subscriptions: [
+        { title: "keep", author: "Keeper", url: "{{{BASE_URL}}}/Keeper/Book/feed.xml" },
+      ],
+      removedCache: false,
+    });
+  });
+
+  test.each(["direct", "adopted"])(
+    "%s same-folder covered work publishes readiness before held later duplicate traffic",
+    async (ownership) => {
+      // #given
+      const lib = await library();
+      await lib.audio("Author/Book/01.mp3");
+
+      for (let index = 0; index < 4; index++) await mkdir(join(lib.filesPath, `Traffic${index}`));
+      const laterEntered = deferred();
+      const releaseLater = deferred();
+      cleanups.push(async () => {
+        releaseLater.resolve();
+      });
+      const write = lib.ctx.fs.atomicWrite;
+      const info = lib.ctx.logger.info;
+      const source = lib.ctx.handlers.get("SourcePathSyncRequested")!;
+      let authorPublished = false;
+      let trafficQueued = false;
+      lib.ctx.fs.atomicWrite = async (path, content) => {
+        await write(path, content);
+
+        if (
+          path === join(lib.dataPath, "Author/_entry.xml") &&
+          content.includes("<feedCount>1</feedCount>")
+        )
+          authorPublished = true;
+      };
+
+      lib.ctx.logger.info = (tag, message, context) => {
+        info(tag, message, context);
+
+        if (
+          tag === "Consumer" &&
+          message === "Handler completed" &&
+          context?.path === join(lib.dataPath, "Author") &&
+          authorPublished &&
+          !trafficQueued
+        ) {
+          trafficQueued = true;
+
+          if (ownership === "adopted")
+            lib.ctx.queue.enqueue({ _tag: "FolderMetaSyncRequested", path: lib.dataPath });
+          lib.ctx.queue.enqueue({
+            _tag: "SourcePathSyncRequested",
+            path: join(lib.filesPath, "Traffic0"),
+            isDirectory: true,
+          });
+        }
+      };
+
+      lib.ctx.handlers.register("SourcePathSyncRequested", async (event, deps) => {
+        const result = await source(event, deps);
+
+        if (
+          event._tag === "SourcePathSyncRequested" &&
+          event.path.startsWith(join(lib.filesPath, "Traffic"))
+        ) {
+          const index = Number(event.path.slice(-1));
+          lib.ctx.queue.enqueue({ _tag: "FolderMetaSyncRequested", path: lib.dataPath });
+
+          if (index < 3) {
+            lib.ctx.queue.enqueue({
+              _tag: "SourcePathSyncRequested",
+              path: join(lib.filesPath, `Traffic${index + 1}`),
+              isDirectory: true,
+            });
+          } else {
+            laterEntered.resolve();
+            await releaseLater.promise;
+          }
+        }
+
+        return result;
+      });
+
+      // #when
+      const initial = lib.app.runInitialSync();
+      await laterEntered.promise;
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+
+      try {
+        // The deadline is only a failure diagnostic; successful publication is the evidence.
+        const successful = await Promise.race([
+          initial,
+          new Promise<never>((_, reject) => {
+            deadline = setTimeout(
+              () =>
+                reject(new Error("Covered pass remained blocked behind later same-folder traffic")),
+              1000,
+            );
+          }),
+        ]);
+
+        // #then
+        expect({
+          successful,
+          ready: lib.app.isPublicationReady(),
+          subscriptions: await subscriptions(lib.dataPath),
+          podcast: await podcast(lib.dataPath, "Author/Book"),
+        }).toEqual({
+          successful: true,
+          ready: true,
+          subscriptions: [
+            { title: "01", author: "Author", url: "{{{BASE_URL}}}/Author/Book/feed.xml" },
+          ],
+          podcast: {
+            title: "01",
+            author: "Author",
+            episodes: [{ title: "01", guid: "Author/Book/01.mp3", number: 1 }],
+          },
+        });
+      } finally {
+        clearTimeout(deadline);
+        releaseLater.resolve();
+        await initial;
+        await lib.app.waitForIdle();
+      }
+    },
+  );
+
   test("a held pass-final OPML snapshot cannot overwrite newer watcher subscription information", async () => {
     // #given
     const lib = await library();
@@ -707,9 +1143,10 @@ describe("source watcher publication through ApplicationLifecycle", () => {
     const initialWriteStarted = deferred();
     const releaseInitialWrite = deferred();
     const watcherOpmlStarted = deferred();
+    const newerWriteCompleted = deferred();
     const writeBase = lib.ctx.fs.atomicWrite;
     const readBase = lib.ctx.fs.readdir;
-    const infoBase = lib.ctx.logger.info;
+    const debugBase = lib.ctx.logger.debug;
     let initialWriteHeld = false;
     let watcherPublicationStarted = false;
     let concurrentCollection = false;
@@ -741,18 +1178,14 @@ describe("source watcher publication through ApplicationLifecycle", () => {
         initialWriteHeld = false;
       } else {
         await writeBase(path, content);
-        releaseInitialWrite.resolve();
+        newerWriteCompleted.resolve();
       }
     };
 
-    lib.ctx.logger.info = (tag, message, context) => {
-      infoBase(tag, message, context);
+    lib.ctx.logger.debug = (tag, message, context) => {
+      debugBase(tag, message, context);
 
-      if (
-        tag === "Consumer" &&
-        message === "Handler started" &&
-        (context?.event_tag === "FeedXmlCreated" || context?.event_tag === "FeedXmlChanged")
-      ) {
+      if (tag === "OpmlSync" && message === "Publication requested" && initialWriteHeld) {
         watcherPublicationStarted = true;
         watcherOpmlStarted.resolve();
       }
@@ -771,9 +1204,13 @@ describe("source watcher publication through ApplicationLifecycle", () => {
     ).toBe(true);
     await watcherOpmlStarted.promise;
 
+    // This completed real I/O crosses the lock-attempt continuation, including await undefined.
+    await stat(join(lib.filesPath, "Later/Other/02-new.mp3"));
+
     // A competing collector must finish its newer write before the held old snapshot.
     // A serialized collector can proceed only after the held write is released.
-    if (!concurrentCollection) releaseInitialWrite.resolve();
+    if (concurrentCollection) await newerWriteCompleted.promise;
+    releaseInitialWrite.resolve();
     const successful = await initial;
     await lib.app.waitForIdle();
 

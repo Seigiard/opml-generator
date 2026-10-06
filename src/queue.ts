@@ -101,8 +101,10 @@ export class UnrolledQueue<T> {
 
 export class SimpleQueue<T> {
   private buffer = new UnrolledQueue<T>();
-  private pendingKeys = new Set<string>();
+  private pendingKeys = new Map<string, T>();
   private dirtyKeys = new Set<string>();
+  private coveredKeys = new Set<string>();
+  private followups = new Map<string, T>();
   private active = 0;
   private paused = false;
   private readonly stopping = new AbortController();
@@ -119,7 +121,13 @@ export class SimpleQueue<T> {
     return this.getKey?.(item);
   }
 
-  enqueue(item: T): boolean {
+  pendingFor(item: T): T | undefined {
+    const key = this.keyFor(item);
+
+    return key ? this.pendingKeys.get(key) : undefined;
+  }
+
+  enqueue(item: T, covered = false): boolean {
     const waiter = this.paused ? undefined : this.waiters.shift();
 
     if (waiter) {
@@ -131,13 +139,22 @@ export class SimpleQueue<T> {
       const key = this.keyFor(item);
 
       if (key) {
+        if (covered) {
+          this.coveredKeys.add(key);
+          this.dirtyKeys.delete(key);
+        }
+
         if (this.pendingKeys.has(key)) {
-          this.dirtyKeys.add(key);
+          if (!covered && this.coveredKeys.has(key)) {
+            this.followups.set(key, item);
+          } else if (!covered) {
+            this.dirtyKeys.add(key);
+          }
 
           return false;
         }
 
-        this.pendingKeys.add(key);
+        this.pendingKeys.set(key, item);
       }
 
       this.buffer.push(item);
@@ -169,7 +186,7 @@ export class SimpleQueue<T> {
           continue;
         }
 
-        if (key) this.pendingKeys.delete(key);
+        if (key) this.releaseKey(key);
 
         this.active++;
 
@@ -214,6 +231,15 @@ export class SimpleQueue<T> {
     return this.buffer.length;
   }
 
+  private releaseKey(key: string): void {
+    this.pendingKeys.delete(key);
+    this.coveredKeys.delete(key);
+    const followup = this.followups.get(key);
+    this.followups.delete(key);
+
+    if (followup !== undefined) this.enqueue(followup);
+  }
+
   complete(): void {
     this.active--;
 
@@ -251,9 +277,11 @@ export class SimpleQueue<T> {
         continue;
       }
 
-      if (key) this.pendingKeys.delete(key);
+      const waiter = this.waiters.shift()!;
+
+      if (key) this.releaseKey(key);
       this.active++;
-      this.waiters.shift()!.resolve(item);
+      waiter.resolve(item);
     }
   }
 

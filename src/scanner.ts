@@ -5,22 +5,26 @@ import { AUDIO_EXTENSIONS } from "./types.ts";
 import { ENTRY_FILE } from "./constants.ts";
 import { isReusableEpisodeCache } from "./rss/episode-cache.ts";
 
-export async function scanFiles(rootPath: string): Promise<FileInfo[]> {
+export async function scanFiles(rootPath: string, signal?: AbortSignal): Promise<FileInfo[]> {
   const files: FileInfo[] = [];
 
   async function scan(dirPath: string): Promise<void> {
+    signal?.throwIfAborted();
     const entries = await readdir(dirPath, { withFileTypes: true });
+    signal?.throwIfAborted();
 
     for (const entry of entries) {
       const fullPath = join(dirPath, entry.name);
 
       if (entry.isDirectory()) {
         await scan(fullPath);
+        signal?.throwIfAborted();
       } else if (entry.isFile()) {
         const ext = extname(entry.name).slice(1).toLowerCase();
 
         if (AUDIO_EXTENSIONS.includes(ext)) {
           const fileStat = await stat(fullPath);
+          signal?.throwIfAborted();
           files.push({
             path: fullPath,
             relativePath: relative(rootPath, fullPath),
@@ -34,6 +38,7 @@ export async function scanFiles(rootPath: string): Promise<FileInfo[]> {
   }
 
   await scan(rootPath);
+  signal?.throwIfAborted();
 
   return files;
 }
@@ -88,12 +93,14 @@ export function buildFolderStructure(files: FileInfo[]): FolderInfo[] {
   return folders;
 }
 
-async function scanDataMirror(dataPath: string): Promise<Set<string>> {
+async function scanDataMirror(dataPath: string, signal?: AbortSignal): Promise<Set<string>> {
   const paths = new Set<string>();
 
   async function scan(dirPath: string, relativePath: string): Promise<void> {
     try {
+      signal?.throwIfAborted();
       const entries = await readdir(dirPath, { withFileTypes: true });
+      signal?.throwIfAborted();
 
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
@@ -102,17 +109,22 @@ async function scanDataMirror(dataPath: string): Promise<Set<string>> {
         const entryRelPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
         paths.add(entryRelPath);
         const hasAudioEntry = await Bun.file(join(entryPath, ENTRY_FILE)).exists();
+        signal?.throwIfAborted();
 
         if (!hasAudioEntry) {
           await scan(entryPath, entryRelPath);
+          signal?.throwIfAborted();
         }
       }
     } catch (error) {
+      signal?.throwIfAborted();
+
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
     }
   }
 
   await scan(dataPath, "");
+  signal?.throwIfAborted();
 
   return paths;
 }
@@ -123,9 +135,15 @@ export interface SyncPlan {
   folders: FolderInfo[];
 }
 
-export async function createSyncPlan(files: FileInfo[], dataPath: string): Promise<SyncPlan> {
+export async function createSyncPlan(
+  files: FileInfo[],
+  dataPath: string,
+  signal?: AbortSignal,
+): Promise<SyncPlan> {
+  signal?.throwIfAborted();
   const folders = buildFolderStructure(files);
-  const existingPaths = await scanDataMirror(dataPath);
+  const existingPaths = await scanDataMirror(dataPath, signal);
+  signal?.throwIfAborted();
 
   const currentFilePaths = new Set(files.map((f) => f.relativePath));
   const currentFolderPaths = new Set(folders.map((f) => f.path).filter((p) => p !== ""));
@@ -140,11 +158,18 @@ export async function createSyncPlan(files: FileInfo[], dataPath: string): Promi
 
     try {
       const entryStat = await stat(join(dataDir, ENTRY_FILE));
+      signal?.throwIfAborted();
 
-      if (file.mtime > entryStat.mtimeMs || !isReusableEpisodeCache(await entryFile.text(), file)) {
+      if (file.mtime > entryStat.mtimeMs) {
         toProcess.push(file);
+      } else {
+        const content = await entryFile.text();
+        signal?.throwIfAborted();
+
+        if (!isReusableEpisodeCache(content, file)) toProcess.push(file);
       }
     } catch {
+      signal?.throwIfAborted();
       // Unreadable metadata cannot be reused; the audio handler owns the rebuild result.
       toProcess.push(file);
     }

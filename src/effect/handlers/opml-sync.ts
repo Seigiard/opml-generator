@@ -1,7 +1,7 @@
 import { ok, err } from "neverthrow";
 import type { Result } from "neverthrow";
 import { join, relative } from "node:path";
-import { XMLParser } from "fast-xml-parser";
+import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { generateOpml } from "../../rss/opml.ts";
 import { encodeUrlPath } from "../../utils/processor.ts";
 import type { HandlerDeps, FileSystemService } from "../../context.ts";
@@ -30,13 +30,17 @@ const optionalText = z.string().optional().catch(undefined);
 const podcastFeedSchema = z.object({
   rss: z.object({
     channel: z.object({
-      title: z.unknown().optional(),
+      title: z.string().min(1),
       "itunes:author": optionalText,
       "itunes:image": z.object({ "@_href": optionalText }).optional().catch(undefined),
       description: optionalText,
     }),
   }),
 });
+
+const navigationFeedSchema = z.object({ feed: z.object({ title: z.string() }) });
+
+const absentPathError = z.object({ code: z.enum(["ENOENT", "ENOTDIR"]) });
 
 async function collectPodcastFeeds(
   dataRoot: string,
@@ -58,8 +62,9 @@ async function walkDirectory(
 
   try {
     items = await fs.readdir(dir);
-  } catch {
-    return;
+  } catch (error) {
+    if (absentPathError.safeParse(error).success) return;
+    throw error;
   }
 
   for (const item of items) {
@@ -78,8 +83,9 @@ async function walkDirectory(
       if (itemStat.isDirectory()) {
         await walkDirectory(itemPath, dataRoot, feeds, fs);
       }
-    } catch {
-      continue;
+    } catch (error) {
+      if (absentPathError.safeParse(error).success) continue;
+      throw error;
     }
   }
 }
@@ -91,7 +97,12 @@ async function parsePodcastFeed(
 ): Promise<DiscoveredFeed | null> {
   try {
     const content = await Bun.file(feedPath).text();
-    const parsed = podcastFeedSchema.parse(xmlParser.parse(content));
+
+    if (XMLValidator.validate(content) !== true) throw new Error(`Invalid feed XML: ${feedPath}`);
+    const document: unknown = xmlParser.parse(content);
+
+    if (navigationFeedSchema.safeParse(document).success) return null;
+    const parsed = podcastFeedSchema.parse(document);
 
     const channel = parsed?.rss?.channel;
     const channelTitle = channel?.title;
@@ -99,7 +110,7 @@ async function parsePodcastFeed(
     if (!channelTitle) return null;
 
     const relativePath = relative(dataRoot, feedDir);
-    const feedUrl = `/${encodeUrlPath(relativePath)}/${FEED_FILE}`;
+    const feedUrl = `/${encodeUrlPath(join(relativePath, FEED_FILE))}`;
 
     const feed: DiscoveredFeed = { title: String(channelTitle), feedUrl };
 
@@ -122,8 +133,9 @@ async function parsePodcastFeed(
     }
 
     return feed;
-  } catch {
-    return null;
+  } catch (error) {
+    if (absentPathError.safeParse(error).success) return null;
+    throw error;
   }
 }
 
@@ -164,7 +176,10 @@ export async function opmlSync(
   )
     return ok([]);
 
-  return withPublicationLock(deps.fs, () => publishOpml(event, deps));
+  const publication = withPublicationLock(deps.fs, () => publishOpml(event, deps));
+  deps.logger.debug("OpmlSync", "Publication requested", { trigger: event._tag });
+
+  return publication;
 }
 
 async function publishOpml(
@@ -179,8 +194,8 @@ async function publishOpml(
 
   try {
     feeds = await collectPodcastFeeds(config.dataPath, fs);
-  } catch {
-    feeds = [];
+  } catch (error) {
+    return err(error instanceof Error ? error : new Error(String(error)));
   }
 
   feeds.sort((a, b) => a.title.localeCompare(b.title));
