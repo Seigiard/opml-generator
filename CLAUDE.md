@@ -72,9 +72,9 @@ For concurrent E2E worktrees, use a distinct `COMPOSE_PROJECT_NAME` and port. Se
 <important if="you are finishing a task or about to commit">
 
 1. Run `bun run fix`. The policy is zero warnings and zero errors.
-2. Run `bun run test` and confirm 0 failures. Never commit untested code. If tests fail, fix them first.
-3. Run `npx knip`.
-4. Update this file when the change affects architecture, dependencies, commands, gotchas, or project structure. This file is the single source of truth for project context.
+2. Run `bun run test` and confirm 0 failures. Commit only after a green run.
+3. Run `npx knip` and resolve every new finding.
+4. Update this file when the change affects architecture, dependencies, commands, gotchas, or project structure.
 
 </important>
 
@@ -150,7 +150,7 @@ Read `docs/adr/0002-unrestricted-source-names-private-cache.md` first. It record
 
 Flow: source hints, data adapters, and sync plans → typed `EventType` → `SimpleQueue` → consumer loop (`queue.take(signal)`) → handler.
 
-- Handlers return `Result<readonly EventType[], Error>`. They never call each other: a cascade is the returned event list, and the consumer enqueues it. See `src/effect/handlers/`.
+- Handlers return `Result<readonly EventType[], Error>`. A cascade is the returned event list, and the consumer enqueues it; handlers stay independent of each other. See `src/effect/handlers/`.
 - Handlers get `HandlerDeps = Pick<AppContext, "config" | "logger" | "fs">`. `AppContext` also holds `dedup` (500 ms TTL filter), `queue`, `handlers`, and `lifecycle` (`PassLifecycle`). The filesystem service includes `lstat` and atomic writes. See `src/context.ts`.
 - The queue coalesces pending source-path and folder-metadata requests by path and ordinary OPML hints globally. Active deliveries remain counted until the consumer completes them.
 - Zod decodes watcher HTTP payloads at the input boundary. Handlers accept typed events only.
@@ -196,7 +196,6 @@ Flow: source hints, data adapters, and sync plans → typed `EventType` → `Sim
 <important if="you are writing or modifying tests, or tests are failing">
 
 - Unit tests (`test/unit/`) cover pure logic with mocked deps. Integration tests (`test/integration/`) need Docker for sharp and ffmpeg. Mocks and assertions are in `test/helpers/`.
-- Check that fixtures exist in `test/fixtures/audio/`.
 - Integration tests cover lifecycle passes, watcher publication, cache layout/boundaries, and real inotify transport. E2E covers nginx, resync auth, unrestricted source names, signals, deadlines, and captured-cache restart.
 - `test/e2e/shutdown.test.ts` builds isolated production containers. It mounts `shutdown-bootstrap.ts` through the internal `SERVER_MODULE` entrypoint seam; the bootstrap gates only real filesystem operations. The production server owns signals, HTTP, handlers, and shutdown. Tests observe real TERM, Docker terminal states, child wait statuses, and captured cache across restart. Run it alone with `bun test test/e2e/shutdown.test.ts` or through `bun run test:e2e`.
 - `bun run test:e2e` uses `tools/test-e2e.sh`. It preserves compose-start and test failures through graceful cleanup; teardown failure also fails an otherwise successful run.
