@@ -82,6 +82,7 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
           });
           ctx.lifecycle.enqueueCascades(ctx.queue, event, result.value);
         }
+
         ctx.lifecycle.complete(event, undefined, coalescingKey);
       } else {
         ctx.logger.error("Consumer", "handler failed", result.error, {

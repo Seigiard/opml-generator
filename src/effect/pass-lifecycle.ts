@@ -18,9 +18,11 @@ export class PassLifecycle {
   startPass(): string {
     const id = `pass-${++this.nextId}`;
     let resolve!: () => void;
+
     const promise = new Promise<void>((done) => {
       resolve = done;
     });
+
     this.passes.set(id, {
       id,
       pending: 0,
@@ -57,6 +59,7 @@ export class PassLifecycle {
 
     if (accepted) {
       state.pending++;
+
       if (key) state.directKeys.add(key);
 
       return;
@@ -88,6 +91,7 @@ export class PassLifecycle {
     const passId = event.__passId;
 
     if (passId) this.completePassEvent(passId, event, error);
+
     if (!key) return;
 
     for (const state of this.passes.values()) {
@@ -100,6 +104,7 @@ export class PassLifecycle {
     const state = this.passes.get(passId);
 
     if (!state) return;
+
     const key =
       event._tag === "FolderMetaSyncRequested" ? `${event._tag}:${event.path}` : undefined;
 
@@ -120,6 +125,7 @@ export class PassLifecycle {
     const state = this.passes.get(passId);
 
     if (!state) return;
+
     if (state.pending > 0) await state.promise;
 
     this.passes.delete(passId);

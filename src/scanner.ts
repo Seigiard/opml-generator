@@ -2,7 +2,8 @@ import { readdir, stat } from "node:fs/promises";
 import { join, extname, relative } from "node:path";
 import type { FileInfo, FolderInfo } from "./types.ts";
 import { AUDIO_EXTENSIONS } from "./types.ts";
-import { ENTRY_FILE, FOLDER_ENTRY_FILE } from "./constants.ts";
+import { ENTRY_FILE } from "./constants.ts";
+import { isReusableEpisodeCache } from "./rss/episode-cache.ts";
 
 export async function scanFiles(rootPath: string): Promise<FileInfo[]> {
   const files: FileInfo[] = [];
@@ -97,25 +98,17 @@ async function scanDataMirror(dataPath: string): Promise<Set<string>> {
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
 
-        if (entry.name.startsWith("_")) continue;
-
         const entryPath = join(dirPath, entry.name);
         const entryRelPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
-
+        paths.add(entryRelPath);
         const hasAudioEntry = await Bun.file(join(entryPath, ENTRY_FILE)).exists();
-        const hasFolderEntry = await Bun.file(join(entryPath, FOLDER_ENTRY_FILE)).exists();
 
-        if (hasAudioEntry) {
-          paths.add(entryRelPath);
-        } else if (hasFolderEntry) {
-          paths.add(entryRelPath);
-          await scan(entryPath, entryRelPath);
-        } else {
+        if (!hasAudioEntry) {
           await scan(entryPath, entryRelPath);
         }
       }
-    } catch {
-      // Directory doesn't exist
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
     }
   }
 
@@ -145,20 +138,22 @@ export async function createSyncPlan(files: FileInfo[], dataPath: string): Promi
     const dataDir = join(dataPath, file.relativePath);
     const entryFile = Bun.file(join(dataDir, ENTRY_FILE));
 
-    if (!(await entryFile.exists())) {
-      toProcess.push(file);
-    } else {
+    try {
       const entryStat = await stat(join(dataDir, ENTRY_FILE));
 
-      if (file.mtime > entryStat.mtimeMs) {
+      if (file.mtime > entryStat.mtimeMs || !isReusableEpisodeCache(await entryFile.text(), file)) {
         toProcess.push(file);
       }
+    } catch {
+      // Unreadable metadata cannot be reused; the audio handler owns the rebuild result.
+      toProcess.push(file);
     }
   }
 
   for (const path of existingPaths) {
     if (!currentFilePaths.has(path) && !currentFolderPaths.has(path)) {
-      toDelete.push(path);
+      // A removed subtree needs one cleanup, not cascades into its removed descendants.
+      if (!toDelete.some((parent) => path.startsWith(`${parent}/`))) toDelete.push(path);
     }
   }
 

@@ -1,9 +1,18 @@
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type { AppContext } from "./context.ts";
 import { OPML_FILE } from "./constants.ts";
 import { adaptSyncPlan } from "./effect/adapters/sync-plan-adapter.ts";
 import { opmlSync } from "./effect/handlers/opml-sync.ts";
 import { createSyncPlan, scanFiles } from "./scanner.ts";
+
+async function waitForInterval(ms: number, signal: AbortSignal): Promise<void> {
+  try {
+    await delay(ms, undefined, { signal });
+  } catch (error) {
+    if (!signal.aborted) throw error;
+  }
+}
 
 export class ApplicationLifecycle {
   private admissionReady = false;
@@ -28,12 +37,32 @@ export class ApplicationLifecycle {
     return this.syncing;
   }
 
+  async startReconciliation(
+    signal: AbortSignal,
+    wait: (ms: number, signal: AbortSignal) => Promise<void> = waitForInterval,
+  ): Promise<void> {
+    if (this.ctx.config.reconcileInterval <= 0) return;
+
+    const intervalMs = this.ctx.config.reconcileInterval * 1000;
+    let passTask: Promise<boolean> | undefined;
+
+    try {
+      while (!signal.aborted) {
+        await wait(intervalMs, signal);
+
+        if (signal.aborted) break;
+
+        if (this.syncing) continue;
+
+        passTask = this.runPublicationPass("Reconciliation");
+      }
+    } finally {
+      await passTask;
+    }
+  }
+
   async runInitialSync(): Promise<boolean> {
-    const successful = await this.runPublicationPass("InitialSync");
-
-    if (successful) this.publicationReady = true;
-
-    return successful;
+    return this.runPublicationPass("InitialSync");
   }
 
   async runPublicationPass(logTag: string): Promise<boolean> {
@@ -43,6 +72,7 @@ export class ApplicationLifecycle {
 
     try {
       await this.publishCurrentCatalog(logTag);
+      this.publicationReady = true;
 
       return true;
     } catch (error) {

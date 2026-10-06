@@ -142,7 +142,14 @@ nginx:80 (external)          Bun:3000 (localhost only)
 
 ## Architecture: Sync Lifecycle
 
-Initial sync runs through `ApplicationLifecycle` as a lifecycle-owned pass. The pass tags its planned events and mandatory cascades, waits for active handlers as well as queued work, preserves ownership across coalesced `FolderMetaSyncRequested` events, suppresses intermediate OPML writes from pass-scoped `FeedXmlCreated`/`FeedXmlDeleted` hints, and writes one final `feed.opml` after covered RSS work completes. Watcher event admission is ready before publication readiness; nginx `GET /ready` proxies Bun readiness and returns 200 only after a successful initial pass. Accepted synchronization decisions live in `docs/adr/0001-filesystem-authoritative-synchronization.md`.
+Initial sync and reconciliation run through `ApplicationLifecycle` as lifecycle-owned passes. A pass tags its planned events and mandatory cascades, waits for active handlers and queued covered work, preserves ownership across coalesced `FolderMetaSyncRequested` events, suppresses intermediate OPML writes from pass-scoped feed hints, and writes one final `feed.opml` after covered RSS work completes. Watcher admission is ready before publication readiness. A successful recovery pass can establish readiness after failed startup; nginx `GET /ready` proxies this state. Accepted synchronization decisions live in `docs/adr/0001-filesystem-authoritative-synchronization.md`.
+
+### Publication Recovery
+
+- Scanner cache reuse requires a fresh `entry.xml` timestamp and valid episode XML, including source path identity, file size, MIME type, and usable dates and numbers. `src/rss/episode-cache.ts` owns this validation.
+- Every pass regenerates the audio-derived folder hierarchy and RSS, even when all episode metadata is reusable. Final OPML publication repairs missing or stale navigation without watcher notifications.
+- Cache scanning includes directories with missing metadata markers. Cleanup removes only the highest obsolete subtree so descendant cascades cannot recreate removed folders.
+- `ApplicationLifecycle.startReconciliation()` owns interval scheduling. Busy intervals are skipped without a deferred run; the next configured interval retries. Interval `0` creates no timer. Pass failures retain their unsuccessful result while independent handlers continue.
 
 ## Architecture: Event Processing
 
