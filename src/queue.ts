@@ -103,6 +103,8 @@ export class SimpleQueue<T> {
   private buffer = new UnrolledQueue<T>();
   private pendingKeys = new Set<string>();
   private dirtyKeys = new Set<string>();
+  private active = 0;
+  private idleWaiters: Array<() => void> = [];
   private waiters: Array<{
     resolve: (item: T) => void;
   }> = [];
@@ -117,6 +119,7 @@ export class SimpleQueue<T> {
     const waiter = this.waiters.shift();
 
     if (waiter) {
+      this.active++;
       waiter.resolve(item);
 
       return true;
@@ -162,6 +165,8 @@ export class SimpleQueue<T> {
 
         if (key) this.pendingKeys.delete(key);
 
+        this.active++;
+
         return item;
       }
     }
@@ -190,5 +195,18 @@ export class SimpleQueue<T> {
 
   get size(): number {
     return this.buffer.length;
+  }
+
+  complete(): void {
+    this.active--;
+
+    if (this.active !== 0 || this.buffer.length !== 0) return;
+
+    for (const resolve of this.idleWaiters.splice(0)) resolve();
+  }
+
+  async whenIdle(): Promise<void> {
+    if (this.active === 0 && this.buffer.length === 0) return;
+    await new Promise<void>((resolve) => this.idleWaiters.push(resolve));
   }
 }

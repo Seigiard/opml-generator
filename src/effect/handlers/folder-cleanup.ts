@@ -33,9 +33,8 @@ export async function folderCleanup(
 
   const parentDataDir = dirname(folderDataDir);
 
-  if (parentDataDir !== config.dataPath && parentDataDir !== ".") {
-    return ok([{ _tag: "FolderMetaSyncRequested", path: parentDataDir }] as const);
-  }
-
-  return ok([]);
+  return ok([
+    { _tag: "FolderMetaSyncRequested", path: parentDataDir },
+    { _tag: "FeedXmlDeleted", path: folderDataDir },
+  ]);
 }

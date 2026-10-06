@@ -234,14 +234,4 @@ describe("audioSync handler", () => {
     const pubDate = new Date(pubDateMatch![1]!);
     expect(Number.isNaN(pubDate.getTime())).toBe(false);
   });
-
-  test("returns empty cascade array", async () => {
-    // #given
-    await copyFile(join(FIXTURES_DIR, "tagged.mp3"), join(FILES_DIR, "track.mp3"));
-    // #when
-    const result = await audioSync(audioFileCreatedEvent("track.mp3"), realDeps());
-    // #then
-    expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual([]);
-  });
 });

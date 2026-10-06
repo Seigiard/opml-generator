@@ -4,6 +4,8 @@ import { OPML_FILE } from "./constants.ts";
 import { adaptSyncPlan } from "./effect/adapters/sync-plan-adapter.ts";
 import { opmlSync } from "./effect/handlers/opml-sync.ts";
 import { createSyncPlan, scanFiles } from "./scanner.ts";
+import { adaptBooksEvent } from "./effect/adapters/books-adapter.ts";
+import type { RawBooksEvent } from "./effect/types.ts";
 
 export class ApplicationLifecycle {
   private admissionReady = false;
@@ -18,6 +20,25 @@ export class ApplicationLifecycle {
 
   isAdmissionReady(): boolean {
     return this.admissionReady;
+  }
+
+  admitBooksEvent(raw: RawBooksEvent): boolean {
+    if (!this.admissionReady) return false;
+    const event = adaptBooksEvent(raw, { shouldProcess: () => true });
+
+    if (event && "parent" in event && "name" in event) {
+      this.ctx.queue.enqueue({
+        _tag: "SourcePathSyncRequested",
+        path: join(event.parent, event.name),
+        isDirectory: event._tag === "FolderCreated" || event._tag === "FolderDeleted",
+      });
+    }
+
+    return true;
+  }
+
+  async waitForIdle(): Promise<void> {
+    await this.ctx.queue.whenIdle();
   }
 
   isPublicationReady(): boolean {

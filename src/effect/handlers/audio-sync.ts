@@ -92,7 +92,7 @@ export async function audioSync(
 
     logger.info("AudioSync", "Done", { path: relativePath, episode: episodeNumber });
 
-    return ok([]);
+    return ok([{ _tag: "FolderMetaSyncRequested", path: folderDataDir }]);
   } catch (error) {
     return err(error instanceof Error ? error : new Error(String(error)));
   }

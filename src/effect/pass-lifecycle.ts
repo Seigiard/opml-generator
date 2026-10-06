@@ -18,9 +18,11 @@ export class PassLifecycle {
   startPass(): string {
     const id = `pass-${++this.nextId}`;
     let resolve!: () => void;
+
     const promise = new Promise<void>((done) => {
       resolve = done;
     });
+
     this.passes.set(id, {
       id,
       pending: 0,
@@ -57,6 +59,7 @@ export class PassLifecycle {
 
     if (accepted) {
       state.pending++;
+
       if (key) state.directKeys.add(key);
 
       return;
@@ -73,21 +76,31 @@ export class PassLifecycle {
     parent: PassScopedEvent,
     cascades: readonly EventType[],
   ): void {
-    const passId = parent.__passId;
+    const owners = new Set<string>();
 
-    if (!passId) {
+    if (parent.__passId) owners.add(parent.__passId);
+    const key = queue.keyFor(parent);
+
+    if (key) {
+      for (const state of this.passes.values()) {
+        if (state.coalescedKeys.has(key)) owners.add(state.id);
+      }
+    }
+
+    if (owners.size === 0) {
       queue.enqueueMany(cascades);
 
       return;
     }
 
-    this.enqueueMany(queue, cascades, passId);
+    for (const passId of owners) this.enqueueMany(queue, cascades, passId);
   }
 
   complete(event: PassScopedEvent, error?: Error, key?: string | null): void {
     const passId = event.__passId;
 
-    if (passId) this.completePassEvent(passId, event, error);
+    if (passId) this.completePassEvent(passId, error, key);
+
     if (!key) return;
 
     for (const state of this.passes.values()) {
@@ -96,12 +109,10 @@ export class PassLifecycle {
     }
   }
 
-  private completePassEvent(passId: string, event: PassScopedEvent, error?: Error): void {
+  private completePassEvent(passId: string, error?: Error, key?: string | null): void {
     const state = this.passes.get(passId);
 
     if (!state) return;
-    const key =
-      event._tag === "FolderMetaSyncRequested" ? `${event._tag}:${event.path}` : undefined;
 
     if (key) state.directKeys.delete(key);
     this.completePassState(state, error);
@@ -120,6 +131,7 @@ export class PassLifecycle {
     const state = this.passes.get(passId);
 
     if (!state) return;
+
     if (state.pending > 0) await state.promise;
 
     this.passes.delete(passId);

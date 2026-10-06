@@ -250,31 +250,4 @@ describe("Handler integration", () => {
       expect(cascades[0]).toEqual({ _tag: "FolderMetaSyncRequested", path: "/test/data/Fiction" });
     });
   });
-
-  describe("folderCleanup cascade", () => {
-    test("returns cascade event to regenerate parent feed for nested folders", async () => {
-      // #when
-      const result = await folderCleanup(
-        folderDeletedEvent("/test/audiobooks/Fiction/", "SciFi"),
-        makeDeps(),
-      );
-
-      // #then
-      const cascades = result._unsafeUnwrap();
-      expect(cascades).toHaveLength(1);
-      expect(cascades[0]).toEqual({ _tag: "FolderMetaSyncRequested", path: "/test/data/Fiction" });
-    });
-
-    test("returns empty cascades for top-level folder deletion", async () => {
-      // #when
-      const result = await folderCleanup(
-        folderDeletedEvent("/test/audiobooks/", "Fiction"),
-        makeDeps(),
-      );
-
-      // #then
-      const cascades = result._unsafeUnwrap();
-      expect(cascades).toHaveLength(0);
-    });
-  });
 });

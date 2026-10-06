@@ -133,9 +133,20 @@ export async function buildContext(): Promise<AppContext> {
     },
   };
 
-  const queue = new SimpleQueue<PassScopedEvent>((event) =>
-    event._tag === "FolderMetaSyncRequested" ? `${event._tag}:${event.path}` : undefined,
-  );
+  const queue = new SimpleQueue<PassScopedEvent>((event) => {
+    if (event._tag === "FolderMetaSyncRequested" || event._tag === "SourcePathSyncRequested")
+      return `${event._tag}:${event.path}`;
+
+    if (
+      event.__passId == null &&
+      (event._tag === "FeedXmlCreated" ||
+        event._tag === "FeedXmlDeleted" ||
+        event._tag === "FeedXmlChanged")
+    )
+      return "OPML";
+
+    return undefined;
+  });
 
   const handlerMap = new Map<string, AsyncHandler>();
 

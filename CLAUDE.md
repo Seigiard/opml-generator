@@ -114,7 +114,7 @@ src/
 │   │   ├── books-adapter.ts    # /audiobooks watcher events
 │   │   ├── data-adapter.ts     # /data watcher events
 │   │   └── sync-plan-adapter.ts # Initial sync → events
-│   └── handlers/    # audio-sync, folder-sync, opml-sync, etc.
+│   └── handlers/    # source-path-sync, audio-sync, folder-sync, opml-sync, etc.
 ├── audio/           # Audio metadata extraction
 │   ├── types.ts     # AudioMetadata interface
 │   ├── id3-reader.ts # music-metadata via parseBuffer() (NOT parseFile)
@@ -142,12 +142,14 @@ nginx:80 (external)          Bun:3000 (localhost only)
 
 ## Architecture: Sync Lifecycle
 
-Initial sync runs through `ApplicationLifecycle` as a lifecycle-owned pass. The pass tags its planned events and mandatory cascades, waits for active handlers as well as queued work, preserves ownership across coalesced `FolderMetaSyncRequested` events, suppresses intermediate OPML writes from pass-scoped `FeedXmlCreated`/`FeedXmlDeleted` hints, and writes one final `feed.opml` after covered RSS work completes. Watcher event admission is ready before publication readiness; nginx `GET /ready` proxies Bun readiness and returns 200 only after a successful initial pass. Accepted synchronization decisions live in `docs/adr/0001-filesystem-authoritative-synchronization.md`.
+Initial sync runs through `ApplicationLifecycle` as a lifecycle-owned pass. The pass tags its planned events and mandatory cascades, waits for active handlers as well as queued work, and preserves ownership through cascades of coalesced metadata events. It suppresses pass-scoped `FeedXmlCreated`/`FeedXmlChanged`/`FeedXmlDeleted` hints and writes one final `feed.opml` after covered RSS work completes. OPML collection and writing are serialized per filesystem service so ordinary watcher publication cannot race the pass-final write. Watcher admission is ready before publication readiness; nginx `GET /ready` proxies Bun readiness and returns 200 only after a successful initial pass. Accepted synchronization decisions live in `docs/adr/0001-filesystem-authoritative-synchronization.md`.
+
+Source notifications enter through `ApplicationLifecycle.admitBooksEvent()`. They enqueue `SourcePathSyncRequested` hints, which check current filesystem state and reconcile directory descendants. Pending hints coalesce by path. Admission avoids TTL filtering because a repeated notification can describe a newer same-path replacement. Scan-planned deletions use the same current-state check. Audio metadata writes trigger folder RSS directly; folder RSS triggers parent navigation and OPML, including changes to existing podcast information. Empty cache branches are pruned only when their source subtree has no supported audio. `waitForIdle()` observes pending events and active consumer work for integration callers; pass completion remains scoped to the pass.
 
 ## Architecture: Event Processing
 
 1. **Adapters** (`adapters/*.ts`) — raw inotify → typed EventType
-2. **Queue** (`SimpleQueue<EventType>`) — unrolled linked list + Promise waiters; pending `FolderMetaSyncRequested` events are coalesced by path and moved behind later queued work
+2. **Queue** (`SimpleQueue<EventType>`) — unrolled linked list + Promise waiters; pending source-path and folder-metadata requests coalesce by path, ordinary OPML hints coalesce globally, and active deliveries remain counted until the consumer completes them
 3. **Consumer** (`consumer.ts`) — `while (!signal.aborted)` loop with `queue.take(signal)`
 4. **Handlers** (`handlers/*.ts`) — return `Result<EventType[], Error>` for cascades
 

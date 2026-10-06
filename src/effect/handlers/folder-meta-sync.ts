@@ -1,6 +1,6 @@
 import { ok, err } from "neverthrow";
 import type { Result } from "neverthrow";
-import { join, relative, dirname } from "node:path";
+import { join, relative, dirname, extname, basename } from "node:path";
 import { XMLParser, XMLBuilder } from "fast-xml-parser";
 import { generatePodcastRss } from "../../rss/podcast-rss.ts";
 import type { EpisodeInfo, PodcastInfo } from "../../rss/types.ts";
@@ -8,8 +8,9 @@ import { encodeUrlPath, naturalSort, normalizeFilenameTitle } from "../../utils/
 import type { HandlerDeps, FileSystemService } from "../../context.ts";
 import type { EventType } from "../types.ts";
 import { FEED_FILE, ENTRY_FILE, FOLDER_ENTRY_FILE, COVER_FILE } from "../../constants.ts";
+import { AUDIO_EXTENSIONS } from "../../types.ts";
 
-const xmlParser = new XMLParser();
+const xmlParser = new XMLParser({ parseTagValue: false });
 
 const xmlBuilder = new XMLBuilder({
   ignoreAttributes: false,
@@ -105,22 +106,31 @@ export async function folderMetaSync(
 
   const normalizedDir = folderDataDir.endsWith("/") ? folderDataDir.slice(0, -1) : folderDataDir;
   const relativePath = relative(config.dataPath, normalizedDir);
+  const sourceFolder = join(config.filesPath, relativePath);
 
   if (relativePath !== "") {
-    const sourceFolder = join(config.filesPath, relativePath);
     let sourceFolderExists = false;
 
     try {
       const s = await fs.stat(sourceFolder);
       sourceFolderExists = s.isDirectory();
-    } catch {
-      sourceFolderExists = false;
+    } catch (error) {
+      if (
+        !(
+          error instanceof Error &&
+          "code" in error &&
+          (error.code === "ENOENT" || error.code === "ENOTDIR")
+        )
+      )
+        return err(error instanceof Error ? error : new Error(String(error)));
     }
 
     if (!sourceFolderExists) {
       logger.debug("FolderMetaSync", "Skipping (source folder deleted)", { path: relativePath });
 
-      return ok([]);
+      return ok([
+        { _tag: "FolderDeleted", parent: dirname(sourceFolder), name: basename(sourceFolder) },
+      ]);
     }
   }
 
@@ -137,7 +147,8 @@ export async function folderMetaSync(
       const children = await collectChildren(normalizedDir, fs);
       episodes = children.episodes;
       folders = children.folders;
-    } catch {
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
       episodes = [];
       folders = [];
     }
@@ -145,29 +156,28 @@ export async function folderMetaSync(
     const hasEpisodes = episodes.length > 0;
     const hasFolders = folders.length > 0;
 
-    if (!hasEpisodes && !hasFolders && feedExistedBefore) {
-      try {
-        await fs.rm(feedOutputPath);
-      } catch {
-        // ignore
-      }
-
-      logger.info("FolderMetaSync", "Deleted empty feed.xml", { path: relativePath || "/" });
-
-      if (relativePath !== "") {
-        const entryOutputPath = join(normalizedDir, FOLDER_ENTRY_FILE);
-        const entryExists = await fs.exists(entryOutputPath);
-
-        if (entryExists) {
-          try {
-            await fs.rm(entryOutputPath);
-          } catch {
-            // ignore
-          }
+    if (!hasEpisodes && !hasFolders) {
+      if (relativePath === "") {
+        if (feedExistedBefore) await fs.rm(feedOutputPath);
+      } else if (!(await containsSourceAudio(sourceFolder, fs))) {
+        try {
+          await fs.rm(normalizedDir, { recursive: true });
+        } catch (error) {
+          if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
         }
+      } else {
+        if (feedExistedBefore) await fs.rm(feedOutputPath);
+        const entryOutputPath = join(normalizedDir, FOLDER_ENTRY_FILE);
+
+        if (await fs.exists(entryOutputPath)) await fs.rm(entryOutputPath);
       }
 
-      return ok([{ _tag: "FeedXmlDeleted" as const, path: normalizedDir }]);
+      const cascades: EventType[] = [{ _tag: "FeedXmlDeleted", path: normalizedDir }];
+
+      if (relativePath !== "")
+        cascades.unshift({ _tag: "FolderMetaSyncRequested", path: dirname(normalizedDir) });
+
+      return ok(cascades);
     }
 
     if (hasEpisodes) {
@@ -261,14 +271,36 @@ export async function folderMetaSync(
 
     const cascades: EventType[] = [];
 
-    if (!feedExistedBefore && (hasEpisodes || hasFolders)) {
-      cascades.push({ _tag: "FeedXmlCreated", path: normalizedDir });
+    if (relativePath !== "") {
+      cascades.push({ _tag: "FolderMetaSyncRequested", path: dirname(normalizedDir) });
+    }
+
+    if (hasEpisodes || hasFolders) {
+      cascades.push({
+        _tag: feedExistedBefore ? "FeedXmlChanged" : "FeedXmlCreated",
+        path: normalizedDir,
+      });
     }
 
     return ok(cascades);
   } catch (error) {
     return err(error instanceof Error ? error : new Error(String(error)));
   }
+}
+
+async function containsSourceAudio(dir: string, fs: FileSystemService): Promise<boolean> {
+  for (const name of await fs.readdir(dir)) {
+    const path = join(dir, name);
+    const current = await fs.stat(path);
+
+    if (current.isDirectory()) {
+      if (await containsSourceAudio(path, fs)) return true;
+    } else if (AUDIO_EXTENSIONS.includes(extname(name).slice(1).toLowerCase())) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 async function collectChildren(
@@ -281,8 +313,6 @@ async function collectChildren(
   const items = await fs.readdir(dir);
 
   for (const item of items) {
-    if (item.startsWith("_")) continue;
-
     if (item === FEED_FILE || item.endsWith(".tmp")) continue;
 
     const itemPath = join(dir, item);
@@ -305,7 +335,7 @@ async function collectChildren(
       const content = await folderFile.text();
       const parsed = parseFolderEntryXml(content);
 
-      if (parsed) folders.push(parsed);
+      if (parsed && parsed.feedCount > 0) folders.push(parsed);
     }
   }
 

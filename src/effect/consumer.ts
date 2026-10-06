@@ -21,7 +21,10 @@ export function getEventPath(event: EventType): string | undefined {
 
 function isPassFinalOpmlHint(event: PassScopedEvent): boolean {
   return (
-    event.__passId != null && (event._tag === "FeedXmlCreated" || event._tag === "FeedXmlDeleted")
+    event.__passId != null &&
+    (event._tag === "FeedXmlCreated" ||
+      event._tag === "FeedXmlDeleted" ||
+      event._tag === "FeedXmlChanged")
   );
 }
 
@@ -44,6 +47,7 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
 
     if (!handler || isPassFinalOpmlHint(event)) {
       ctx.lifecycle.complete(event, undefined, coalescingKey);
+      ctx.queue.complete();
       continue;
     }
 
@@ -82,6 +86,7 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
           });
           ctx.lifecycle.enqueueCascades(ctx.queue, event, result.value);
         }
+
         ctx.lifecycle.complete(event, undefined, coalescingKey);
       } else {
         ctx.logger.error("Consumer", "handler failed", result.error, {
@@ -102,6 +107,8 @@ export async function startConsumer(ctx: AppContext, signal: AbortSignal): Promi
         coalescingKey,
       );
     }
+
+    ctx.queue.complete();
 
     if (++eventCount % 100 === 0) Bun.gc(true);
   }

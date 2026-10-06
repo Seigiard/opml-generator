@@ -2,8 +2,7 @@ import { rm, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "./config.ts";
 import { log } from "./logging/index.ts";
-import type { RawBooksEvent, RawDataEvent } from "./effect/types.ts";
-import { adaptBooksEvent } from "./effect/adapters/books-adapter.ts";
+import type { RawDataEvent } from "./effect/types.ts";
 import { adaptDataEvent } from "./effect/adapters/data-adapter.ts";
 import { startConsumer } from "./effect/consumer.ts";
 import { registerHandlers } from "./effect/handlers/index.ts";
@@ -71,18 +70,6 @@ async function startReconciliation(
   }
 }
 
-function handleBooksEvent(body: RawBooksEvent, ctx: AppContext) {
-  const event = adaptBooksEvent(body, ctx.dedup);
-
-  if (event === null) {
-    return { status: 202, message: "Deduplicated" };
-  }
-
-  ctx.queue.enqueue(event);
-
-  return { status: 202, message: "OK" };
-}
-
 function handleDataEvent(body: RawDataEvent, ctx: AppContext) {
   const event = adaptDataEvent(body, ctx.dedup);
 
@@ -130,9 +117,11 @@ async function main(): Promise<void> {
               return new Response("Invalid event", { status: 400 });
             }
 
-            const result = handleBooksEvent(parsed.data, ctx);
+            const accepted = lifecycle.admitBooksEvent(parsed.data);
 
-            return new Response(result.message, { status: result.status });
+            return new Response(accepted ? "OK" : "Queue not ready", {
+              status: accepted ? 202 : 503,
+            });
           } catch (error) {
             log.error("Server", "Failed to process books event", error);
 

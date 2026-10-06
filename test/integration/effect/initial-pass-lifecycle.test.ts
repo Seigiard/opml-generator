@@ -9,17 +9,17 @@ import { registerHandlers } from "../../../src/effect/handlers/index.ts";
 import { createFileStructure, createTempDir, cleanupTempDir } from "../../helpers/fs-helpers.ts";
 
 const tempDirs: string[] = [];
+
 const controllers: AbortController[] = [];
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+
+  const promise = new Promise<T>((resolvePromise) => {
     resolve = resolvePromise;
-    reject = rejectPromise;
   });
 
-  return { promise, resolve, reject };
+  return { promise, resolve };
 }
 
 function realFs(): FileSystemService {
@@ -50,6 +50,7 @@ function realFs(): FileSystemService {
       } catch {
         // missing link is fine
       }
+
       await symlink(target, path);
     },
     unlink: (path) => unlink(path),
@@ -89,9 +90,11 @@ async function makeTempContext(): Promise<{
         ...fs,
         atomicWrite: async (path, content) => {
           if (path.endsWith("feed.opml")) opmlWrites.push(content);
+
           if (path.endsWith("feed.opml") && shouldFailOpmlWrites) {
             throw new Error("controlled OPML write failure");
           }
+
           await fs.atomicWrite(path, content);
         },
       },
@@ -133,6 +136,7 @@ describe("initial synchronization lifecycle", () => {
     const passTask = app.runInitialSync().then(() => {
       passFinished = true;
     });
+
     await handlerStarted.promise;
 
     // #then
@@ -217,6 +221,7 @@ describe("initial synchronization lifecycle", () => {
     const initialTask = app.runInitialSync().then((successful) => {
       initialFinished = successful;
     });
+
     await initialHandlerStarted.promise;
     releaseInitialHandler.resolve();
     await liveHandlerStarted.promise;
@@ -260,6 +265,7 @@ describe("initial synchronization lifecycle", () => {
     const initialTask = app.runInitialSync().then((successful) => {
       initialFinished = successful;
     });
+
     await mergedHandlerStarted.promise;
     await Promise.resolve();
 
