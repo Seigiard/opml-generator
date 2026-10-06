@@ -108,6 +108,15 @@ docker compose up -d --build
 | `GET /audiobooks/{path}`    | Stream audio file (supports Range requests) |
 | `GET /static/*`             | Static assets                               |
 | `POST /resync`              | Trigger full resync (requires Basic Auth)   |
+| `GET /ready`                | Publication readiness (`200` or `503`)      |
+
+`/resync` returns `202` when the rebuild is accepted. This response does not mean
+that publication is complete. During initial sync, reconciliation, or another
+resync, it returns `409` and does not defer the request. Resync waits for the
+active handler before clearing generated data and rereading source metadata.
+Source notifications remain accepted during the reset and rebuild. `/ready`
+returns `503` after reset starts and `200` after successful publication. A failed
+rebuild releases the pass so an authenticated retry can recover publication.
 
 Returns 503 with `Retry-After: 5` if `feed.opml` doesn't exist yet (initial sync in progress).
 

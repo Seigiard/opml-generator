@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { z } from "zod";
+import { XMLParser } from "fast-xml-parser";
 
 const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:8080";
 
@@ -70,7 +71,9 @@ async function getLogsSince(since: string): Promise<LogEntry[]> {
   ]);
 
   const output = await new Response(proc.stdout).text();
-  await proc.exited;
+  const status = await proc.exited;
+
+  if (status !== 0) throw new Error(`docker compose logs failed: ${status}`);
 
   return output
     .trim()
@@ -128,6 +131,98 @@ function getDockerTimestamp(): string {
   return new Date().toISOString();
 }
 
+const publicationParser = new XMLParser({ ignoreAttributes: false });
+
+const publishedPodcastSchema = z.object({
+  rss: z.object({
+    channel: z.object({ item: z.object({ guid: z.object({ "#text": z.string() }) }) }),
+  }),
+});
+
+const publishedOpmlSchema = z.object({
+  opml: z.object({ body: z.object({ outline: z.array(z.object({ "@_xmlUrl": z.string() })) }) }),
+});
+
+async function opmlPaths(): Promise<string[]> {
+  const response = await fetch(`${BASE_URL}/feed.opml`);
+
+  if (response.status !== 200) throw new Error(`OPML request failed: ${response.status}`);
+  const opml = publishedOpmlSchema.parse(publicationParser.parse(await response.text()));
+
+  return opml.opml.body.outline.map((outline) => new URL(outline["@_xmlUrl"]).pathname).sort();
+}
+
+async function waitForHandlerCompletion(
+  since: string,
+  path: string,
+  tag = "SourcePathSyncRequested",
+): Promise<LogEntry[]> {
+  const deadline = Date.now() + 10_000;
+
+  while (Date.now() < deadline) {
+    const logs = await getLogsSince(since);
+
+    if (
+      logs.some(
+        (entry) =>
+          entry.event_tag === tag && entry.path === path && entry.event_type === "handler_complete",
+      )
+    )
+      return logs;
+    await Bun.sleep(50);
+  }
+
+  throw new Error(`${tag} handler did not complete: ${path}`);
+}
+
+function sourceTrace(logs: LogEntry[], path: string): string[] {
+  const events = logs.flatMap((entry) =>
+    entry.event_tag === "SourcePathSyncRequested" &&
+    entry.path === path &&
+    (entry.event_type === "handler_start" || entry.event_type === "handler_complete")
+      ? [entry.event_type]
+      : [],
+  );
+
+  return [...new Set(events)].sort();
+}
+
+async function waitForPodcast(
+  path: string,
+  expectedGuid: string,
+): Promise<{ status: number; guid: string }> {
+  const deadline = Date.now() + 10_000;
+
+  while (Date.now() < deadline) {
+    const response = await fetch(`${BASE_URL}${path}`);
+
+    if (response.status === 200) {
+      const podcast = publishedPodcastSchema.parse(publicationParser.parse(await response.text()));
+      const guid = podcast.rss.channel.item.guid["#text"];
+
+      if (guid === expectedGuid && (await opmlPaths()).includes(path))
+        return { status: response.status, guid };
+    }
+
+    await Bun.sleep(50);
+  }
+
+  throw new Error(`Podcast did not publish ${expectedGuid}: ${path}`);
+}
+
+async function waitForPodcastRemoval(path: string): Promise<number> {
+  const deadline = Date.now() + 10_000;
+
+  while (Date.now() < deadline) {
+    const response = await fetch(`${BASE_URL}${path}`);
+
+    if (response.status === 404 && !(await opmlPaths()).includes(path)) return response.status;
+    await Bun.sleep(50);
+  }
+
+  throw new Error(`Obsolete podcast remains published: ${path}`);
+}
+
 describe("Event Logging E2E", () => {
   beforeAll(
     async () => {
@@ -146,33 +241,57 @@ describe("Event Logging E2E", () => {
   });
 
   describe("Phase 1: Setup", () => {
-    test("create folder triggers FolderCreated event", async () => {
+    test("create an empty folder completes a current-source hint without publishing a podcast", async () => {
+      // #given
       const before = getDockerTimestamp();
 
+      // #when
       await execInContainer(`mkdir -p ${AUDIOBOOKS_DIR}/${TEST_FOLDER}`);
-      await waitForProcessing(3000);
 
-      const logs = await getLogsSince(before);
-
-      const folderCreatedLogs = findEvents(logs, "FolderCreated", TEST_FOLDER);
-      expect(folderCreatedLogs.length).toBeGreaterThan(0);
-
-      const handlerLogs = findHandlerEvents(logs, "FolderCreated", TEST_FOLDER);
-      expect(handlerLogs.some((e) => e.event_type === "handler_start")).toBe(true);
-      expect(handlerLogs.some((e) => e.event_type === "handler_complete")).toBe(true);
-    });
-
-    test("folder data structure is created", async () => {
-      // Empty folders get a data directory but not a feed.xml
-      // (feed.xml is only created when audio files or subfolders exist)
-      const folderCreated = findEvents(
-        await getLogsSince("1970-01-01T00:00:00Z"),
-        "FolderCreated",
-        TEST_FOLDER,
+      const logs = await waitForHandlerCompletion(
+        before,
+        "/data/test-events",
+        "FolderMetaSyncRequested",
       );
 
-      expect(folderCreated.length).toBeGreaterThan(0);
-    });
+      const response = await fetch(`${BASE_URL}/test-events/feed.xml`);
+
+      // #then
+      expect({
+        trace: sourceTrace(logs, "/audiobooks/test-events"),
+        rss: response.status,
+        paths: await opmlPaths(),
+      }).toEqual({
+        trace: ["handler_complete", "handler_start"],
+        rss: 404,
+        paths: [
+          "/test/Test%20Author/Test%20Audiobook/feed.xml",
+          "/test/Untagged%20Podcast/feed.xml",
+        ],
+      });
+    }, 15_000);
+
+    test("an empty source folder remains outside the published Catalog", async () => {
+      // #given
+      const path = "/test-events/feed.xml";
+
+      // #when
+      await waitForHandlerCompletion(
+        "1970-01-01T00:00:00Z",
+        "/data/test-events",
+        "FolderMetaSyncRequested",
+      );
+      const status = await waitForPodcastRemoval(path);
+
+      // #then
+      expect({ status, paths: await opmlPaths() }).toEqual({
+        status: 404,
+        paths: [
+          "/test/Test%20Author/Test%20Audiobook/feed.xml",
+          "/test/Untagged%20Podcast/feed.xml",
+        ],
+      });
+    }, 15_000);
   });
 
   describe("Phase 2: Adding audio files", () => {
@@ -290,42 +409,79 @@ describe("Event Logging E2E", () => {
 
   describe("Phase 4: Folder operations", () => {
     test(
-      "copy folder triggers FolderCreated + AudioFileCreated for contents",
+      "copy folder reconciles current descendants and publishes new Episode identities",
       async () => {
+        // #given
         const before = getDockerTimestamp();
 
+        // #when
         await execInContainer(
           `cp -r "${AUDIOBOOKS_DIR}/${TEST_FOLDER}" "${AUDIOBOOKS_DIR}/${TEST_FOLDER}-copy"`,
         );
-        await waitForProcessing(5000);
 
-        const logs = await getLogsSince(before);
+        const podcast = await waitForPodcast(
+          "/test-events-copy/feed.xml",
+          "test-events-copy/test-events-audio2.mp3",
+        );
 
-        const folderCreated = findEvents(logs, "FolderCreated", `${TEST_FOLDER}-copy`);
-        expect(folderCreated.length).toBeGreaterThan(0);
+        const logs = await waitForHandlerCompletion(before, "/audiobooks/test-events-copy");
 
-        const audioCreated = findEvents(logs, "AudioFileCreated", "test-events-audio2.mp3");
-        expect(audioCreated.length).toBeGreaterThan(0);
+        // #then
+        expect({
+          podcast,
+          trace: sourceTrace(logs, "/audiobooks/test-events-copy"),
+          paths: await opmlPaths(),
+        }).toEqual({
+          podcast: { status: 200, guid: "test-events-copy/test-events-audio2.mp3" },
+          trace: ["handler_complete", "handler_start"],
+          paths: [
+            "/test-events-copy/feed.xml",
+            "/test-events/feed.xml",
+            "/test/Test%20Author/Test%20Audiobook/feed.xml",
+            "/test/Untagged%20Podcast/feed.xml",
+          ],
+        });
       },
       { timeout: 15000 },
     );
 
-    test("rename folder triggers FolderDeleted + FolderCreated", async () => {
+    test("rename folder replaces the old Podcast URL and Episode identity with current paths", async () => {
+      // #given
       const before = getDockerTimestamp();
 
+      // #when
       await execInContainer(
         `mv "${AUDIOBOOKS_DIR}/${TEST_FOLDER}-copy" "${AUDIOBOOKS_DIR}/${TEST_FOLDER}-duplicate"`,
       );
-      await waitForProcessing(3000);
 
-      const logs = await getLogsSince(before);
+      const podcast = await waitForPodcast(
+        "/test-events-duplicate/feed.xml",
+        "test-events-duplicate/test-events-audio2.mp3",
+      );
 
-      const deleted = findEvents(logs, "FolderDeleted", `${TEST_FOLDER}-copy`);
-      expect(deleted.length).toBeGreaterThan(0);
+      const removed = await waitForPodcastRemoval("/test-events-copy/feed.xml");
+      const logs = await waitForHandlerCompletion(before, "/audiobooks/test-events-duplicate");
 
-      const created = findEvents(logs, "FolderCreated", `${TEST_FOLDER}-duplicate`);
-      expect(created.length).toBeGreaterThan(0);
-    });
+      // #then
+      expect({
+        podcast,
+        removed,
+        from: sourceTrace(logs, "/audiobooks/test-events-copy"),
+        to: sourceTrace(logs, "/audiobooks/test-events-duplicate"),
+        paths: await opmlPaths(),
+      }).toEqual({
+        podcast: { status: 200, guid: "test-events-duplicate/test-events-audio2.mp3" },
+        removed: 404,
+        from: ["handler_complete", "handler_start"],
+        to: ["handler_complete", "handler_start"],
+        paths: [
+          "/test-events-duplicate/feed.xml",
+          "/test-events/feed.xml",
+          "/test/Test%20Author/Test%20Audiobook/feed.xml",
+          "/test/Untagged%20Podcast/feed.xml",
+        ],
+      });
+    }, 25_000);
 
     test("move folder into another triggers events", async () => {
       const before = getDockerTimestamp();

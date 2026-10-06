@@ -128,6 +128,29 @@ async function parsePodcastFeed(
 
 const pendingPublications = new WeakMap<FileSystemService, Promise<void>>();
 
+export async function withPublicationLock<T>(
+  fs: FileSystemService,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = pendingPublications.get(fs);
+  let release!: () => void;
+
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  pendingPublications.set(fs, current);
+  await previous;
+
+  try {
+    return await operation();
+  } finally {
+    release();
+
+    if (pendingPublications.get(fs) === current) pendingPublications.delete(fs);
+  }
+}
+
 export async function opmlSync(
   event: EventType,
   deps: HandlerDeps,
@@ -139,23 +162,7 @@ export async function opmlSync(
   )
     return ok([]);
 
-  const previous = pendingPublications.get(deps.fs);
-  let release!: () => void;
-
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-
-  pendingPublications.set(deps.fs, current);
-  await previous;
-
-  try {
-    return await publishOpml(event, deps);
-  } finally {
-    release();
-
-    if (pendingPublications.get(deps.fs) === current) pendingPublications.delete(deps.fs);
-  }
+  return withPublicationLock(deps.fs, () => publishOpml(event, deps));
 }
 
 async function publishOpml(

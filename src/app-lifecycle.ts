@@ -3,7 +3,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { AppContext } from "./context.ts";
 import { OPML_FILE } from "./constants.ts";
 import { adaptSyncPlan } from "./effect/adapters/sync-plan-adapter.ts";
-import { opmlSync } from "./effect/handlers/opml-sync.ts";
+import { opmlSync, withPublicationLock } from "./effect/handlers/opml-sync.ts";
 import { createSyncPlan, scanFiles } from "./scanner.ts";
 import { adaptBooksEvent } from "./effect/adapters/books-adapter.ts";
 import type { RawBooksEvent } from "./effect/types.ts";
@@ -20,6 +20,7 @@ export class ApplicationLifecycle {
   private admissionReady = false;
   private publicationReady = false;
   private syncing = false;
+  private activePass: Promise<boolean> | undefined;
 
   constructor(private readonly ctx: AppContext) {}
 
@@ -86,12 +87,35 @@ export class ApplicationLifecycle {
     return this.runPublicationPass("InitialSync");
   }
 
-  async runPublicationPass(logTag: string): Promise<boolean> {
-    if (this.syncing) return false;
+  runResync(): Promise<boolean> {
+    return this.startPass("Resync", true);
+  }
 
+  getActivePass(): Promise<boolean> | undefined {
+    return this.activePass;
+  }
+
+  runPublicationPass(logTag: string): Promise<boolean> {
+    return this.startPass(logTag, false);
+  }
+
+  private startPass(logTag: string, reset: boolean): Promise<boolean> {
+    if (this.syncing) return Promise.resolve(false);
     this.syncing = true;
 
+    const task = this.executePass(logTag, reset).finally(() => {
+      this.syncing = false;
+      this.activePass = undefined;
+    });
+
+    this.activePass = task;
+
+    return task;
+  }
+
+  private async executePass(logTag: string, reset: boolean): Promise<boolean> {
     try {
+      if (reset) await this.resetCache();
       await this.publishCurrentCatalog(logTag);
       this.publicationReady = true;
 
@@ -100,8 +124,24 @@ export class ApplicationLifecycle {
       this.ctx.logger.error(logTag, "Failed", error);
 
       return false;
+    }
+  }
+
+  private async resetCache(): Promise<void> {
+    await this.ctx.queue.pause();
+
+    try {
+      this.publicationReady = false;
+      await withPublicationLock(this.ctx.fs, async () => {
+        await this.ctx.fs.mkdir(this.ctx.config.dataPath, { recursive: true });
+        const entries = await this.ctx.fs.readdir(this.ctx.config.dataPath);
+
+        for (const entry of entries) {
+          await this.ctx.fs.rm(join(this.ctx.config.dataPath, entry), { recursive: true });
+        }
+      });
     } finally {
-      this.syncing = false;
+      this.ctx.queue.resume();
     }
   }
 

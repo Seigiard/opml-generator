@@ -66,6 +66,9 @@ bun run test       # unit + integration (in docker)
 bun run test:e2e   # nginx + event logging (outside docker)
 bun run test:all   # everything
 
+# Isolate the external port when several worktrees run E2E tests
+TEST_PORT=18086 TEST_BASE_URL=http://localhost:18086 bun run test:e2e
+
 # Run specific test file
 docker compose -f docker-compose.test.yml run --rm test bun test test/unit/effect/handlers/audio-sync.test.ts
 
@@ -99,6 +102,7 @@ test/
 src/
 ├── server.ts        # HTTP server + initial sync + DI setup
 ├── app-lifecycle.ts # Application lifecycle boundary for sync passes and readiness
+├── http.ts          # Production HTTP handler for watcher admission, readiness, and resync
 ├── config.ts        # Environment configuration
 ├── constants.ts     # File constants (feed.xml, entry.xml, feed.opml, etc.)
 ├── scanner.ts       # File scanning, sync planning
@@ -142,7 +146,9 @@ nginx:80 (external)          Bun:3000 (localhost only)
 
 ## Architecture: Sync Lifecycle
 
-Initial sync and reconciliation run through `ApplicationLifecycle` as lifecycle-owned passes. A pass tags its planned events and mandatory cascades, waits for active handlers and queued covered work, and preserves ownership through cascades of coalesced metadata events. It suppresses pass-scoped `FeedXmlCreated`/`FeedXmlChanged`/`FeedXmlDeleted` hints and writes one final `feed.opml` after covered RSS work completes. OPML collection and writing are serialized per filesystem service so ordinary watcher publication cannot race the pass-final write. Watcher admission is ready before publication readiness. A successful recovery pass can establish readiness after failed startup; nginx `GET /ready` proxies this state. Accepted synchronization decisions live in `docs/adr/0001-filesystem-authoritative-synchronization.md`.
+Initial sync, reconciliation, and resync run through `ApplicationLifecycle` as lifecycle-owned passes. A pass tags its planned events and mandatory cascades, waits for active handlers and queued covered work, and preserves ownership through cascades of coalesced metadata events. It suppresses pass-scoped `FeedXmlCreated`/`FeedXmlChanged`/`FeedXmlDeleted` hints and writes one final `feed.opml` after covered RSS work completes. OPML collection and writing are serialized per filesystem service so ordinary watcher publication cannot race the pass-final write. Watcher admission is ready before publication readiness. A successful recovery pass can establish readiness after failed startup; nginx `GET /ready` proxies this state. Accepted synchronization decisions live in `docs/adr/0001-filesystem-authoritative-synchronization.md`.
+
+Resync reserves the pass before HTTP `202` returns. Any active pass causes HTTP `409` without a deferred request. `runResync()` pauses queue delivery and waits for active deliveries before deleting cache entries under the OPML publication lock. Source and data notifications remain queued during reset. A `finally` resumes delivery on success or failure. The rebuild rereads source metadata and uses normal pass-scoped RSS and final OPML completion. Reset clears publication readiness; successful rebuild restores it. `getActivePass()` exposes the owned task for lifecycle coordination. The server uses `createHttpHandler()` for the production HTTP boundary.
 
 Source notifications enter through `ApplicationLifecycle.admitBooksEvent()`. They enqueue `SourcePathSyncRequested` hints, which check current filesystem state and reconcile directory descendants. Pending hints coalesce by path. Admission avoids TTL filtering because a repeated notification can describe a newer same-path replacement. Scan-planned deletions use the same current-state check. Audio metadata writes trigger folder RSS directly; folder RSS triggers parent navigation and OPML, including changes to existing podcast information. Empty cache branches are pruned only when their source subtree has no supported audio. `waitForIdle()` observes pending events and active consumer work for integration callers; pass completion remains scoped to the pass.
 
@@ -214,6 +220,8 @@ await Promise.allSettled([consumerTask, reconcileTask]);
 ## Constraints & Gotchas
 
 - Anti-slop rules are vendored from `dmmulroy/anti-slop` at `tools/oxlint/anti-slop/`; `UPSTREAM.md` records the source revision. `bun run lint:anti-slop` checks owned JS/TS, including tests, and runs in a separate CI job. Oxlint and `@oxlint/plugins` are pinned together; `oxlint-tsgolint` matches Oxlint's peer requirement.
+
+- `bun run test:e2e` uses `tools/test-e2e.sh`. It preserves compose-start and test failures through graceful cleanup; teardown failure also fails an otherwise successful run. `TEST_PORT` sets the external container port; set `TEST_BASE_URL` to the same port for the tests. Use a distinct `COMPOSE_PROJECT_NAME` per worktree. Folder watcher E2E tracing observes `SourcePathSyncRequested`; empty source folders stay outside the Catalog.
 
 - Zod decodes watcher HTTP payloads and RSS metadata at their input boundaries. Handlers accept typed events. The logger decodes thrown values in `src/logging/error-schema.ts` and preserves string messages, Error stacks, and JSON object messages.
 

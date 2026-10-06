@@ -104,6 +104,8 @@ export class SimpleQueue<T> {
   private pendingKeys = new Set<string>();
   private dirtyKeys = new Set<string>();
   private active = 0;
+  private paused = false;
+  private inactiveWaiters: Array<() => void> = [];
   private idleWaiters: Array<() => void> = [];
   private waiters: Array<{
     resolve: (item: T) => void;
@@ -116,7 +118,7 @@ export class SimpleQueue<T> {
   }
 
   enqueue(item: T): boolean {
-    const waiter = this.waiters.shift();
+    const waiter = this.paused ? undefined : this.waiters.shift();
 
     if (waiter) {
       this.active++;
@@ -153,7 +155,7 @@ export class SimpleQueue<T> {
   }
 
   async take(signal?: AbortSignal): Promise<T> {
-    if (this.buffer.length > 0) {
+    if (!this.paused && this.buffer.length > 0) {
       while (this.buffer.length > 0) {
         const item = this.buffer.shift()!;
         const key = this.keyFor(item);
@@ -200,6 +202,10 @@ export class SimpleQueue<T> {
   complete(): void {
     this.active--;
 
+    if (this.active === 0) {
+      for (const resolve of this.inactiveWaiters.splice(0)) resolve();
+    }
+
     if (this.active !== 0 || this.buffer.length !== 0) return;
 
     for (const resolve of this.idleWaiters.splice(0)) resolve();
@@ -208,5 +214,30 @@ export class SimpleQueue<T> {
   async whenIdle(): Promise<void> {
     if (this.active === 0 && this.buffer.length === 0) return;
     await new Promise<void>((resolve) => this.idleWaiters.push(resolve));
+  }
+
+  async pause(): Promise<void> {
+    this.paused = true;
+
+    if (this.active === 0) return;
+    await new Promise<void>((resolve) => this.inactiveWaiters.push(resolve));
+  }
+
+  resume(): void {
+    this.paused = false;
+
+    while (this.waiters.length > 0 && this.buffer.length > 0) {
+      const item = this.buffer.shift()!;
+      const key = this.keyFor(item);
+
+      if (key && this.dirtyKeys.delete(key)) {
+        this.buffer.push(item);
+        continue;
+      }
+
+      if (key) this.pendingKeys.delete(key);
+      this.active++;
+      this.waiters.shift()!.resolve(item);
+    }
   }
 }
