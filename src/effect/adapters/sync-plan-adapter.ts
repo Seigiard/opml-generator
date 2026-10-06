@@ -3,14 +3,16 @@ import type { EventType } from "../types.ts";
 import type { SyncPlan } from "../../scanner.ts";
 
 // Parse path into parent and name for events
-function parsePath(filesPath: string, relativePath: string): { parent: string; name: string } {
+function parsePath(filesPath: string, relativePath: string) {
   // Root folder special case: parent is filesPath, name is empty
   if (relativePath === "") {
     return { parent: filesPath + "/", name: "" };
   }
+
   const fullPath = join(filesPath, relativePath);
   const parent = dirname(fullPath) + "/";
   const name = relativePath.split("/").pop() ?? "";
+
   return { parent, name };
 }
 

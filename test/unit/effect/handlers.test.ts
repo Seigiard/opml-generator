@@ -52,11 +52,17 @@ const createMockLogger = (): MockLogger => ({
 });
 
 const mockFs = createMockFs();
+
 const mockLogger = createMockLogger();
 
 function makeDeps(): HandlerDeps {
   return {
-    config: { filesPath: "/test/audiobooks", dataPath: "/test/data", port: 8080, reconcileInterval: 1800 },
+    config: {
+      filesPath: "/test/audiobooks",
+      dataPath: "/test/data",
+      port: 8080,
+      reconcileInterval: 1800,
+    },
     logger: {
       info: (tag, msg, ctx) => {
         mockLogger.infoCalls.push({ tag, msg, ctx });
@@ -134,12 +140,17 @@ describe("Handler integration", () => {
       // #when
       await folderCleanup(folderDeletedEvent("/test/audiobooks/Fiction/", "Author"), makeDeps());
       // #then
-      expect(mockLogger.infoCalls.some((c) => c.tag === "FolderCleanup" && c.msg.includes("Removing"))).toBe(true);
+      expect(
+        mockLogger.infoCalls.some((c) => c.tag === "FolderCleanup" && c.msg.includes("Removing")),
+      ).toBe(true);
     });
 
     test("handles nested folder paths correctly", async () => {
       // #when
-      await folderCleanup(folderDeletedEvent("/test/audiobooks/Fiction/SciFi/", "Isaac Asimov"), makeDeps());
+      await folderCleanup(
+        folderDeletedEvent("/test/audiobooks/Fiction/SciFi/", "Isaac Asimov"),
+        makeDeps(),
+      );
       // #then
       expect(mockFs.rmCalls[0]!.path).toBe("/test/data/Fiction/SciFi/Isaac Asimov");
     });
@@ -190,7 +201,11 @@ describe("Handler integration", () => {
 
     test("returns cascade event to generate folder feed.xml", async () => {
       // #when
-      const result = await folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction"), makeDeps());
+      const result = await folderSync(
+        folderCreatedEvent("/test/audiobooks/", "Fiction"),
+        makeDeps(),
+      );
+
       // #then
       const cascades = result._unsafeUnwrap();
       expect(cascades).toHaveLength(1);
@@ -201,7 +216,10 @@ describe("Handler integration", () => {
   describe("audioCleanup", () => {
     test("removes data directory for deleted audio file", async () => {
       // #when
-      await audioCleanup(audioFileDeletedEvent("/test/audiobooks/Fiction/", "chapter01.mp3"), makeDeps());
+      await audioCleanup(
+        audioFileDeletedEvent("/test/audiobooks/Fiction/", "chapter01.mp3"),
+        makeDeps(),
+      );
       // #then
       expect(mockFs.rmCalls).toHaveLength(1);
       expect(mockFs.rmCalls[0]!.path).toBe("/test/data/Fiction/chapter01.mp3");
@@ -209,14 +227,23 @@ describe("Handler integration", () => {
 
     test("logs the audio file being removed", async () => {
       // #when
-      await audioCleanup(audioFileDeletedEvent("/test/audiobooks/Fiction/", "chapter01.mp3"), makeDeps());
+      await audioCleanup(
+        audioFileDeletedEvent("/test/audiobooks/Fiction/", "chapter01.mp3"),
+        makeDeps(),
+      );
       // #then
-      expect(mockLogger.infoCalls.some((c) => c.tag === "AudioCleanup" && c.msg.includes("Removing"))).toBe(true);
+      expect(
+        mockLogger.infoCalls.some((c) => c.tag === "AudioCleanup" && c.msg.includes("Removing")),
+      ).toBe(true);
     });
 
     test("returns cascade event to regenerate parent feed", async () => {
       // #when
-      const result = await audioCleanup(audioFileDeletedEvent("/test/audiobooks/Fiction/", "chapter01.mp3"), makeDeps());
+      const result = await audioCleanup(
+        audioFileDeletedEvent("/test/audiobooks/Fiction/", "chapter01.mp3"),
+        makeDeps(),
+      );
+
       // #then
       const cascades = result._unsafeUnwrap();
       expect(cascades).toHaveLength(1);
@@ -227,7 +254,11 @@ describe("Handler integration", () => {
   describe("folderCleanup cascade", () => {
     test("returns cascade event to regenerate parent feed for nested folders", async () => {
       // #when
-      const result = await folderCleanup(folderDeletedEvent("/test/audiobooks/Fiction/", "SciFi"), makeDeps());
+      const result = await folderCleanup(
+        folderDeletedEvent("/test/audiobooks/Fiction/", "SciFi"),
+        makeDeps(),
+      );
+
       // #then
       const cascades = result._unsafeUnwrap();
       expect(cascades).toHaveLength(1);
@@ -236,7 +267,11 @@ describe("Handler integration", () => {
 
     test("returns empty cascades for top-level folder deletion", async () => {
       // #when
-      const result = await folderCleanup(folderDeletedEvent("/test/audiobooks/", "Fiction"), makeDeps());
+      const result = await folderCleanup(
+        folderDeletedEvent("/test/audiobooks/", "Fiction"),
+        makeDeps(),
+      );
+
       // #then
       const cascades = result._unsafeUnwrap();
       expect(cascades).toHaveLength(0);

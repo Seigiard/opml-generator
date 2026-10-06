@@ -105,7 +105,9 @@ describe("generatePodcastRss", () => {
     const parsed = parser.parse(generatePodcastRss(podcast, [makeEpisode()]));
 
     // #then
-    expect(parsed.rss.channel["itunes:image"]["@_href"]).toBe(`${BASE_URL_PLACEHOLDER}https://cdn.example.com/art.jpg`);
+    expect(parsed.rss.channel["itunes:image"]["@_href"]).toBe(
+      `${BASE_URL_PLACEHOLDER}https://cdn.example.com/art.jpg`,
+    );
   });
 
   test("formats guid with isPermaLink=false", () => {

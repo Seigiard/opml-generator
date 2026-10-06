@@ -9,11 +9,13 @@ import { mkdir, rm, stat, readFile, readdir, rename } from "node:fs/promises";
 import { generatePodcastRss } from "../../../../src/rss/podcast-rss.ts";
 
 const TEST_DIR = join(tmpdir(), `opml-sync-test-${Date.now()}`);
+
 const DATA_DIR = join(TEST_DIR, "data");
+
 const FILES_DIR = join(TEST_DIR, "files");
 
 const mockLogger = {
-  infoCalls: [] as Array<{ tag: string; msg: string; ctx?: LogContext }>,
+  infoCalls: new Array<{ tag: string; msg: string; ctx?: LogContext }>(),
   reset() {
     this.infoCalls = [];
   },
@@ -38,11 +40,13 @@ function realDeps(): HandlerDeps {
       readdir: (path) => readdir(path),
       stat: async (path) => {
         const s = await stat(path);
+
         return { isDirectory: () => s.isDirectory(), size: s.size };
       },
       exists: async (path) => {
         try {
           await stat(path);
+
           return true;
         } catch {
           return false;
@@ -62,9 +66,17 @@ function realDeps(): HandlerDeps {
   };
 }
 
-function makePodcastRss(title: string, overrides: Partial<{ author: string; description: string; imageUrl: string }> = {}): string {
+function makePodcastRss(
+  title: string,
+  overrides: Partial<{ author: string; description: string; imageUrl: string }> = {},
+): string {
   return generatePodcastRss(
-    { title, author: overrides.author ?? "Test Author", description: overrides.description, imageUrl: overrides.imageUrl },
+    {
+      title,
+      author: overrides.author ?? "Test Author",
+      description: overrides.description,
+      imageUrl: overrides.imageUrl,
+    },
     [
       {
         title: "Episode 1",
@@ -135,7 +147,10 @@ describe("opmlSync handler", () => {
     const navDir = join(DATA_DIR, "Author");
     await mkdir(podcastDir, { recursive: true });
     await Bun.write(join(podcastDir, "feed.xml"), makePodcastRss("Real Podcast"));
-    await Bun.write(join(navDir, "feed.xml"), `<?xml version="1.0"?><feed><title>Navigation</title></feed>`);
+    await Bun.write(
+      join(navDir, "feed.xml"),
+      `<?xml version="1.0"?><feed><title>Navigation</title></feed>`,
+    );
     // #when
     const event: EventType = { _tag: "FeedXmlCreated", path: podcastDir };
     await opmlSync(event, realDeps());
@@ -250,7 +265,11 @@ describe("opmlSync handler", () => {
     // #when
     await opmlSync(event, realDeps());
     // #then
-    expect(mockLogger.infoCalls.some((c) => c.tag === "OpmlSync" && c.msg === "Regenerating OPML")).toBe(true);
-    expect(mockLogger.infoCalls.some((c) => c.tag === "OpmlSync" && c.msg === "OPML generated")).toBe(true);
+    expect(
+      mockLogger.infoCalls.some((c) => c.tag === "OpmlSync" && c.msg === "Regenerating OPML"),
+    ).toBe(true);
+    expect(
+      mockLogger.infoCalls.some((c) => c.tag === "OpmlSync" && c.msg === "OPML generated"),
+    ).toBe(true);
   });
 });

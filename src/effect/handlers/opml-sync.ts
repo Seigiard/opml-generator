@@ -8,6 +8,7 @@ import type { HandlerDeps, FileSystemService } from "../../context.ts";
 import type { EventType } from "../types.ts";
 import { FEED_FILE, OPML_FILE } from "../../constants.ts";
 import type { OpmlOutline } from "../../rss/types.ts";
+import { z } from "zod";
 
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
@@ -22,14 +23,37 @@ interface DiscoveredFeed {
   description?: string;
 }
 
-async function collectPodcastFeeds(dataRoot: string, fs: FileSystemService): Promise<DiscoveredFeed[]> {
+const optionalText = z.string().optional().catch(undefined);
+
+const podcastFeedSchema = z.object({
+  rss: z.object({
+    channel: z.object({
+      title: z.unknown().optional(),
+      "itunes:author": optionalText,
+      "itunes:image": z.object({ "@_href": optionalText }).optional().catch(undefined),
+      description: optionalText,
+    }),
+  }),
+});
+
+async function collectPodcastFeeds(
+  dataRoot: string,
+  fs: FileSystemService,
+): Promise<DiscoveredFeed[]> {
   const feeds: DiscoveredFeed[] = [];
   await walkDirectory(dataRoot, dataRoot, feeds, fs);
+
   return feeds;
 }
 
-async function walkDirectory(dir: string, dataRoot: string, feeds: DiscoveredFeed[], fs: FileSystemService): Promise<void> {
+async function walkDirectory(
+  dir: string,
+  dataRoot: string,
+  feeds: DiscoveredFeed[],
+  fs: FileSystemService,
+): Promise<void> {
   let items: string[];
+
   try {
     items = await fs.readdir(dir);
   } catch {
@@ -41,12 +65,14 @@ async function walkDirectory(dir: string, dataRoot: string, feeds: DiscoveredFee
 
     if (item === FEED_FILE) {
       const feed = await parsePodcastFeed(itemPath, dir, dataRoot);
+
       if (feed) feeds.push(feed);
       continue;
     }
 
     try {
       const itemStat = await fs.stat(itemPath);
+
       if (itemStat.isDirectory()) {
         await walkDirectory(itemPath, dataRoot, feeds, fs);
       }
@@ -56,13 +82,18 @@ async function walkDirectory(dir: string, dataRoot: string, feeds: DiscoveredFee
   }
 }
 
-async function parsePodcastFeed(feedPath: string, feedDir: string, dataRoot: string): Promise<DiscoveredFeed | null> {
+async function parsePodcastFeed(
+  feedPath: string,
+  feedDir: string,
+  dataRoot: string,
+): Promise<DiscoveredFeed | null> {
   try {
     const content = await Bun.file(feedPath).text();
-    const parsed = xmlParser.parse(content);
+    const parsed = podcastFeedSchema.parse(xmlParser.parse(content));
 
     const channel = parsed?.rss?.channel;
     const channelTitle = channel?.title;
+
     if (!channelTitle) return null;
 
     const relativePath = relative(dataRoot, feedDir);
@@ -71,17 +102,20 @@ async function parsePodcastFeed(feedPath: string, feedDir: string, dataRoot: str
     const feed: DiscoveredFeed = { title: String(channelTitle), feedUrl };
 
     const author = channel["itunes:author"];
-    if (typeof author === "string" && author) {
+
+    if (author) {
       feed.author = author;
     }
 
     const imageHref = channel["itunes:image"]?.["@_href"];
-    if (typeof imageHref === "string" && imageHref) {
+
+    if (imageHref) {
       feed.imageUrl = imageHref;
     }
 
     const description = channel.description;
-    if (typeof description === "string" && description) {
+
+    if (description) {
       feed.description = description;
     }
 
@@ -91,7 +125,10 @@ async function parsePodcastFeed(feedPath: string, feedDir: string, dataRoot: str
   }
 }
 
-export async function opmlSync(event: EventType, deps: HandlerDeps): Promise<Result<readonly EventType[], Error>> {
+export async function opmlSync(
+  event: EventType,
+  deps: HandlerDeps,
+): Promise<Result<readonly EventType[], Error>> {
   if (event._tag !== "FeedXmlCreated" && event._tag !== "FeedXmlDeleted") return ok([]);
 
   const { config, logger, fs } = deps;
@@ -99,6 +136,7 @@ export async function opmlSync(event: EventType, deps: HandlerDeps): Promise<Res
   logger.info("OpmlSync", "Regenerating OPML", { trigger: event._tag });
 
   let feeds: DiscoveredFeed[];
+
   try {
     feeds = await collectPodcastFeeds(config.dataPath, fs);
   } catch {
@@ -121,9 +159,10 @@ export async function opmlSync(event: EventType, deps: HandlerDeps): Promise<Res
   try {
     await fs.atomicWrite(opmlPath, opmlXml);
   } catch (error) {
-    return err(error as Error);
+    return err(error instanceof Error ? error : new Error(String(error)));
   }
 
   logger.info("OpmlSync", "OPML generated", { feeds: feeds.length });
+
   return ok([]);
 }

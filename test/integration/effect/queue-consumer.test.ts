@@ -2,7 +2,6 @@ import { describe, test, expect, afterAll } from "bun:test";
 import { ok } from "neverthrow";
 import { buildContext } from "../../../src/context.ts";
 import { getEventPath, startConsumer } from "../../../src/effect/consumer.ts";
-import type { EventType } from "../../../src/effect/types.ts";
 
 describe("Queue and Consumer Integration", () => {
   const controllers: AbortController[] = [];
@@ -13,7 +12,11 @@ describe("Queue and Consumer Integration", () => {
 
   test("formats parent/name event paths without duplicate slashes", () => {
     // #when
-    const path = getEventPath({ _tag: "FolderCreated", parent: "/audiobooks/comics/", name: "Marvel" });
+    const path = getEventPath({
+      _tag: "FolderCreated",
+      parent: "/audiobooks/comics/",
+      name: "Marvel",
+    });
 
     // #then
     expect(path).toBe("/audiobooks/comics/Marvel");
@@ -27,8 +30,11 @@ describe("Queue and Consumer Integration", () => {
     const processedEvents: string[] = [];
 
     ctx.handlers.register("FolderMetaSyncRequested", async (event) => {
-      processedEvents.push((event as { path: string }).path);
-      return ok([] as readonly EventType[]);
+      if (event._tag !== "FolderMetaSyncRequested") throw new Error("Unexpected event");
+
+      processedEvents.push(event.path);
+
+      return ok([]);
     });
 
     // #when
@@ -39,7 +45,7 @@ describe("Queue and Consumer Integration", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     controller.abort();
-    await consumerTask.catch(() => {});
+    await consumerTask;
 
     // #then
     expect(processedEvents).toContain("/test/book");
@@ -50,6 +56,7 @@ describe("Queue and Consumer Integration", () => {
     const { queue } = {
       queue: new (require("../../../src/queue.ts").SimpleQueue)(),
     };
+
     // #when
     queue.enqueue("a");
     queue.enqueue("b");
@@ -68,8 +75,14 @@ describe("Queue and Consumer Integration", () => {
 
     // #then
     expect(ctx.queue.size).toBe(2);
-    expect(await ctx.queue.take()).toEqual({ _tag: "FolderMetaSyncRequested", path: "/shared/other" });
-    expect(await ctx.queue.take()).toEqual({ _tag: "FolderMetaSyncRequested", path: "/shared/parent" });
+    expect(await ctx.queue.take()).toEqual({
+      _tag: "FolderMetaSyncRequested",
+      path: "/shared/other",
+    });
+    expect(await ctx.queue.take()).toEqual({
+      _tag: "FolderMetaSyncRequested",
+      path: "/shared/parent",
+    });
   });
 
   test("consumer stops on abort signal", async () => {
@@ -82,9 +95,8 @@ describe("Queue and Consumer Integration", () => {
     const consumerTask = startConsumer(ctx, controller.signal);
     await new Promise((resolve) => setTimeout(resolve, 50));
     controller.abort();
-    await consumerTask.catch(() => {});
 
     // #then — consumer exited without error
-    expect(true).toBe(true);
+    await expect(consumerTask).resolves.toBeUndefined();
   });
 });

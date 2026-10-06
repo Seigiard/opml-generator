@@ -1,10 +1,17 @@
 import type { LogLevel, LogEntry, LogContext } from "./types.ts";
+import { logErrorSchema, type LogErrorInput } from "./error-schema.ts";
+import { z } from "zod";
 
 const LOG_LEVELS: LogLevel[] = ["debug", "info", "warn", "error"];
-const currentLevel: LogLevel = (process.env.LOG_LEVEL as LogLevel) || "info";
+
+const parsedLevel = z
+  .enum(["debug", "info", "warn", "error"])
+  .safeParse(process.env.LOG_LEVEL || "info");
+
+const currentLevelIndex = parsedLevel.success ? LOG_LEVELS.indexOf(parsedLevel.data) : -1;
 
 function shouldLog(level: LogLevel): boolean {
-  return LOG_LEVELS.indexOf(level) >= LOG_LEVELS.indexOf(currentLevel);
+  return LOG_LEVELS.indexOf(level) >= currentLevelIndex;
 }
 
 function emit(entry: LogEntry): void {
@@ -33,18 +40,10 @@ export const log = {
     emit({ ts: new Date().toISOString(), level: "warn", tag, msg, ...ctx });
   },
 
-  error(tag: string, msg: string, err?: unknown, ctx?: LogContext): void {
+  error(tag: string, msg: string, err?: LogErrorInput, ctx?: LogContext): void {
     if (!shouldLog("error")) return;
 
-    const errorCtx: LogContext = { ...ctx };
-    if (err instanceof Error) {
-      errorCtx.error = err.message;
-      errorCtx.error_stack = err.stack;
-    } else if (typeof err === "string") {
-      errorCtx.error = err;
-    } else if (err !== undefined && err !== null) {
-      errorCtx.error = JSON.stringify(err);
-    }
+    const errorCtx: LogContext = { ...ctx, ...logErrorSchema.parse(err) };
 
     emit({ ts: new Date().toISOString(), level: "error", tag, msg, ...errorCtx });
   },

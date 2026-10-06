@@ -36,11 +36,17 @@ const createMockLogger = (): MockLogger => ({
 });
 
 const mockFs = createMockFs();
+
 const mockLogger = createMockLogger();
 
 function makeDeps(): HandlerDeps {
   return {
-    config: { filesPath: "/test/audiobooks", dataPath: "/test/data", port: 8080, reconcileInterval: 1800 },
+    config: {
+      filesPath: "/test/audiobooks",
+      dataPath: "/test/data",
+      port: 8080,
+      reconcileInterval: 1800,
+    },
     logger: {
       info: (tag, msg) => {
         mockLogger.infoCalls.push({ tag, msg });
@@ -133,7 +139,10 @@ describe("Initial Sync - Folder and Cleanup Handlers", () => {
   describe("audioCleanup during initial sync", () => {
     test("removes orphan audio file directory", async () => {
       // #when
-      await audioCleanup(audioFileDeletedEvent("/test/audiobooks/Fiction/", "deleted.mp3"), makeDeps());
+      await audioCleanup(
+        audioFileDeletedEvent("/test/audiobooks/Fiction/", "deleted.mp3"),
+        makeDeps(),
+      );
       // #then
       expect(mockFs.rmCalls).toHaveLength(1);
       expect(mockFs.rmCalls[0]!.path).toBe("/test/data/Fiction/deleted.mp3");
@@ -145,10 +154,12 @@ describe("Initial Sync - Folder and Cleanup Handlers", () => {
       // #given
       const folders = ["Fiction", "NonFiction", "Podcasts"];
       const deps = makeDeps();
+
       // #when
       for (const folder of folders) {
         await folderSync(folderCreatedEvent("/test/audiobooks/", folder), deps);
       }
+
       // #then
       const entryWrites = mockFs.writeCalls.filter((c) => c.path.endsWith("_entry.xml"));
       expect(entryWrites).toHaveLength(3);

@@ -10,10 +10,30 @@ const builder = new XMLBuilder({
   suppressEmptyNode: true,
 });
 
+interface RssItem {
+  title: string;
+  guid: { "#text": string; "@_isPermaLink": string };
+  pubDate: string;
+  enclosure: { "@_url": string; "@_length": string; "@_type": string };
+  "itunes:duration"?: number;
+  "itunes:episode"?: number;
+}
+
+interface RssChannel {
+  title: string;
+  link?: string;
+  description?: string;
+  "itunes:author"?: string;
+  "itunes:image"?: { "@_href": string };
+  "atom:link"?: { "@_href": string; "@_rel": string; "@_type": string };
+  "itunes:type"?: string;
+  item?: RssItem[];
+}
+
 export function generatePodcastRss(podcast: PodcastInfo, episodes: EpisodeInfo[]): string {
   const sorted = [...episodes].sort((a, b) => a.episodeNumber - b.episodeNumber);
 
-  const channel: Record<string, unknown> = {
+  const channel: RssChannel = {
     title: podcast.title,
   };
 
@@ -44,7 +64,7 @@ export function generatePodcastRss(podcast: PodcastInfo, episodes: EpisodeInfo[]
   channel["itunes:type"] = "serial";
 
   channel.item = sorted.map((ep) => {
-    const item: Record<string, unknown> = {
+    const item: RssItem = {
       title: ep.title,
       guid: { "#text": ep.guid, "@_isPermaLink": "false" },
       pubDate: new Date(ep.pubDate).toUTCString(),
@@ -75,5 +95,6 @@ export function generatePodcastRss(podcast: PodcastInfo, episodes: EpisodeInfo[]
     },
   };
 
+  // SAFETY: XMLBuilder.build returns XML text with this builder configuration.
   return builder.build(rssObj) as string;
 }

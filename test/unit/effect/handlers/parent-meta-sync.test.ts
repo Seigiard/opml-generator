@@ -4,7 +4,7 @@ import type { HandlerDeps } from "../../../../src/context.ts";
 import type { EventType } from "../../../../src/effect/types.ts";
 
 const mockLogger = {
-  infoCalls: [] as Array<{ tag: string; msg: string }>,
+  infoCalls: new Array<{ tag: string; msg: string }>(),
   reset() {
     this.infoCalls = [];
   },

@@ -5,15 +5,28 @@ import type { HandlerDeps } from "../../../src/context.ts";
 import type { EventType } from "../../../src/effect/types.ts";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdir, rm, stat, readFile, copyFile, readdir, rename, unlink, symlink } from "node:fs/promises";
+import {
+  mkdir,
+  rm,
+  stat,
+  readFile,
+  copyFile,
+  readdir,
+  rename,
+  unlink,
+  symlink,
+} from "node:fs/promises";
 
 const TEST_DIR = join(tmpdir(), `cascade-test-${Date.now()}`);
+
 const FILES_DIR = join(TEST_DIR, "files");
+
 const DATA_DIR = join(TEST_DIR, "data");
+
 const AUDIO_FIXTURES = join(import.meta.dir, "../../../test/fixtures/audio");
 
 const mockLogger = {
-  calls: [] as Array<{ level: string; tag: string; msg: string }>,
+  calls: new Array<{ level: string; tag: string; msg: string }>(),
   reset() {
     this.calls = [];
   },
@@ -36,11 +49,13 @@ function realDeps(): HandlerDeps {
       readdir: (path) => readdir(path),
       stat: async (path) => {
         const s = await stat(path);
+
         return { isDirectory: () => s.isDirectory(), size: s.size };
       },
       exists: async (path) => {
         try {
           await stat(path);
+
           return true;
         } catch {
           return false;
@@ -76,14 +91,21 @@ describe("Cascade Flow Integration", () => {
     const albumPath = join(FILES_DIR, "Author", "Album");
     await mkdir(albumPath, { recursive: true });
 
-    const folderEvent: EventType = { _tag: "FolderCreated", parent: join(FILES_DIR, "Author"), name: "Album" };
+    const folderEvent: EventType = {
+      _tag: "FolderCreated",
+      parent: join(FILES_DIR, "Author"),
+      name: "Album",
+    };
+
     await folderSync(folderEvent, realDeps());
 
     const albumDataPath = join(DATA_DIR, "Author", "Album");
     const entryXmlPath = join(albumDataPath, "_entry.xml");
+
     const entryExists = await stat(entryXmlPath)
       .then(() => true)
       .catch(() => false);
+
     expect(entryExists).toBe(true);
 
     await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(albumPath, "01.mp3"));
@@ -96,9 +118,11 @@ describe("Cascade Flow Integration", () => {
 
     const episodeDataPath = join(DATA_DIR, "Author", "Album", "01.mp3");
     const episodeEntryPath = join(episodeDataPath, "entry.xml");
+
     const episodeEntryExists = await stat(episodeEntryPath)
       .then(() => true)
       .catch(() => false);
+
     expect(episodeEntryExists).toBe(true);
 
     const content = await readFile(episodeEntryPath, "utf-8");
@@ -124,9 +148,20 @@ describe("Cascade Flow Integration", () => {
     await audioSync(event2, deps);
     await audioSync(event3, deps);
 
-    const entry1 = await readFile(join(DATA_DIR, "Author", "Album", "01.mp3", "entry.xml"), "utf-8");
-    const entry2 = await readFile(join(DATA_DIR, "Author", "Album", "02.mp3", "entry.xml"), "utf-8");
-    const entry3 = await readFile(join(DATA_DIR, "Author", "Album", "03.mp3", "entry.xml"), "utf-8");
+    const entry1 = await readFile(
+      join(DATA_DIR, "Author", "Album", "01.mp3", "entry.xml"),
+      "utf-8",
+    );
+
+    const entry2 = await readFile(
+      join(DATA_DIR, "Author", "Album", "02.mp3", "entry.xml"),
+      "utf-8",
+    );
+
+    const entry3 = await readFile(
+      join(DATA_DIR, "Author", "Album", "03.mp3", "entry.xml"),
+      "utf-8",
+    );
 
     expect(entry1).toContain("<episodeNumber>1</episodeNumber>");
     expect(entry2).toContain("<episodeNumber>2</episodeNumber>");

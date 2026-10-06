@@ -14,7 +14,10 @@ const xmlBuilder = new XMLBuilder({
   suppressEmptyNode: true,
 });
 
-export async function folderSync(event: EventType, deps: HandlerDeps): Promise<Result<readonly EventType[], Error>> {
+export async function folderSync(
+  event: EventType,
+  deps: HandlerDeps,
+): Promise<Result<readonly EventType[], Error>> {
   if (event._tag !== "FolderCreated") return ok([]);
 
   const { parent, name } = event;
@@ -33,6 +36,7 @@ export async function folderSync(event: EventType, deps: HandlerDeps): Promise<R
       const folderName = normalizeFilenameTitle(basename(relativePath));
       const selfHref = `/${encodeUrlPath(relativePath)}/${FEED_FILE}`;
 
+      // SAFETY: XMLBuilder.build returns XML text, not its untyped input object.
       const entryXml = xmlBuilder.build({
         "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
         folder: {
@@ -50,6 +54,6 @@ export async function folderSync(event: EventType, deps: HandlerDeps): Promise<R
 
     return ok([{ _tag: "FolderMetaSyncRequested", path: folderDataDir }] as const);
   } catch (error) {
-    return err(error as Error);
+    return err(error instanceof Error ? error : new Error(String(error)));
   }
 }

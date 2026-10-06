@@ -4,6 +4,7 @@ import { log } from "./logging/index.ts";
 import { SimpleQueue } from "./queue.ts";
 import type { LogContext } from "./logging/types.ts";
 import type { EventType } from "./effect/types.ts";
+import type { LogErrorInput } from "./logging/error-schema.ts";
 
 export interface ConfigService {
   readonly filesPath: string;
@@ -15,7 +16,7 @@ export interface ConfigService {
 export interface LoggerService {
   info(tag: string, msg: string, ctx?: LogContext): void;
   warn(tag: string, msg: string, ctx?: LogContext): void;
-  error(tag: string, msg: string, err?: unknown, ctx?: LogContext): void;
+  error(tag: string, msg: string, err?: LogErrorInput, ctx?: LogContext): void;
   debug(tag: string, msg: string, ctx?: LogContext): void;
 }
 
@@ -35,7 +36,10 @@ export interface DeduplicationService {
   shouldProcess(key: string): boolean;
 }
 
-type AsyncHandler = (event: EventType, deps: HandlerDeps) => Promise<import("neverthrow").Result<readonly EventType[], Error>>;
+type AsyncHandler = (
+  event: EventType,
+  deps: HandlerDeps,
+) => Promise<import("neverthrow").Result<readonly EventType[], Error>>;
 
 export interface HandlerRegistryService {
   get(tag: string): AsyncHandler | undefined;
@@ -76,6 +80,7 @@ export async function buildContext(): Promise<AppContext> {
     readdir: (path) => readdir(path),
     stat: async (path) => {
       const s = await stat(path);
+
       return { isDirectory: () => s.isDirectory(), size: s.size };
     },
     exists: async (path) => {
@@ -99,23 +104,28 @@ export async function buildContext(): Promise<AppContext> {
       } catch {
         // ignore if doesn't exist
       }
+
       await symlink(target, path);
     },
     unlink: (path) => unlink(path),
   };
 
   const seen = new Map<string, number>();
+
   const dedup: DeduplicationService = {
     shouldProcess(key: string): boolean {
       const now = Date.now();
       const lastSeen = seen.get(key);
+
       if (lastSeen && now - lastSeen < 500) return false;
       seen.set(key, now);
+
       if (seen.size > 1000) {
         for (const [k, t] of seen) {
           if (now - t > 5000) seen.delete(k);
         }
       }
+
       return true;
     },
   };
@@ -125,6 +135,7 @@ export async function buildContext(): Promise<AppContext> {
   );
 
   const handlerMap = new Map<string, AsyncHandler>();
+
   const handlers: HandlerRegistryService = {
     get: (tag) => handlerMap.get(tag),
     register: (tag, handler) => handlerMap.set(tag, handler),

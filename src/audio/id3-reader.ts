@@ -25,6 +25,7 @@ export async function extractEmbeddedCover(filePath: string): Promise<CoverArt |
   const metadata = await parseBuffer(buf, { path: filePath });
 
   const picture = metadata.common.picture?.[0];
+
   if (!picture) return null;
 
   return {

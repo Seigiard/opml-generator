@@ -10,9 +10,20 @@ const builder = new XMLBuilder({
   suppressEmptyNode: true,
 });
 
+interface OutlineAttributes {
+  "@_text": string;
+  "@_title": string;
+  "@_type": string;
+  "@_xmlUrl": string;
+  "@_htmlUrl"?: string;
+  "@_description"?: string;
+  "@_author"?: string;
+  "@_imageUrl"?: string;
+}
+
 export function generateOpml(title: string, feeds: OpmlOutline[]): string {
   const outlines = feeds.map((feed) => {
-    const outline: Record<string, string> = {
+    const outline: OutlineAttributes = {
       "@_text": feed.title,
       "@_title": feed.title,
       "@_type": "rss",
@@ -50,5 +61,6 @@ export function generateOpml(title: string, feeds: OpmlOutline[]): string {
     },
   };
 
+  // SAFETY: XMLBuilder.build returns XML text with this builder configuration.
   return builder.build(opmlObj) as string;
 }

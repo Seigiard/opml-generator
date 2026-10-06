@@ -4,20 +4,25 @@ const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:8080";
 
 async function waitForServer(maxWaitMs = 30000): Promise<void> {
   const start = Date.now();
+
   while (Date.now() - start < maxWaitMs) {
     try {
       const response = await fetch(`${BASE_URL}/feed.opml`);
+
       if (response.status === 200) return;
     } catch {
       // Connection refused
     }
+
     await new Promise((r) => setTimeout(r, 500));
   }
+
   throw new Error("Server not ready");
 }
 
 async function isResyncEnabled(): Promise<boolean> {
   const response = await fetch(`${BASE_URL}/resync`);
+
   return response.status === 401;
 }
 
@@ -70,6 +75,7 @@ describe("nginx integration", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ test: true }),
       });
+
       expect(response.status).toBe(404);
     });
   });
@@ -95,15 +101,23 @@ describe("nginx integration", () => {
     });
 
     test("Range request returns 206 for existing audio", async () => {
-      const listResponse = await fetch(`${BASE_URL}/audiobooks/test/Test%20Author/Test%20Audiobook/01%20-%20Chapter%20One.mp3`);
+      const listResponse = await fetch(
+        `${BASE_URL}/audiobooks/test/Test%20Author/Test%20Audiobook/01%20-%20Chapter%20One.mp3`,
+      );
+
       if (listResponse.status !== 200) {
         console.log("Skipping: test audio file not found");
+
         return;
       }
 
-      const rangeResponse = await fetch(`${BASE_URL}/audiobooks/test/Test%20Author/Test%20Audiobook/01%20-%20Chapter%20One.mp3`, {
-        headers: { Range: "bytes=0-1023" },
-      });
+      const rangeResponse = await fetch(
+        `${BASE_URL}/audiobooks/test/Test%20Author/Test%20Audiobook/01%20-%20Chapter%20One.mp3`,
+        {
+          headers: { Range: "bytes=0-1023" },
+        },
+      );
+
       expect(rangeResponse.status).toBe(206);
       expect(rangeResponse.headers.get("content-range")).toBeTruthy();
     });
@@ -112,37 +126,50 @@ describe("nginx integration", () => {
   describe("/resync endpoint", () => {
     test("GET /resync without auth returns 401 (when enabled)", async () => {
       const enabled = await isResyncEnabled();
+
       if (!enabled) {
         console.log("Skipping: /resync not configured");
+
         return;
       }
+
       const response = await fetch(`${BASE_URL}/resync`);
       expect(response.status).toBe(401);
     });
 
     test("GET /resync with wrong auth returns 401 (when enabled)", async () => {
       const enabled = await isResyncEnabled();
+
       if (!enabled) {
         console.log("Skipping: /resync not configured");
+
         return;
       }
+
       const credentials = Buffer.from("wrong:credentials").toString("base64");
+
       const response = await fetch(`${BASE_URL}/resync`, {
         headers: { Authorization: `Basic ${credentials}` },
       });
+
       expect(response.status).toBe(401);
     });
 
     test("GET /resync with correct auth returns 202 (when enabled)", async () => {
       const enabled = await isResyncEnabled();
+
       if (!enabled) {
         console.log("Skipping: /resync not configured");
+
         return;
       }
+
       const credentials = Buffer.from("admin:secret").toString("base64");
+
       const response = await fetch(`${BASE_URL}/resync`, {
         headers: { Authorization: `Basic ${credentials}` },
       });
+
       expect(response.status).toBe(202);
     });
   });

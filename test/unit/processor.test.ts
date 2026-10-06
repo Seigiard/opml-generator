@@ -17,7 +17,9 @@ describe("processor", () => {
     });
 
     test("encodes unicode characters", () => {
-      expect(encodeUrlPath("авторы/книга.epub")).toBe("%D0%B0%D0%B2%D1%82%D0%BE%D1%80%D1%8B/%D0%BA%D0%BD%D0%B8%D0%B3%D0%B0.epub");
+      expect(encodeUrlPath("авторы/книга.epub")).toBe(
+        "%D0%B0%D0%B2%D1%82%D0%BE%D1%80%D1%8B/%D0%BA%D0%BD%D0%B8%D0%B3%D0%B0.epub",
+      );
     });
 
     test("encodes parentheses", () => {
@@ -88,7 +90,11 @@ describe("processor", () => {
     });
 
     test("handles mixed content", () => {
-      expect(["track10", "track2", "track1"].sort(naturalSort)).toEqual(["track1", "track2", "track10"]);
+      expect(["track10", "track2", "track1"].sort(naturalSort)).toEqual([
+        "track1",
+        "track2",
+        "track10",
+      ]);
     });
 
     test("is case-insensitive", () => {

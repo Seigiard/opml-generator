@@ -4,15 +4,17 @@ import { AUDIO_EXTENSIONS } from "../../types.ts";
 import type { RawBooksEvent, EventType } from "../types.ts";
 import type { DeduplicationService } from "../../context.ts";
 
-function parseEvents(events: string): { event: string; isDir: boolean } {
+function parseEvents(events: string) {
   const parts = events.split(",");
   const isDir = parts.includes("ISDIR");
   const event = parts.find((p) => p !== "ISDIR") ?? "";
+
   return { event, isDir };
 }
 
 function isValidAudioExtension(name: string): boolean {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
+
   return AUDIO_EXTENSIONS.includes(ext);
 }
 
@@ -23,18 +25,30 @@ function classifyBooksEvent(raw: RawBooksEvent): EventType {
   switch (event) {
     case "CREATE":
       if (isDir) return { _tag: "FolderCreated", parent, name };
+
       return { _tag: "Ignored" };
     case "CLOSE_WRITE":
-      return isValidAudioExtension(name) ? { _tag: "AudioFileCreated", parent, name } : { _tag: "Ignored" };
+      return isValidAudioExtension(name)
+        ? { _tag: "AudioFileCreated", parent, name }
+        : { _tag: "Ignored" };
     case "DELETE":
       if (isDir) return { _tag: "FolderDeleted", parent, name };
-      return isValidAudioExtension(name) ? { _tag: "AudioFileDeleted", parent, name } : { _tag: "Ignored" };
+
+      return isValidAudioExtension(name)
+        ? { _tag: "AudioFileDeleted", parent, name }
+        : { _tag: "Ignored" };
     case "MOVED_FROM":
       if (isDir) return { _tag: "FolderDeleted", parent, name };
-      return isValidAudioExtension(name) ? { _tag: "AudioFileDeleted", parent, name } : { _tag: "Ignored" };
+
+      return isValidAudioExtension(name)
+        ? { _tag: "AudioFileDeleted", parent, name }
+        : { _tag: "Ignored" };
     case "MOVED_TO":
       if (isDir) return { _tag: "FolderCreated", parent, name };
-      return isValidAudioExtension(name) ? { _tag: "AudioFileCreated", parent, name } : { _tag: "Ignored" };
+
+      return isValidAudioExtension(name)
+        ? { _tag: "AudioFileCreated", parent, name }
+        : { _tag: "Ignored" };
     default:
       return { _tag: "Ignored" };
   }
@@ -66,6 +80,7 @@ export function adaptBooksEvent(raw: RawBooksEvent, dedup: DeduplicationService)
       event_tag: "Ignored",
       path,
     });
+
     return null;
   }
 

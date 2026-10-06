@@ -4,7 +4,7 @@ import type { HandlerDeps } from "../../../../src/context.ts";
 import type { EventType } from "../../../../src/effect/types.ts";
 
 const mockLogger = {
-  infoCalls: [] as Array<{ tag: string; msg: string }>,
+  infoCalls: new Array<{ tag: string; msg: string }>(),
   reset() {
     this.infoCalls = [];
   },
@@ -71,7 +71,11 @@ describe("folderEntryXmlChanged handler", () => {
 
   test("handles deeply nested folders", async () => {
     // #given
-    const event: EventType = { _tag: "FolderEntryXmlChanged", parent: "/data/Fiction/SciFi/Author" };
+    const event: EventType = {
+      _tag: "FolderEntryXmlChanged",
+      parent: "/data/Fiction/SciFi/Author",
+    };
+
     // #when
     const result = await folderEntryXmlChanged(event, deps);
     // #then

@@ -139,5 +139,5 @@
     "builtin": true
   },
   "globals": {},
-  "ignorePatterns": []
+  "ignorePatterns": ["tools/oxlint/anti-slop/**"]
 }

@@ -3,9 +3,15 @@ import { folderCleanup } from "../../../../src/effect/handlers/folder-cleanup.ts
 import type { HandlerDeps } from "../../../../src/context.ts";
 import type { EventType } from "../../../../src/effect/types.ts";
 
-const mockFs = {
-  rmCalls: [] as Array<{ path: string }>,
-  rmError: null as Error | null,
+interface CleanupMock {
+  rmCalls: Array<{ path: string }>;
+  rmError: Error | null;
+  reset(): void;
+}
+
+const mockFs: CleanupMock = {
+  rmCalls: [],
+  rmError: null,
   reset() {
     this.rmCalls = [];
     this.rmError = null;
@@ -13,8 +19,8 @@ const mockFs = {
 };
 
 const mockLogger = {
-  infoCalls: [] as Array<{ tag: string; msg: string }>,
-  debugCalls: [] as Array<{ tag: string; msg: string }>,
+  infoCalls: new Array<{ tag: string; msg: string }>(),
+  debugCalls: new Array<{ tag: string; msg: string }>(),
   reset() {
     this.infoCalls = [];
     this.debugCalls = [];
@@ -38,6 +44,7 @@ function makeDeps(): HandlerDeps {
       mkdir: async () => {},
       rm: async (path) => {
         mockFs.rmCalls.push({ path });
+
         if (mockFs.rmError) throw mockFs.rmError;
       },
       readdir: async () => [],

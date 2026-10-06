@@ -3,9 +3,15 @@ import { audioCleanup } from "../../../../src/effect/handlers/audio-cleanup.ts";
 import type { HandlerDeps } from "../../../../src/context.ts";
 import type { EventType } from "../../../../src/effect/types.ts";
 
-const mockFs = {
-  rmCalls: [] as Array<{ path: string; options?: { recursive?: boolean } }>,
-  rmError: null as Error | null,
+interface CleanupMock {
+  rmCalls: Array<{ path: string; options?: { recursive?: boolean } }>;
+  rmError: Error | null;
+  reset(): void;
+}
+
+const mockFs: CleanupMock = {
+  rmCalls: [],
+  rmError: null,
   reset() {
     this.rmCalls = [];
     this.rmError = null;
@@ -13,8 +19,8 @@ const mockFs = {
 };
 
 const mockLogger = {
-  infoCalls: [] as Array<{ tag: string; msg: string }>,
-  debugCalls: [] as Array<{ tag: string; msg: string }>,
+  infoCalls: new Array<{ tag: string; msg: string }>(),
+  debugCalls: new Array<{ tag: string; msg: string }>(),
   reset() {
     this.infoCalls = [];
     this.debugCalls = [];
@@ -38,6 +44,7 @@ function makeDeps(): HandlerDeps {
       mkdir: async () => {},
       rm: async (path, options) => {
         mockFs.rmCalls.push({ path, options });
+
         if (mockFs.rmError) throw mockFs.rmError;
       },
       readdir: async () => [],
@@ -59,7 +66,12 @@ describe("audioCleanup handler", () => {
 
   test("returns empty array for non-AudioFileDeleted events", async () => {
     // #given
-    const event: EventType = { _tag: "AudioFileCreated", parent: "/audiobooks/Book", name: "ch1.mp3" };
+    const event: EventType = {
+      _tag: "AudioFileCreated",
+      parent: "/audiobooks/Book",
+      name: "ch1.mp3",
+    };
+
     // #when
     const result = await audioCleanup(event, makeDeps());
     // #then
@@ -69,7 +81,12 @@ describe("audioCleanup handler", () => {
 
   test("removes data directory and cascades FolderMetaSyncRequested", async () => {
     // #given
-    const event: EventType = { _tag: "AudioFileDeleted", parent: "/audiobooks/Author/Book", name: "ch1.mp3" };
+    const event: EventType = {
+      _tag: "AudioFileDeleted",
+      parent: "/audiobooks/Author/Book",
+      name: "ch1.mp3",
+    };
+
     // #when
     const result = await audioCleanup(event, makeDeps());
     // #then
@@ -85,7 +102,13 @@ describe("audioCleanup handler", () => {
     // #given
     const enoent = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     mockFs.rmError = enoent;
-    const event: EventType = { _tag: "AudioFileDeleted", parent: "/audiobooks/Book", name: "ch1.mp3" };
+
+    const event: EventType = {
+      _tag: "AudioFileDeleted",
+      parent: "/audiobooks/Book",
+      name: "ch1.mp3",
+    };
+
     // #when
     const result = await audioCleanup(event, makeDeps());
     // #then
@@ -97,7 +120,13 @@ describe("audioCleanup handler", () => {
     // #given
     const permError = Object.assign(new Error("EPERM"), { code: "EPERM" });
     mockFs.rmError = permError;
-    const event: EventType = { _tag: "AudioFileDeleted", parent: "/audiobooks/Book", name: "ch1.mp3" };
+
+    const event: EventType = {
+      _tag: "AudioFileDeleted",
+      parent: "/audiobooks/Book",
+      name: "ch1.mp3",
+    };
+
     // #when
     const result = await audioCleanup(event, makeDeps());
     // #then
