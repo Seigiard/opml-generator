@@ -12,6 +12,7 @@ import type { RawBooksEvent } from "./effect/types.ts";
 import { guardFileSystem } from "./stopping.ts";
 import { startConsumer } from "./effect/consumer.ts";
 import { readSourceEntry } from "./effect/handlers/source-kind.ts";
+import { ENGINE_STATE_DIRECTORY } from "./engine/policy.ts";
 
 async function waitForInterval(ms: number, signal: AbortSignal): Promise<void> {
   try {
@@ -171,11 +172,33 @@ export class ApplicationLifecycle {
 
         for (const entry of entries) {
           this.checkRunning();
+
+          if (entry === "~") {
+            await this.resetPrivateCacheContainer(fs, join(this.ctx.config.dataPath, entry));
+
+            continue;
+          }
+
           await fs.rm(join(this.ctx.config.dataPath, entry), { recursive: true });
         }
       });
     } finally {
       this.ctx.queue.resume();
+    }
+  }
+
+  private async resetPrivateCacheContainer(
+    fs: ReturnType<typeof guardFileSystem>,
+    containerPath: string,
+  ): Promise<void> {
+    const entries = await fs.readdir(containerPath).catch(() => []);
+
+    for (const entry of entries) {
+      this.checkRunning();
+
+      if (entry === ENGINE_STATE_DIRECTORY) continue;
+
+      await fs.rm(join(containerPath, entry), { recursive: true });
     }
   }
 

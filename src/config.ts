@@ -7,6 +7,7 @@ interface Config {
   devMode: boolean;
   logLevel: string;
   reconcileInterval: number;
+  syncEngineEpisode: boolean;
 }
 
 function requireEnv(name: string, defaultValue?: string): string {
@@ -53,6 +54,7 @@ function loadConfig(): Config {
     devMode: process.env.DEV_MODE === "true",
     logLevel: process.env.LOG_LEVEL || "info",
     reconcileInterval: parseReconcileInterval(process.env.RECONCILE_INTERVAL || "1800"),
+    syncEngineEpisode: process.env.OPML_SYNC_ENGINE === "episode",
   };
 }
 

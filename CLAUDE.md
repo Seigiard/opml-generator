@@ -23,6 +23,7 @@ src/
 ├── cache-projection.ts # Typed interface to cache-layout.js
 ├── cache-mirrors.ts # Structural cache traversal through `~` containers
 ├── cache-upgrade.ts # Legacy/mixed cache detection and journaled upgrade
+├── engine/          # Temporary shared-engine OPML composition (episode-only in #61)
 ├── effect/          # Event handling (neverthrow + async/await)
 │   ├── types.ts     # RawBooksEvent, RawDataEvent, EventType
 │   ├── pass-lifecycle.ts # Pass ownership and completion tracking
@@ -40,7 +41,7 @@ docs/adr/            # Architecture decisions
 
 nginx on port 80 exposes `/feed.opml`, source-relative public metadata paths, audio streaming, and `/ready`. It proxies `/resync` behind Basic Auth. Bun on port 3000 (localhost only) handles `GET /ready`, `POST /events/books`, `POST /events/data`, and `POST /resync`.
 
-`/data` is a generated cache with a reversible private projection of `/audiobooks`. Source files and folders are authoritative, and RSS reflects the current Library. An audio file maps to an episode mirror with `entry.xml`. A folder with episodes gets `feed.xml`, `cover.jpg`, and `_entry.xml`. The root gets `feed.opml`. Public metadata paths and Episode identity remain source-relative.
+`/data` is a generated cache with a reversible private projection of `/audiobooks`. Source files and folders are authoritative, and RSS reflects the current Library. An audio file maps to an episode mirror with `entry.xml`. A folder with episodes gets `feed.xml`, `cover.jpg`, and `_entry.xml`. The root gets `feed.opml`. Public metadata paths and Episode identity remain source-relative. The shared engine uses `DATA/~/.sync-engine` for state and the output lease; that path is outside every supported cache projection.
 
 <important if="you need to run commands to build, test, lint, start, or inspect the app">
 
@@ -205,17 +206,18 @@ Flow: source hints, data adapters, and sync plans → typed `EventType` → `Sim
 
 <important if="you are adding or using environment variables or configuration">
 
-| Variable             | Default       | Description                                       |
-| -------------------- | ------------- | ------------------------------------------------- |
-| `FILES`              | `/audiobooks` | Source audiobooks directory                       |
-| `DATA`               | `/data`       | Generated metadata cache                          |
-| `PORT`               | `3000`        | Internal Bun server port                          |
-| `LOG_LEVEL`          | `info`        | debug \| info \| warn \| error                    |
-| `DEV_MODE`           | `false`       | Enable Bun --watch hot reload                     |
-| `ADMIN_USER`         | -             | /resync Basic Auth username                       |
-| `ADMIN_TOKEN`        | -             | /resync Basic Auth password                       |
-| `RATE_LIMIT_MB`      | `0`           | Streaming rate limit MB/s (0 = off)               |
-| `RECONCILE_INTERVAL` | `1800`        | Periodic reconciliation seconds (0 = off, min 60) |
+| Variable             | Default       | Description                                                                                                                          |
+| -------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `FILES`              | `/audiobooks` | Source audiobooks directory                                                                                                          |
+| `DATA`               | `/data`       | Generated metadata cache                                                                                                             |
+| `PORT`               | `3000`        | Internal Bun server port                                                                                                             |
+| `LOG_LEVEL`          | `info`        | debug \| info \| warn \| error                                                                                                       |
+| `DEV_MODE`           | `false`       | Enable Bun --watch hot reload                                                                                                        |
+| `ADMIN_USER`         | -             | /resync Basic Auth username                                                                                                          |
+| `ADMIN_TOKEN`        | -             | /resync Basic Auth password                                                                                                          |
+| `RATE_LIMIT_MB`      | `0`           | Streaming rate limit MB/s (0 = off)                                                                                                  |
+| `RECONCILE_INTERVAL` | `1800`        | Periodic reconciliation seconds (0 = off, min 60)                                                                                    |
+| `OPML_SYNC_ENGINE`   | -             | Temporary `episode` mode for shared-engine episode `entry.xml` publication. RSS/final OPML stay out of this mode until later slices. |
 
 </important>
 
@@ -228,7 +230,7 @@ Flow: source hints, data adapters, and sync plans → typed `EventType` → `Sim
 
 <important if="you are editing the Dockerfile, docker-compose files, or healthchecks">
 
-The image is Alpine without `curl`. Healthchecks use nginx `GET /ready`, which reflects publication readiness: `wget -q --spider http://127.0.0.1/ready`.
+The image is Alpine without `curl`. Healthchecks use nginx `GET /ready`, which reflects publication readiness: `wget -q --spider http://127.0.0.1/ready`. The image includes `util-linux` because the shared engine output lease uses Linux `flock`.
 
 </important>
 

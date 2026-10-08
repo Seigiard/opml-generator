@@ -90,16 +90,17 @@ docker compose up -d --build
 
 ## Environment Variables
 
-| Variable             | Default       | Description                                       |
-| -------------------- | ------------- | ------------------------------------------------- |
-| `FILES`              | `/audiobooks` | Path to your audiobooks directory                 |
-| `DATA`               | `/data`       | Path for cache and metadata                       |
-| `PORT`               | `3000`        | Internal Bun server port                          |
-| `DEV_MODE`           | `false`       | Enable hot reload for Bun                         |
-| `ADMIN_USER`         | -             | Username for /resync Basic Auth                   |
-| `ADMIN_TOKEN`        | -             | Password for /resync Basic Auth                   |
-| `RATE_LIMIT_MB`      | `0`           | Streaming rate limit in MB/s (0 = off)            |
-| `RECONCILE_INTERVAL` | `1800`        | Periodic reconciliation seconds (0 = off, min 60) |
+| Variable             | Default       | Description                                                                                              |
+| -------------------- | ------------- | -------------------------------------------------------------------------------------------------------- |
+| `FILES`              | `/audiobooks` | Path to your audiobooks directory                                                                        |
+| `DATA`               | `/data`       | Path for cache and metadata                                                                              |
+| `PORT`               | `3000`        | Internal Bun server port                                                                                 |
+| `DEV_MODE`           | `false`       | Enable hot reload for Bun                                                                                |
+| `ADMIN_USER`         | -             | Username for /resync Basic Auth                                                                          |
+| `ADMIN_TOKEN`        | -             | Password for /resync Basic Auth                                                                          |
+| `RATE_LIMIT_MB`      | `0`           | Streaming rate limit in MB/s (0 = off)                                                                   |
+| `RECONCILE_INTERVAL` | `1800`        | Periodic reconciliation seconds (0 = off, min 60)                                                        |
+| `OPML_SYNC_ENGINE`   | -             | Temporary `episode` mode writes episode `entry.xml` through the shared engine. RSS and OPML stay legacy. |
 
 ## API
 
@@ -151,6 +152,7 @@ An unexpected child failure produces a nonzero container exit.
         └── episode2.ogg
 
 /data/                          # Mirror cache (auto-generated)
+├── ~/.sync-engine              # Shared engine state and output lease
 ├── feed.opml                   # Root OPML aggregation
 ├── Author/
 │   ├── _entry.xml              # Folder entry for parent

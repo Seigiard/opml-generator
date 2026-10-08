@@ -1,5 +1,5 @@
 FROM oven/bun:1-alpine AS base
-RUN apk add --no-cache inotify-tools nginx nginx-mod-http-js openssl ffmpeg \
+RUN apk add --no-cache inotify-tools nginx nginx-mod-http-js openssl ffmpeg util-linux \
     && addgroup nginx bun
 WORKDIR /app
 
