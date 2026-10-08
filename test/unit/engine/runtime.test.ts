@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, readdir, rename, rm, stat, symlink, unlink } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, stat, symlink, unlink, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import type { HandlerDeps } from "../../../src/context.ts";
 import type { EpisodeEngineRuntime } from "../../../src/engine/runtime.ts";
@@ -88,13 +88,28 @@ describe("episode engine runtime", () => {
 
   test("notifyBooksEvent translates watcher parent and name to a source-relative changed path", async () => {
     // #given
-    const runtime = startEpisodeEngineRuntime(realDeps());
-    await runtime.ready;
     await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
-    await Bun.write(
-      join(filesPath, "Author", "Album", "01.mp3"),
-      Bun.file(join(AUDIO_FIXTURES, "tagged.mp3")),
-    );
+    const audioPath = join(filesPath, "Author", "Album", "01.mp3");
+    const fixedTime = new Date("2024-01-02T03:04:05.000Z");
+    await Bun.write(audioPath, Bun.file(join(AUDIO_FIXTURES, "tagged.mp3")));
+    await utimes(audioPath, fixedTime, fixedTime);
+    const deps = realDeps();
+    const realAtomicWrite = deps.fs.atomicWrite;
+    let entryWrites = 0;
+
+    deps.fs.atomicWrite = async (path, content) => {
+      if (path.endsWith("entry.xml")) entryWrites += 1;
+
+      await realAtomicWrite(path, content);
+    };
+    const runtime = startEpisodeEngineRuntime(deps);
+
+    await runtime.ready;
+    entryWrites = 0;
+    const bytes = new Uint8Array(await Bun.file(audioPath).arrayBuffer());
+    bytes[bytes.length - 1] = bytes[bytes.length - 1] === 0 ? 1 : 0;
+    await Bun.write(audioPath, bytes);
+    await utimes(audioPath, fixedTime, fixedTime);
 
     // #when
     const admission = await runtime.notifyBooksEvent({
@@ -103,14 +118,16 @@ describe("episode engine runtime", () => {
       events: "CLOSE_WRITE",
     });
 
-    const published = await waitFor(() =>
-      Bun.file(join(dataPath, "Author", "Album", "01.mp3", "entry.xml")).exists(),
-    );
+    const rewritten = await waitFor(async () => entryWrites === 1);
 
     await runtime.stop();
 
     // #then
-    expect({ admission, published }).toEqual({ admission: "started", published: true });
+    expect({ admission, rewritten, entryWrites }).toEqual({
+      admission: "started",
+      rewritten: true,
+      entryWrites: 1,
+    });
   });
 
   test("stop before ready settles cleanly instead of rejecting ready", async () => {

@@ -3,34 +3,20 @@ import { assertCachePath, checkCacheMutation } from "./cache-boundary.ts";
 
 const originals = new WeakMap<FileSystemService, FileSystemService>();
 
-const guards = new WeakMap<FileSystemService, () => void>();
-
-export function checkFileSystemAccess(fs: FileSystemService): void {
-  guards.get(fs)?.();
-}
-
 export function filesystemIdentity(fs: FileSystemService): FileSystemService {
   return originals.get(fs) ?? fs;
 }
 
 export function cacheFileSystem(deps: Pick<HandlerDeps, "fs" | "config">): FileSystemService {
-  return guardFileSystem(deps.fs, () => checkFileSystemAccess(deps.fs), deps.config.dataPath);
+  return guardFileSystem(deps.fs, deps.config.dataPath);
 }
 
-function guardFileSystem(
-  fs: FileSystemService,
-  check: () => void,
-  dataPath?: string,
-): FileSystemService {
+function guardFileSystem(fs: FileSystemService, dataPath?: string): FileSystemService {
   const mutation = async (path: string, leafWrite = false, remove = false) => {
-    check();
-
     if (dataPath) {
       assertCachePath(path, dataPath, !remove);
-      await checkCacheMutation(path, dataPath, fs, leafWrite, check);
+      await checkCacheMutation(path, dataPath, fs, leafWrite);
     }
-
-    check();
   };
 
   const guarded: FileSystemService = {
@@ -44,26 +30,10 @@ function guardFileSystem(
 
       return fs.rm(path, options);
     },
-    readdir: (path) => {
-      check();
-
-      return fs.readdir(path);
-    },
-    stat: (path) => {
-      check();
-
-      return fs.stat(path);
-    },
-    lstat: (path) => {
-      check();
-
-      return fs.lstat(path);
-    },
-    exists: (path) => {
-      check();
-
-      return fs.exists(path);
-    },
+    readdir: (path) => fs.readdir(path),
+    stat: (path) => fs.stat(path),
+    lstat: (path) => fs.lstat(path),
+    exists: (path) => fs.exists(path),
     writeFile: async (path, content) => {
       await mutation(path, true);
 
@@ -88,7 +58,6 @@ function guardFileSystem(
   };
 
   originals.set(guarded, filesystemIdentity(fs));
-  guards.set(guarded, check);
 
   return guarded;
 }

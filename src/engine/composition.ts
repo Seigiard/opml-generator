@@ -25,6 +25,7 @@ import {
   EpisodeWork,
   FolderDeleteWork,
   FolderWork,
+  OpmlWork,
   type OpmlEngineWork,
   workKey,
 } from "./work.ts";
@@ -67,7 +68,7 @@ async function obsoleteEpisodeEntries(
 }
 
 function sourceFolderEntries(entries: readonly SourceEntry[], deps: HandlerDeps): FolderWork[] {
-  const folders = new Set<string>();
+  const folders = new Set<string>([deps.config.dataPath]);
 
   for (const entry of audioEntries(entries)) {
     let folder = dirname(entry.relativePath);
@@ -148,6 +149,10 @@ async function workFromCascade(event: EventType, deps: HandlerDeps): Promise<Opm
       ];
     case "FolderMetaSyncRequested":
       return [new FolderWork(event.path)];
+    case "FeedXmlCreated":
+    case "FeedXmlDeleted":
+    case "FeedXmlChanged":
+      return [new OpmlWork(event.path)];
     case "SourcePathSyncRequested": {
       const result = await sourcePathSync(event, deps);
 
@@ -185,6 +190,13 @@ function handleEpisode(
 
         return runHandler(
           () => folderMetaSync({ _tag: "FolderMetaSyncRequested", path: work.dataPath }, options),
+          options,
+        );
+      }
+
+      if (work._tag === "OpmlWork") {
+        return runHandler(
+          () => opmlSync({ _tag: "FeedXmlChanged", path: work.dataPath }, options),
           options,
         );
       }

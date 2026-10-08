@@ -21,7 +21,7 @@ Podcast RSS and OPML feed generator for locally stored audiobooks and podcasts.
 - Episode numbering follows the current sorted listening order
 - HTTP Range request support for seeking/streaming
 - File watching with automatic feed regeneration
-- Full resync via authenticated `/resync` endpoint
+- Authenticated `/resync` for freshness-gated passes and `/resync?force=1` for forced reprocessing
 
 ## Supported Audio Formats
 
@@ -116,8 +116,9 @@ docker compose up -d --build
 
 `/resync` returns `202` when the shared sync engine accepts or queues a pass. This
 response does not mean that publication is complete. During startup it can queue
-behind the initial pass. After shutdown starts, it returns `503`. Source
-notifications remain accepted while the engine rebuilds. `/ready` returns `503`
+behind the initial pass. During shutdown, HTTP closes before engine stop completes,
+so nginx can return a connection or proxy error. Source notifications remain accepted
+while the engine rebuilds. `/ready` returns `503`
 until a `feed.opml` is available, and `200` when prior or newly published output
 can be served.
 

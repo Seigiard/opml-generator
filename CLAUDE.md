@@ -21,12 +21,12 @@ src/
 ├── engine/          # Shared-engine synchronization composition and runtime
 ├── effect/          # Event handling (neverthrow + async/await)
 │   ├── types.ts     # RawBooksEvent and EventType helpers
-│   └── handlers/    # source-path-sync, audio-sync, folder-sync, opml-sync, ...
+│   └── handlers/    # source-path-sync, audio-sync, folder-meta-sync, folder-cleanup, opml-sync, ...
 ├── audio/           # ID3 reader, cover finder
 ├── rss/             # Podcast RSS 2.0 (iTunes namespace), OPML 2.0
 ├── logging/         # Flat JSON logger to stdout, error schema
 └── utils/           # Image processing (sharp)
-test/                # unit/, integration/ (needs Docker), e2e/, helpers/, fixtures/audio/
+test/                # unit/, engine/, integration/ (needs Docker), e2e/, helpers/, fixtures/audio/
 docs/adr/            # Architecture decisions
 ```
 
@@ -96,7 +96,7 @@ Read `docs/adr/0001-filesystem-authoritative-synchronization.md` first. It point
 - The shared engine plans current source audio, writes episode mirrors, folds folder RSS work, then writes final OPML after covered RSS work completes.
 - Freshness uses source metadata and generated output paths. A forced pass from `/resync?force=1` reprocesses work even when descriptors are unchanged. Watcher changed-path hints also reprocess the hinted work.
 - nginx `GET /ready` proxies engine availability. It returns `200` only after `feed.opml` is available; otherwise it returns `503` with status JSON.
-- `/resync` returns `202` when the engine accepts or queues a freshness-gated pass. It returns `503` after shutdown starts. Use `/resync?force=1` to force reprocessing.
+- `/resync` returns `202` when the engine accepts or queues a freshness-gated pass. During shutdown, HTTP closes before engine stop completes, so nginx can return a connection or proxy error. Use `/resync?force=1` to force reprocessing.
 - `RECONCILE_INTERVAL=0` disables periodic reconciliation.
 
 </important>
@@ -104,7 +104,7 @@ Read `docs/adr/0001-filesystem-authoritative-synchronization.md` first. It point
 <important if="you are changing shutdown, bootstrap, the entrypoint, or process ownership">
 
 - `runServer()` installs TERM and INT handling before awaiting context setup or starting initial sync. The engine runtime owns active work and reconciliation.
-- Shutdown closes HTTP admission and calls the engine runtime stop hook. The server then closes HTTP and exits.
+- Shutdown closes HTTP first, awaits the engine runtime stop hook, then exits.
 - Guarded filesystem services preserve the original OPML lock identity.
 - The shell entrypoint forwards signals promptly and waits for Bun, nginx, and the watcher. Unexpected child exits fail the container. Watcher pipelines own process groups so inotify and in-flight wget receive TERM together.
 - Compose uses an init reaper and a 15-second stop grace period. The entrypoint watchdog is the shutdown upper bound for the engine and helper cleanup.
@@ -138,7 +138,7 @@ Read `docs/adr/0002-unrestricted-source-names-private-cache.md` first. It record
 
 Flow: source hints and engine plans → typed `EventType` work → handlers → generated outputs.
 
-- Engine work adapters in `src/engine/work.ts` call handlers and keep handler code independent.
+- Engine work adapters in `src/engine/composition.ts` call handlers and keep handler code independent. `src/engine/work.ts` defines work classes and keys.
 - Handlers get `HandlerDeps = Pick<AppContext, "config" | "logger" | "fs">`. The filesystem service includes `lstat` and atomic writes. See `src/context.ts`.
 - Zod decodes watcher HTTP payloads at the input boundary. Handlers accept typed events only.
 
@@ -148,11 +148,10 @@ Flow: source hints and engine plans → typed `EventType` work → handlers → 
 
 - There is no data watcher. Generated-file changes do not post back to Bun.
 - Folder and OPML follow-up work comes from handler cascades inside `src/engine/composition.ts`.
-- Exclusion patterns live in `src/watcher.sh`.
 - The source watcher must observe directories such as `events.jsonl`, including moves out of the Library. Source inotify uses `--no-dereference`.
 - Fields are NUL-delimited. `watcher-events.ts` decodes parent/name/events and uses `JSON.stringify()` before invoking `wget -T 2`. Quotes, backslashes, and embedded newlines must remain valid fields. The serializer and wget inherit their worker's process group.
 - Inotify formatting has a 4096-byte limit. The serializer validates frames; a damaged frame fails the owned worker group so later events cannot silently desynchronize.
-- Select `Q_OVERFLOW` and route the books token to `/resync`; inotify does not emit `IN_Q_OVERFLOW`. A data overflow sends nothing because reconciliation repairs generated output.
+- Select `Q_OVERFLOW` and route the books token to `/resync`; inotify does not emit `IN_Q_OVERFLOW`.
 
 </important>
 
@@ -178,8 +177,8 @@ Flow: source hints and engine plans → typed `EventType` work → handlers → 
 
 <important if="you are writing or modifying tests, or tests are failing">
 
-- Unit tests (`test/unit/`) cover pure logic with mocked deps. Integration tests (`test/integration/`) need Docker for sharp and ffmpeg. Mocks and assertions are in `test/helpers/`.
-- Integration tests cover engine passes, cache layout/boundaries, and real output behavior.
+- Unit tests (`test/unit/`) cover pure logic with mocked deps. Engine tests (`test/engine/`) cover engine passes, cache layout/boundaries, and real output behavior. Mocks and assertions are in `test/helpers/`.
+- Integration tests (`test/integration/`) cover watcher transport with real Linux tools.
 - E2E covers nginx publication and resync auth against production containers.
 - `bun run test:e2e` uses `tools/test-e2e.sh`. It preserves compose-start and test failures through graceful cleanup; teardown failure also fails an otherwise successful run.
 

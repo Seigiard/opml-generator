@@ -89,7 +89,7 @@ done
 trap '' TERM INT
 kill "$TICK_PID" 2>/dev/null || true
 wait "$TICK_PID" 2>/dev/null || true
-# The application has 8 seconds. Helpers have an additional 3 seconds.
+# Bun, nginx and the watcher share this 11-second watchdog budget.
 # The disposable watchdog and its sleep have one owned process group.
 setsid sh -c '
   sleep 11

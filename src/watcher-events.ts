@@ -3,7 +3,7 @@ import { isAbsolute } from "node:path";
 
 const baseUrl = z.url().parse(Bun.argv[2]);
 
-const endpoint = z.enum(["books", "data"]).parse(Bun.argv[3]);
+z.literal("books").parse(Bun.argv[3]);
 
 const groupId = z.coerce.number().int().positive().optional().parse(Bun.argv[4]);
 
@@ -66,10 +66,8 @@ try {
       fields = [];
       const overflow = events.split(",").includes("Q_OVERFLOW");
 
-      // DATA holds only generated output, so lost data events need no destructive resync.
-      if (overflow && endpoint === "data") continue;
       const body = overflow ? "" : JSON.stringify({ parent, name, events });
-      const url = overflow ? `${baseUrl}/resync` : `${baseUrl}/events/${endpoint}`;
+      const url = overflow ? `${baseUrl}/resync` : `${baseUrl}/events/books`;
 
       const request = Bun.spawn(
         [

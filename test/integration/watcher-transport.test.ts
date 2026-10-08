@@ -11,7 +11,7 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
 });
 
-async function serializer(input: Uint8Array, endpoint: "books" | "data" = "books") {
+async function serializer(input: Uint8Array) {
   const requests: Array<{ method: string; path: string; body: string }> = [];
 
   const server = Bun.serve({
@@ -29,7 +29,7 @@ async function serializer(input: Uint8Array, endpoint: "books" | "data" = "books
   });
 
   const process = Bun.spawn(
-    ["bun", "/app/src/watcher-events.ts", `http://127.0.0.1:${server.port}`, endpoint],
+    ["bun", "/app/src/watcher-events.ts", `http://127.0.0.1:${server.port}`, "books"],
     { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
   );
 
@@ -151,24 +151,6 @@ test("the installed Q_OVERFLOW token routes a recovery POST instead of a books h
     selectionStatus: 2,
     status: 0,
     requests: [{ method: "POST", path: "/resync", body: "" }],
-  });
-}, 10_000);
-
-test("only a source overflow requests recovery; a data overflow sends nothing", async () => {
-  // #given
-  const frame = new TextEncoder().encode("\0\0Q_OVERFLOW\0");
-
-  // #when
-  const books = await serializer(frame, "books");
-  const data = await serializer(frame, "data");
-
-  // #then
-  expect({
-    books: { status: books.status, requests: books.requests },
-    data: { status: data.status, requests: data.requests },
-  }).toEqual({
-    books: { status: 0, requests: [{ method: "POST", path: "/resync", body: "" }] },
-    data: { status: 0, requests: [] },
   });
 }, 10_000);
 

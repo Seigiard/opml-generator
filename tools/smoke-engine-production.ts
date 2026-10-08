@@ -10,7 +10,17 @@ const baseUrl = `http://localhost:${port}`;
 
 const composeEnv = { ...process.env, COMPOSE_PROJECT_NAME: project, TEST_PORT: port };
 
-const sourceDir = join(import.meta.dir, "..", "files", "smoke-feed.xml");
+const sourceRoot = join(import.meta.dir, "..", "files");
+
+const fixtures = [
+  { source: "feed.xml", publicPath: "/feed.xml/feed.xml", dataFeed: "/data/~/feed.xml/feed.xml" },
+  {
+    source: "draft.tmp",
+    publicPath: "/draft.tmp/feed.xml",
+    dataFeed: "/data/~/draft.tmp/feed.xml",
+  },
+  { source: "~", publicPath: "/~/feed.xml", dataFeed: "/data/~/~/feed.xml" },
+];
 
 const readySchema = z.object({
   available: z.boolean(),
@@ -85,12 +95,22 @@ async function fetchText(path: string) {
 }
 
 async function main() {
-  await rm(sourceDir, { recursive: true, force: true });
-  await mkdir(sourceDir, { recursive: true });
-  await Bun.write(
-    join(sourceDir, "01.mp3"),
-    Bun.file(join(import.meta.dir, "..", "test", "fixtures", "audio", "tagged.mp3")),
-  );
+  const createdDirs: string[] = [];
+  let failure: unknown;
+  let cleanupFailure: unknown;
+
+  await mkdir(sourceRoot, { recursive: true });
+
+  for (const fixture of fixtures) {
+    const sourceDir = join(sourceRoot, fixture.source);
+
+    await mkdir(sourceDir);
+    createdDirs.push(sourceDir);
+    await Bun.write(
+      join(sourceDir, "01.mp3"),
+      Bun.file(join(import.meta.dir, "..", "test", "fixtures", "audio", "tagged.mp3")),
+    );
+  }
 
   await compose("down", "-v").catch(() => undefined);
 
@@ -118,18 +138,24 @@ async function main() {
 
     await assertEqual("sync-engine version", version, "0.5.1");
 
-    const episode = await fetchText("/audiobooks/smoke-feed.xml/01.mp3");
-    const rss = await fetchText("/smoke-feed.xml/feed.xml");
+    const episode = await fetchText("/audiobooks/feed.xml/01.mp3");
+    const rss = await fetchText("/feed.xml/feed.xml");
     const opml = await fetchText("/feed.opml");
 
     await assertEqual("episode status", episode.status, 200);
     await assertEqual("rss status", rss.status, 200);
     await assertEqual("opml status", opml.status, 200);
 
-    if (!rss.text.includes("smoke-feed.xml/01.mp3")) throw new Error("RSS missed source identity");
+    if (!rss.text.includes("feed.xml/01.mp3")) throw new Error("RSS missed source identity");
 
-    if (!opml.text.includes(`${baseUrl}/smoke-feed.xml/feed.xml`))
-      throw new Error("OPML missed public reserved-name URL");
+    for (const fixture of fixtures) {
+      const feed = await fetchText(fixture.publicPath);
+
+      await assertEqual(`${fixture.source} RSS status`, feed.status, 200);
+
+      if (!opml.text.includes(`${baseUrl}${fixture.publicPath}`))
+        throw new Error(`OPML missed public reserved-name URL: ${fixture.publicPath}`);
+    }
 
     await compose(
       "exec",
@@ -137,10 +163,10 @@ async function main() {
       "opml",
       "bun",
       "-e",
-      'const path="/data/smoke-feed.xml/feed.xml"; const xml=await Bun.file(path).text(); await Bun.write(path, xml.replace("Test Title", "Corrupted Smoke Title"));',
+      `const path=${JSON.stringify(fixtures[0]!.dataFeed)}; const xml=await Bun.file(path).text(); await Bun.write(path, xml.replace("Test Title", "Corrupted Smoke Title"));`,
     );
 
-    const corrupted = await fetchText("/smoke-feed.xml/feed.xml");
+    const corrupted = await fetchText(fixtures[0]!.publicPath);
 
     if (!corrupted.text.includes("Corrupted Smoke Title"))
       throw new Error("Forced resync precondition did not publish corruption");
@@ -151,7 +177,7 @@ async function main() {
 
     await assertEqual("forced resync status", forced.status, 202);
     await waitForCompletedReady();
-    const repaired = await fetchText("/smoke-feed.xml/feed.xml");
+    const repaired = await fetchText(fixtures[0]!.publicPath);
 
     if (!repaired.text.includes("Test Title") || repaired.text.includes("Corrupted Smoke Title"))
       throw new Error("Forced resync did not repair RSS corruption");
@@ -173,15 +199,7 @@ async function main() {
 
     if (stopMs > 15_000) throw new Error(`SIGTERM exceeded budget: ${stopMs}ms`);
 
-    await compose(
-      "run",
-      "--rm",
-      "--no-deps",
-      "opml",
-      "sh",
-      "-lc",
-      "rm /data/smoke-feed.xml/feed.xml",
-    );
+    await compose("run", "--rm", "--no-deps", "opml", "sh", "-lc", `rm ${fixtures[0]!.dataFeed}`);
 
     await compose("start", "opml");
     await waitForCompletedReady();
@@ -193,11 +211,11 @@ async function main() {
     await assertEqual("restart ready available", restartedJson.available, true);
     await assertEqual("restart ready source", restartedJson.availableFrom, "prior-output");
 
-    const replayed = await fetchText("/smoke-feed.xml/feed.xml");
+    const replayed = await fetchText(fixtures[0]!.publicPath);
 
     await assertEqual("restart replay RSS status", replayed.status, 200);
 
-    if (!replayed.text.includes("smoke-feed.xml/01.mp3"))
+    if (!replayed.text.includes("feed.xml/01.mp3"))
       throw new Error("Restart replay missed RSS item");
 
     console.log(
@@ -215,10 +233,26 @@ async function main() {
         2,
       ),
     );
+  } catch (error) {
+    failure = error;
   } finally {
-    await compose("down", "-v").catch(() => undefined);
-    await rm(sourceDir, { recursive: true, force: true });
+    try {
+      await compose("down", "-v");
+    } catch (error) {
+      cleanupFailure = error;
+    }
+
+    for (const dir of createdDirs.reverse()) {
+      try {
+        await rm(dir, { recursive: true });
+      } catch (error) {
+        cleanupFailure ??= error;
+      }
+    }
   }
+
+  if (failure) throw failure;
+  if (cleanupFailure) throw cleanupFailure;
 }
 
 await main();

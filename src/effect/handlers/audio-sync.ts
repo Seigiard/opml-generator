@@ -10,7 +10,7 @@ import { saveBufferAsImage, COVER_MAX_SIZE } from "../../utils/image.ts";
 import type { HandlerDeps, FileSystemService } from "../../context.ts";
 import type { EventType } from "../types.ts";
 import { ENTRY_FILE, COVER_FILE } from "../../constants.ts";
-import { checkFileSystemAccess, cacheFileSystem } from "../../stopping.ts";
+import { cacheFileSystem } from "../../stopping.ts";
 import { checkCacheMutation } from "../../cache-boundary.ts";
 import { prepareMirrorKind } from "./mirror-kind.ts";
 import { readSourceEntry } from "./source-kind.ts";
@@ -227,7 +227,7 @@ async function handleFolderCover(
     const coverExists = await fs.exists(coverPath);
 
     if (coverExists) return;
-    await checkCacheMutation(coverPath, dataPath, fs, true, () => checkFileSystemAccess(fs));
+    await checkCacheMutation(coverPath, dataPath, fs, true);
 
     let folderCoverPath: string | null = null;
 
@@ -241,8 +241,7 @@ async function handleFolderCover(
       try {
         const coverBuffer = Buffer.from(await Bun.file(folderCoverPath).arrayBuffer());
         await saveBufferAsImage(coverBuffer, coverPath, COVER_MAX_SIZE, async () => {
-          checkFileSystemAccess(fs);
-          await checkCacheMutation(coverPath, dataPath, fs, true, () => checkFileSystemAccess(fs));
+          await checkCacheMutation(coverPath, dataPath, fs, true);
         });
 
         return;
@@ -262,8 +261,7 @@ async function handleFolderCover(
     if (embeddedCover) {
       try {
         await saveBufferAsImage(embeddedCover.data, coverPath, COVER_MAX_SIZE, async () => {
-          checkFileSystemAccess(fs);
-          await checkCacheMutation(coverPath, dataPath, fs, true, () => checkFileSystemAccess(fs));
+          await checkCacheMutation(coverPath, dataPath, fs, true);
         });
       } catch {
         // ignore cover save failures

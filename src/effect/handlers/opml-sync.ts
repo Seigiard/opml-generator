@@ -220,6 +220,19 @@ async function publishOpml(
   const opmlPath = join(config.dataPath, OPML_FILE);
 
   try {
+    const existing = Bun.file(opmlPath);
+    let existingText: string | null = null;
+
+    if (await existing.exists()) {
+      existingText = await existing.text();
+    }
+
+    if (existingText === opmlXml) {
+      logger.info("OpmlSync", "OPML unchanged", { feeds: feeds.length });
+
+      return ok([]);
+    }
+
     await fs.atomicWrite(opmlPath, opmlXml);
   } catch (error) {
     return err(error instanceof Error ? error : new Error(String(error)));

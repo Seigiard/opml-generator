@@ -14,6 +14,7 @@ import {
   symlink,
   unlink,
   utimes,
+  writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -475,7 +476,7 @@ describe("episode sync engine composition", () => {
     }).toEqual({
       entryWrites: 0,
       feedRegenerated: true,
-      opmlWrites: 1,
+      opmlWrites: 0,
     });
   });
 
@@ -497,7 +498,32 @@ describe("episode sync engine composition", () => {
     );
 
     // #then
-    expect(unchanged.counts).toEqual({ entryWrites: 0, feedWrites: 0, opmlWrites: 1 });
+    expect(unchanged.counts).toEqual({ entryWrites: 0, feedWrites: 0, opmlWrites: 0 });
+  });
+
+  test("empty-library passes remove stale root RSS before publishing OPML", async () => {
+    // #given
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(filesPath, "root.mp3"));
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...realDeps(), reconcileIntervalMs: 0 })),
+    );
+    await rm(join(filesPath, "root.mp3"));
+    await rm(join(dataPath, "root.mp3"), { recursive: true });
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...realDeps(), reconcileIntervalMs: 0 })),
+    );
+
+    // #then
+    const opmlText = await Bun.file(join(dataPath, "feed.opml")).text();
+    expect({
+      rootFeedExists: await Bun.file(join(dataPath, "feed.xml")).exists(),
+      opmlMentionsRootFeed: opmlText.includes("/feed.xml"),
+    }).toEqual({
+      rootFeedExists: false,
+      opmlMentionsRootFeed: false,
+    });
   });
 
   test("publishes folder RSS and one final OPML after episode work drains", async () => {
@@ -1285,6 +1311,86 @@ describe("episode sync engine composition", () => {
       entryExists: true,
       guid: "Author/Album/01.mp3",
       opmlUrl: "{{{BASE_URL}}}/Author/Album/feed.xml",
+    });
+  });
+
+  test("source symlinks and cycles are excluded and remove obsolete publication", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
+    await copyFile(
+      join(AUDIO_FIXTURES, "tagged.mp3"),
+      join(filesPath, "Author", "Album", "01.mp3"),
+    );
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...realDeps(), reconcileIntervalMs: 0 })),
+    );
+    const outside = join(root, "outside-source");
+
+    await mkdir(outside, { recursive: true });
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(outside, "outside.mp3"));
+    await rm(join(filesPath, "Author", "Album"), { recursive: true });
+    await symlink(outside, join(filesPath, "Author", "Album"));
+    await symlink(join(filesPath, "Author"), join(filesPath, "cycle"));
+    await symlink(join(root, "missing-target"), join(filesPath, "broken.mp3"));
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...realDeps(), reconcileIntervalMs: 0 })),
+    );
+
+    // #then
+    const opmlText = await Bun.file(join(dataPath, "feed.opml")).text();
+
+    expect({
+      staleFeedExists: await Bun.file(join(dataPath, "Author", "Album", "feed.xml")).exists(),
+      symlinkEntryExists: await Bun.file(
+        join(dataPath, "Author", "Album", "outside.mp3", "entry.xml"),
+      ).exists(),
+      cycleFeedExists: await Bun.file(join(dataPath, "cycle", "feed.xml")).exists(),
+      brokenEntryExists: await Bun.file(join(dataPath, "broken.mp3", "entry.xml")).exists(),
+      opmlMentionsSymlinkedFeed:
+        opmlText.includes("{{{BASE_URL}}}/Author/Album/feed.xml") ||
+        opmlText.includes("{{{BASE_URL}}}/cycle/feed.xml") ||
+        opmlText.includes("{{{BASE_URL}}}/broken.mp3/feed.xml"),
+    }).toEqual({
+      staleFeedExists: false,
+      symlinkEntryExists: false,
+      cycleFeedExists: false,
+      brokenEntryExists: false,
+      opmlMentionsSymlinkedFeed: false,
+    });
+  });
+
+  test("cache alias mutation guard rejects writes through symlink ancestors", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
+    await copyFile(
+      join(AUDIO_FIXTURES, "tagged.mp3"),
+      join(filesPath, "Author", "Album", "01.mp3"),
+    );
+    const outsideCache = join(root, "outside-cache");
+    const sentinel = join(outsideCache, "sentinel.txt");
+
+    await mkdir(outsideCache, { recursive: true });
+    await writeFile(sentinel, "keep");
+    await symlink(outsideCache, join(dataPath, "Author"));
+
+    // #when
+    const result = await Effect.runPromiseExit(
+      Effect.scoped(openEpisodeSynchronization({ ...realDeps(), reconcileIntervalMs: 0 })),
+    );
+
+    // #then
+    expect({
+      result: result._tag,
+      sentinelText: await Bun.file(sentinel).text(),
+      outsideEntryExists: await Bun.file(
+        join(outsideCache, "Album", "01.mp3", "entry.xml"),
+      ).exists(),
+    }).toEqual({
+      result: "Failure",
+      sentinelText: "keep",
+      outsideEntryExists: false,
     });
   });
 
