@@ -6,7 +6,7 @@ Podcast RSS + OPML feed generator for locally stored audiobooks, built on Bun, n
 
 ```
 src/
-├── server.ts        # Bootstrap, HTTP server, signal handling, bounded exit
+├── server.ts        # Bootstrap, HTTP server, signal handling
 ├── config.ts        # Environment configuration
 ├── constants.ts     # File names (feed.xml, entry.xml, feed.opml, ...)
 ├── types.ts         # MIME_TYPES, AUDIO_EXTENSIONS
@@ -30,7 +30,7 @@ test/                # unit/, integration/ (needs Docker), e2e/, helpers/, fixtu
 docs/adr/            # Architecture decisions
 ```
 
-nginx on port 80 exposes `/feed.opml`, source-relative public metadata paths, audio streaming, and `/ready`. It proxies `/resync` behind Basic Auth. Bun on port 3000 (localhost only) handles `GET /ready`, `POST /events/books`, `POST /events/data`, and `POST /resync`.
+nginx on port 80 exposes `/feed.opml`, source-relative public metadata paths, audio streaming, and `/ready`. It proxies `/resync` behind Basic Auth. Bun on port 3000 (localhost only) handles `GET /ready`, `POST /events/books`, and `POST /resync`.
 
 `/data` is a generated cache with a reversible private projection of `/audiobooks`. Source files and folders are authoritative, and RSS reflects the current Library. An audio file maps to an episode mirror with `entry.xml`. A folder with episodes gets `feed.xml`, `cover.jpg`, and `_entry.xml`. The root gets `feed.opml`. Public metadata paths and Episode identity remain source-relative. The shared engine owns synchronization, freshness state, and the output lease under `DATA/~/.sync-engine`; that path is outside every supported cache projection.
 
@@ -44,7 +44,7 @@ Docker dev runs at http://localhost:8080. Run the app and unit/integration tests
 | `docker compose -f docker-compose.dev.yml logs -f`                                                              | Follow dev logs                                 |
 | `curl http://localhost:8080/feed.opml`                                                                          | Check OPML                                      |
 | `curl http://localhost:8080/Author/Book/feed.xml`                                                               | Check a podcast RSS feed                        |
-| `curl -u admin:secret http://localhost:8080/resync`                                                             | Force resync                                    |
+| `curl -u admin:secret http://localhost:8080/resync?force=1`                                                     | Force resync                                    |
 | `bun run fix`                                                                                                   | format:fix + lint:fix                           |
 | `bun run lint:anti-slop`                                                                                        | Anti-slop Oxlint rules (separate CI job)        |
 | `bun run test`                                                                                                  | Unit + integration tests in Docker              |
@@ -90,13 +90,13 @@ For concurrent E2E worktrees, use a distinct `COMPOSE_PROJECT_NAME` and port. Se
 
 <important if="you are changing synchronization passes, the reconcile loop, resync, or the engine lifecycle">
 
-Read `docs/adr/0001-filesystem-authoritative-synchronization.md` first. It carries the publication and recovery guarantees.
+Read `docs/adr/0001-filesystem-authoritative-synchronization.md` first. It points to the current shared-engine publication and recovery contract.
 
 - `startEpisodeEngineRuntime()` owns initial sync, reconciliation, source notifications, resync, readiness, and shutdown.
 - The shared engine plans current source audio, writes episode mirrors, folds folder RSS work, then writes final OPML after covered RSS work completes.
-- Freshness uses content checks over source descriptors and generated output paths. A forced pass from `/resync?force=1` reprocesses work even when descriptors are unchanged.
+- Freshness uses source metadata and generated output paths. A forced pass from `/resync?force=1` reprocesses work even when descriptors are unchanged. Watcher changed-path hints also reprocess the hinted work.
 - nginx `GET /ready` proxies engine availability. It returns `200` only after `feed.opml` is available; otherwise it returns `503` with status JSON.
-- `/resync` returns `202` when the engine accepts or queues a pass. It returns `503` before the engine starts or after shutdown starts.
+- `/resync` returns `202` when the engine accepts or queues a freshness-gated pass. It returns `503` after shutdown starts. Use `/resync?force=1` to force reprocessing.
 - `RECONCILE_INTERVAL=0` disables periodic reconciliation.
 
 </important>
@@ -107,7 +107,7 @@ Read `docs/adr/0001-filesystem-authoritative-synchronization.md` first. It carri
 - Shutdown closes HTTP admission and calls the engine runtime stop hook. The server then closes HTTP and exits.
 - Guarded filesystem services preserve the original OPML lock identity.
 - The shell entrypoint forwards signals promptly and waits for Bun, nginx, and the watcher. Unexpected child exits fail the container. Watcher pipelines own process groups so inotify and in-flight wget receive TERM together.
-- Compose uses an init reaper and a 15-second stop grace period for the 8-second application budget plus bounded helper cleanup.
+- Compose uses an init reaper and a 15-second stop grace period. The entrypoint watchdog is the shutdown upper bound for the engine and helper cleanup.
 - The disposable shell watchdog owns its sleep process group. Entrypoint verifies group creation before cancellation so a fast child exit cannot leave an uncancelled 11-second timer.
 
 </important>
@@ -146,15 +146,13 @@ Flow: source hints and engine plans → typed `EventType` work → handlers → 
 
 <important if="you are changing watchers, data-watcher event handling, or debugging an infinite event loop">
 
-- The data watcher ignores `feed.xml` and `feed.opml` writes. Otherwise the watcher loops forever.
-- Only `entry.xml` and `_entry.xml` produce actionable data-watcher events.
-- A `_entry.xml` change syncs only the parent folder. Syncing the same folder can re-trigger metadata writes.
+- There is no data watcher. Generated-file changes do not post back to Bun.
+- Folder and OPML follow-up work comes from handler cascades inside `src/engine/composition.ts`.
 - Exclusion patterns live in `src/watcher.sh`.
-- Publication and log exclusions apply only to the data watcher. The source watcher must observe directories such as `events.jsonl`, including moves out of the Library. Source inotify uses `--no-dereference`.
+- The source watcher must observe directories such as `events.jsonl`, including moves out of the Library. Source inotify uses `--no-dereference`.
 - Fields are NUL-delimited. `watcher-events.ts` decodes parent/name/events and uses `JSON.stringify()` before invoking `wget -T 2`. Quotes, backslashes, and embedded newlines must remain valid fields. The serializer and wget inherit their worker's process group.
 - Inotify formatting has a 4096-byte limit. The serializer validates frames; a damaged frame fails the owned worker group so later events cannot silently desynchronize.
 - Select `Q_OVERFLOW` and route the books token to `/resync`; inotify does not emit `IN_Q_OVERFLOW`. A data overflow sends nothing because reconciliation repairs generated output.
-- Data marker events with `ISDIR` are ignored.
 
 </important>
 
@@ -173,8 +171,8 @@ Flow: source hints and engine plans → typed `EventType` work → handlers → 
 - RSS episode numbers start at 1 after sorting, on every feed update. Ignore the cached `episodeNumber` in `entry.xml`.
 - OPML collection propagates directory, stat, read, and podcast XML errors. Failure retains prior OPML and fails the pass. Missing paths and valid navigation feeds are normally excluded.
 - Root-level audio publishes `/feed.xml`. Build feed and cover URLs from joined relative paths so an empty root path does not add a second slash.
-- Engine freshness checks source descriptors and generated outputs before reusing prior work.
-- Every pass verifies the audio-derived folder hierarchy and RSS. Changed content or processing-version bumps reprocess affected work.
+- Engine freshness checks source metadata descriptors and generated outputs before reusing prior work.
+- Every pass verifies the audio-derived folder hierarchy and RSS. Changed-path hints, forced passes, or processing-version bumps reprocess affected work.
 
 </important>
 

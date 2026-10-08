@@ -70,9 +70,16 @@ export function startEpisodeEngineRuntime(deps: HandlerDeps): EpisodeEngineRunti
     { signal: controller.signal },
   ).catch((cause: unknown) => {
     session.reject(cause);
+
+    if (controller.signal.aborted) {
+      ready.resolve();
+
+      return;
+    }
+
     ready.reject(cause);
 
-    if (!controller.signal.aborted) log.error("Engine", "Episode synchronization failed", cause);
+    log.error("Engine", "Episode synchronization failed", cause);
   });
 
   const notify = async (relativePaths: readonly string[]): Promise<PassAdmission> => {

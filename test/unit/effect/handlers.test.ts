@@ -1,6 +1,5 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { folderCleanup } from "../../../src/effect/handlers/folder-cleanup.ts";
-import { folderSync } from "../../../src/effect/handlers/folder-sync.ts";
 import { audioCleanup } from "../../../src/effect/handlers/audio-cleanup.ts";
 import type { HandlerDeps } from "../../../src/context.ts";
 import type { EventType } from "../../../src/effect/types.ts";
@@ -110,12 +109,6 @@ const folderDeletedEvent = (parent: string, name: string): EventType => ({
   name,
 });
 
-const folderCreatedEvent = (parent: string, name: string): EventType => ({
-  _tag: "FolderCreated",
-  parent,
-  name,
-});
-
 const audioFileDeletedEvent = (parent: string, name: string): EventType => ({
   _tag: "AudioFileDeleted",
   parent,
@@ -154,63 +147,6 @@ describe("Handler integration", () => {
       );
       // #then
       expect(mockFs.rmCalls[0]!.path).toBe("/test/data/Fiction/SciFi/Isaac Asimov");
-    });
-  });
-
-  describe("folderSync", () => {
-    test("creates data directory for new folder", async () => {
-      // #when
-      await folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction"), makeDeps());
-      // #then
-      expect(mockFs.mkdirCalls.some((c) => c.path === "/test/data/Fiction")).toBe(true);
-    });
-
-    test("creates _entry.xml for non-root folders", async () => {
-      // #when
-      await folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction"), makeDeps());
-      // #then
-      const entryWrite = mockFs.writeCalls.find((c) => c.path.endsWith("_entry.xml"));
-      expect(entryWrite).toBeDefined();
-      expect(entryWrite?.content).toContain("<folder>");
-      expect(entryWrite?.content).toContain("<title>Fiction</title>");
-    });
-
-    test("does not create _entry.xml for root folder", async () => {
-      // #when
-      await folderSync(folderCreatedEvent("/test/audiobooks/", ""), makeDeps());
-      // #then
-      const entryWrite = mockFs.writeCalls.find((c) => c.path.endsWith("_entry.xml"));
-      expect(entryWrite).toBeUndefined();
-    });
-
-    test("includes href in _entry.xml", async () => {
-      // #when
-      await folderSync(folderCreatedEvent("/test/audiobooks/", "Fiction"), makeDeps());
-      // #then
-      const entryWrite = mockFs.writeCalls.find((c) => c.path.endsWith("_entry.xml"));
-      expect(entryWrite?.content).toContain("/Fiction/feed.xml");
-    });
-
-    test("returns cascade event to generate root feed.xml", async () => {
-      // #when
-      const result = await folderSync(folderCreatedEvent("/test/audiobooks/", ""), makeDeps());
-      // #then
-      const cascades = result._unsafeUnwrap();
-      expect(cascades).toHaveLength(1);
-      expect(cascades[0]).toEqual({ _tag: "FolderMetaSyncRequested", path: "/test/data" });
-    });
-
-    test("returns cascade event to generate folder feed.xml", async () => {
-      // #when
-      const result = await folderSync(
-        folderCreatedEvent("/test/audiobooks/", "Fiction"),
-        makeDeps(),
-      );
-
-      // #then
-      const cascades = result._unsafeUnwrap();
-      expect(cascades).toHaveLength(1);
-      expect(cascades[0]).toEqual({ _tag: "FolderMetaSyncRequested", path: "/test/data/Fiction" });
     });
   });
 

@@ -67,7 +67,7 @@ describe("folderCleanup handler", () => {
 
   test("returns empty array for non-FolderDeleted events", async () => {
     // #given
-    const event: EventType = { _tag: "FolderCreated", parent: "/audiobooks", name: "Book" };
+    const event: EventType = { _tag: "Ignored" };
     // #when
     const result = await folderCleanup(event, makeDeps());
     // #then

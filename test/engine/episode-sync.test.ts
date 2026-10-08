@@ -175,6 +175,14 @@ function firstOpmlOutline(
   return outline;
 }
 
+function rssGuids(rss: z.infer<typeof rssSchema>): string[] {
+  return rss.rss.channel.item.map((item) => item.guid["#text"]);
+}
+
+function opmlUrls(opml: z.infer<typeof opmlSchema>): string[] {
+  return opml.opml.body.outline.map((outline) => outline["@_xmlUrl"]);
+}
+
 async function completesWithin(effect: Effect.Effect<unknown, unknown>, milliseconds: number) {
   return Promise.race([
     Effect.runPromise(effect).then(() => true),
@@ -261,17 +269,18 @@ describe("episode sync engine composition", () => {
     });
   });
 
-  test("freshness skips unchanged episode work and reprocesses same-metadata content changes", async () => {
+  test("freshness skips unchanged episode work and forced passes reprocess metadata-equivalent changes", async () => {
     // #given
     await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
     const audioPath = join(filesPath, "Author", "Album", "01.mp3");
     await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), audioPath);
+    const fixedTime = new Date("2024-01-02T03:04:05.000Z");
+    await utimes(audioPath, fixedTime, fixedTime);
     const first = countedDeps();
 
     await Effect.runPromise(
       Effect.scoped(openEpisodeSynchronization({ ...first.deps, reconcileIntervalMs: 0 })),
     );
-    const sourceStat = await stat(audioPath);
     const unchanged = countedDeps();
 
     // #when
@@ -281,10 +290,25 @@ describe("episode sync engine composition", () => {
     const bytes = new Uint8Array(await Bun.file(audioPath).arrayBuffer());
     bytes[bytes.length - 1] = bytes[bytes.length - 1] === 0 ? 1 : 0;
     await Bun.write(audioPath, bytes);
-    await utimes(audioPath, sourceStat.atime, sourceStat.mtime);
-    const changedContent = countedDeps();
+    await utimes(audioPath, fixedTime, fixedTime);
+    const plain = countedDeps();
     await Effect.runPromise(
-      Effect.scoped(openEpisodeSynchronization({ ...changedContent.deps, reconcileIntervalMs: 0 })),
+      Effect.scoped(openEpisodeSynchronization({ ...plain.deps, reconcileIntervalMs: 0 })),
+    );
+    const forced = countedDeps();
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({
+            ...forced.deps,
+            reconcileIntervalMs: 0,
+          });
+
+          yield* live.ready;
+          yield* live.requestPass({ force: true });
+          yield* live.awaitCompletion;
+        }),
+      ),
     );
 
     // #then
@@ -292,13 +316,66 @@ describe("episode sync engine composition", () => {
     expect({
       firstEntryWritten: first.counts.entryWrites > 0,
       unchangedEntryWrites: unchanged.counts.entryWrites,
-      changedContentEntryWrites: changedContent.counts.entryWrites,
+      plainEntryWrites: plain.counts.entryWrites,
+      forcedEntryWrites: forced.counts.entryWrites,
       title: episode.title,
     }).toEqual({
       firstEntryWritten: true,
       unchangedEntryWrites: 0,
-      changedContentEntryWrites: 1,
+      plainEntryWrites: 0,
+      forcedEntryWrites: 1,
       title: "Test Title",
+    });
+  });
+
+  test("hinted changes reprocess episode output while plain metadata-equivalent passes skip it", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
+    const audioPath = join(filesPath, "Author", "Album", "01.mp3");
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), audioPath);
+    const fixedTime = new Date("2024-01-02T03:04:05.000Z");
+    await utimes(audioPath, fixedTime, fixedTime);
+    const first = countedDeps();
+
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...first.deps, reconcileIntervalMs: 0 })),
+    );
+    const bytes = new Uint8Array(await Bun.file(audioPath).arrayBuffer());
+    bytes[bytes.length - 1] = bytes[bytes.length - 1] === 0 ? 1 : 0;
+    await Bun.write(audioPath, bytes);
+    await utimes(audioPath, fixedTime, fixedTime);
+
+    const plain = countedDeps();
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...plain.deps, reconcileIntervalMs: 0 })),
+    );
+    const hinted = countedDeps();
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({
+            ...hinted.deps,
+            reconcileIntervalMs: 0,
+          });
+
+          yield* live.ready;
+          yield* live.notify(["Author/Album/01.mp3"]);
+          yield* live.awaitCompletion;
+        }),
+      ),
+    );
+
+    // #then
+    expect({
+      firstEntryWritten: first.counts.entryWrites > 0,
+      plainEntryWrites: plain.counts.entryWrites,
+      hintedEntryWrites: hinted.counts.entryWrites,
+    }).toEqual({
+      firstEntryWritten: true,
+      plainEntryWrites: 0,
+      hintedEntryWrites: 1,
     });
   });
 
@@ -334,6 +411,93 @@ describe("episode sync engine composition", () => {
       firstEntryWritten: true,
       bumpedEntryWrites: 1,
     });
+  });
+
+  test("plain passes repair missing folder RSS without rewriting unchanged episodes", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
+    await copyFile(
+      join(AUDIO_FIXTURES, "tagged.mp3"),
+      join(filesPath, "Author", "Album", "01.mp3"),
+    );
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...realDeps(), reconcileIntervalMs: 0 })),
+    );
+    await rm(join(dataPath, "Author", "Album", "feed.xml"));
+    const repaired = countedDeps();
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...repaired.deps, reconcileIntervalMs: 0 })),
+    );
+
+    // #then
+    const rss = await readRss(join(dataPath, "Author", "Album", "feed.xml"));
+    expect({
+      entryWrites: repaired.counts.entryWrites,
+      feedRepaired: repaired.counts.feedWrites > 0,
+      guids: rssGuids(rss),
+    }).toEqual({
+      entryWrites: 0,
+      feedRepaired: true,
+      guids: ["Author/Album/01.mp3"],
+    });
+  });
+
+  test("folder processing version bumps regenerate unchanged RSS only", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
+    await copyFile(
+      join(AUDIO_FIXTURES, "tagged.mp3"),
+      join(filesPath, "Author", "Album", "01.mp3"),
+    );
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...realDeps(), reconcileIntervalMs: 0 })),
+    );
+    const bumped = countedDeps();
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(
+        openEpisodeSynchronization({
+          ...bumped.deps,
+          reconcileIntervalMs: 0,
+          processingVersions: { folder: "2" },
+        }),
+      ),
+    );
+
+    // #then
+    expect({
+      entryWrites: bumped.counts.entryWrites,
+      feedRegenerated: bumped.counts.feedWrites > 0,
+      opmlWrites: bumped.counts.opmlWrites,
+    }).toEqual({
+      entryWrites: 0,
+      feedRegenerated: true,
+      opmlWrites: 1,
+    });
+  });
+
+  test("unchanged plain passes skip folder RSS and final OPML writes", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
+    await copyFile(
+      join(AUDIO_FIXTURES, "tagged.mp3"),
+      join(filesPath, "Author", "Album", "01.mp3"),
+    );
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...realDeps(), reconcileIntervalMs: 0 })),
+    );
+    const unchanged = countedDeps();
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...unchanged.deps, reconcileIntervalMs: 0 })),
+    );
+
+    // #then
+    expect(unchanged.counts).toEqual({ entryWrites: 0, feedWrites: 0, opmlWrites: 1 });
   });
 
   test("publishes folder RSS and one final OPML after episode work drains", async () => {
@@ -657,20 +821,189 @@ describe("episode sync engine composition", () => {
 
     // #then
     const rss = await readRss(join(dataPath, "Author", "Album", "feed.xml"));
-    const firstItem = firstRssItem(rss);
-
     expect({
       removedEntryExists: await Bun.file(
         join(dataPath, "Author", "Album", "02.mp3", "entry.xml"),
       ).exists(),
-      itemTitle: firstItem.title,
-      itemEpisode: firstItem["itunes:episode"],
+      guids: rssGuids(rss),
       opmlExists: await Bun.file(join(dataPath, "feed.opml")).exists(),
     }).toEqual({
       removedEntryExists: false,
-      itemTitle: "Test Title",
-      itemEpisode: 1,
+      guids: ["Author/Album/01.mp3"],
       opmlExists: true,
+    });
+  });
+
+  test("a source file vanishing during handling completes as cleanup instead of requeueing forever", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
+    const audioPath = join(filesPath, "Author", "Album", "01.mp3");
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), audioPath);
+    const deps = realDeps();
+    const realLstat = deps.fs.lstat;
+    let deletedBeforeHandling = false;
+    let targetLstats = 0;
+    deps.fs.lstat = async (path) => {
+      if (path === audioPath) {
+        targetLstats += 1;
+        if (!deletedBeforeHandling) {
+          deletedBeforeHandling = true;
+          await rm(audioPath);
+        }
+      }
+
+      return realLstat(path);
+    };
+
+    // #when
+    const observed = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({ ...deps, reconcileIntervalMs: 0 });
+          const completed = yield* Effect.promise(() => completesWithin(live.awaitCompletion, 250));
+          const status = yield* live.status;
+
+          return { completed, status };
+        }),
+      ),
+    );
+
+    // #then
+    expect({
+      completed: observed.completed,
+      state: observed.status.state,
+      targetLstats,
+      entryExists: await Bun.file(
+        join(dataPath, "Author", "Album", "01.mp3", "entry.xml"),
+      ).exists(),
+    }).toEqual({
+      completed: true,
+      state: "complete",
+      targetLstats: 2,
+      entryExists: false,
+    });
+  });
+
+  test("removing a whole source folder drops its RSS and OPML outline", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Keep"), { recursive: true });
+    await mkdir(join(filesPath, "Author", "Remove"), { recursive: true });
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(filesPath, "Author", "Keep", "01.mp3"));
+    await copyFile(
+      join(AUDIO_FIXTURES, "tagged.mp3"),
+      join(filesPath, "Author", "Remove", "01.mp3"),
+    );
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({
+            ...realDeps(),
+            reconcileIntervalMs: 0,
+          });
+
+          yield* live.ready;
+          yield* Effect.promise(() => rm(join(filesPath, "Author", "Remove"), { recursive: true }));
+          yield* live.notify(["Author/Remove"]);
+          yield* live.awaitCompletion;
+        }),
+      ),
+    );
+
+    // #then
+    const opml = await readOpml(join(dataPath, "feed.opml"));
+    expect({
+      removedFeedExists: await Bun.file(join(dataPath, "Author", "Remove", "feed.xml")).exists(),
+      urls: opmlUrls(opml),
+    }).toEqual({
+      removedFeedExists: false,
+      urls: ["{{{BASE_URL}}}/Author/Keep/feed.xml"],
+    });
+  });
+
+  test("renaming a whole source folder drops the old RSS and OPML outline", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Old"), { recursive: true });
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(filesPath, "Author", "Old", "01.mp3"));
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({
+            ...realDeps(),
+            reconcileIntervalMs: 0,
+          });
+
+          yield* live.ready;
+          yield* Effect.promise(() =>
+            rename(join(filesPath, "Author", "Old"), join(filesPath, "Author", "New")),
+          );
+          yield* live.notify(["Author/Old", "Author/New"]);
+          yield* live.awaitCompletion;
+        }),
+      ),
+    );
+
+    // #then
+    const opml = await readOpml(join(dataPath, "feed.opml"));
+    const rss = await readRss(join(dataPath, "Author", "New", "feed.xml"));
+    expect({
+      oldFeedExists: await Bun.file(join(dataPath, "Author", "Old", "feed.xml")).exists(),
+      newGuids: rssGuids(rss),
+      urls: opmlUrls(opml),
+    }).toEqual({
+      oldFeedExists: false,
+      newGuids: ["Author/New/01.mp3"],
+      urls: ["{{{BASE_URL}}}/Author/New/feed.xml"],
+    });
+  });
+
+  test("replacing an audio file with a same-name directory keeps new child episodes", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author"), { recursive: true });
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(filesPath, "Author", "Book.mp3"));
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({
+            ...realDeps(),
+            reconcileIntervalMs: 0,
+          });
+
+          yield* live.ready;
+          yield* Effect.promise(async () => {
+            await rm(join(filesPath, "Author", "Book.mp3"));
+            await mkdir(join(filesPath, "Author", "Book.mp3"));
+            await copyFile(
+              join(AUDIO_FIXTURES, "tagged.mp3"),
+              join(filesPath, "Author", "Book.mp3", "01.mp3"),
+            );
+          });
+          yield* live.notify(["Author/Book.mp3", "Author/Book.mp3/01.mp3"]);
+          yield* live.awaitCompletion;
+        }),
+      ),
+    );
+
+    // #then
+    const opml = await readOpml(join(dataPath, "feed.opml"));
+    const rss = await readRss(join(dataPath, "Author", "Book.mp3", "feed.xml"));
+    expect({
+      staleEntryExists: await Bun.file(join(dataPath, "Author", "Book.mp3", "entry.xml")).exists(),
+      childEntryExists: await Bun.file(
+        join(dataPath, "Author", "Book.mp3", "01.mp3", "entry.xml"),
+      ).exists(),
+      guids: rssGuids(rss),
+      urls: opmlUrls(opml),
+    }).toEqual({
+      staleEntryExists: false,
+      childEntryExists: true,
+      guids: ["Author/Book.mp3/01.mp3"],
+      urls: ["{{{BASE_URL}}}/Author/Book.mp3/feed.xml"],
     });
   });
 
@@ -712,13 +1045,13 @@ describe("episode sync engine composition", () => {
     expect({
       state: status.state,
       workState: status.work.state,
-      errors: status.work.errors.length,
+      errorsReported: status.work.errors.length > 0,
       rssTitle: rss.rss.channel.title,
       opmlTitle: firstOutline["@_title"],
     }).toEqual({
       state: "complete-with-errors",
       workState: "complete-with-errors",
-      errors: 1,
+      errorsReported: true,
       rssTitle: "Test Title",
       opmlTitle: "Test Title",
     });

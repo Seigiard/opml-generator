@@ -16,7 +16,13 @@ export class FolderWork {
   constructor(readonly dataPath: string) {}
 }
 
-export type OpmlEngineWork = EpisodeWork | EpisodeDeleteWork | FolderWork;
+export class FolderDeleteWork {
+  readonly _tag = "FolderDeleteWork";
+
+  constructor(readonly relativePath: string) {}
+}
+
+export type OpmlEngineWork = EpisodeWork | EpisodeDeleteWork | FolderWork | FolderDeleteWork;
 
 export function workKey(work: OpmlEngineWork): string {
   return `${work._tag}:${"relativePath" in work ? work.relativePath : work.dataPath}`;

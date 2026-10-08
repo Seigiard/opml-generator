@@ -2,7 +2,6 @@ import { mkdir, rm, readdir, stat, lstat, rename, symlink, unlink } from "node:f
 import { config } from "./config.ts";
 import { log } from "./logging/index.ts";
 import type { LogContext } from "./logging/types.ts";
-import type { EventType } from "./effect/types.ts";
 import type { LogErrorInput } from "./logging/error-schema.ts";
 
 export interface ConfigService {
@@ -32,21 +31,10 @@ export interface FileSystemService {
   unlink(path: string): Promise<void>;
 }
 
-type AsyncHandler = (
-  event: EventType,
-  deps: HandlerDeps,
-) => Promise<import("neverthrow").Result<readonly EventType[], Error>>;
-
-export interface HandlerRegistryService {
-  get(tag: string): AsyncHandler | undefined;
-  register(tag: string, handler: AsyncHandler): void;
-}
-
 export interface AppContext {
   readonly config: ConfigService;
   readonly logger: LoggerService;
   readonly fs: FileSystemService;
-  readonly handlers: HandlerRegistryService;
 }
 
 export type HandlerDeps = Pick<AppContext, "config" | "logger" | "fs">;
@@ -105,17 +93,9 @@ export async function buildContext(): Promise<AppContext> {
     unlink: (path) => unlink(path),
   };
 
-  const handlerMap = new Map<string, AsyncHandler>();
-
-  const handlers: HandlerRegistryService = {
-    get: (tag) => handlerMap.get(tag),
-    register: (tag, handler) => handlerMap.set(tag, handler),
-  };
-
   return {
     config: configService,
     logger,
     fs: fsService,
-    handlers,
   };
 }

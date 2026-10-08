@@ -101,7 +101,7 @@ describe("audioSync handler", () => {
 
   test("returns empty array for non-AudioFileCreated events", async () => {
     // #given
-    const event: EventType = { _tag: "FolderCreated", parent: FILES_DIR, name: "Fiction" };
+    const event: EventType = { _tag: "Ignored" };
     // #when
     const result = await audioSync(event, realDeps());
     // #then

@@ -12,7 +12,12 @@ const composeEnv = { ...process.env, COMPOSE_PROJECT_NAME: project, TEST_PORT: p
 
 const sourceDir = join(import.meta.dir, "..", "files", "smoke-feed.xml");
 
-const readySchema = z.object({ available: z.boolean(), availableFrom: z.string().nullable() });
+const readySchema = z.object({
+  available: z.boolean(),
+  availableFrom: z.string().nullable(),
+  completed: z.boolean(),
+  failure: z.unknown().nullable(),
+});
 
 async function compose(...args: string[]) {
   return Bun.$`docker compose -f docker-compose.e2e.yml ${args}`.env(composeEnv).quiet();
@@ -49,6 +54,27 @@ async function waitForReady() {
   }
 
   throw new Error(`ready timed out: ${JSON.stringify(statuses.at(-5))}`);
+}
+
+async function waitForCompletedReady() {
+  const statuses: unknown[] = [];
+  const deadline = Date.now() + 30_000;
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${baseUrl}/ready`);
+      const body = readySchema.parse(await response.json());
+      statuses.push({ status: response.status, body });
+
+      if (response.status === 200 && body.completed && body.failure === null) return body;
+    } catch (error) {
+      statuses.push(String(error));
+    }
+
+    await Bun.sleep(100);
+  }
+
+  throw new Error(`completed ready timed out: ${JSON.stringify(statuses.at(-5))}`);
 }
 
 async function fetchText(path: string) {
@@ -92,12 +118,6 @@ async function main() {
 
     await assertEqual("sync-engine version", version, "0.5.0");
 
-    const envFlag = (
-      await compose("exec", "-T", "opml", "sh", "-lc", 'printf "%s" "${OPML_SYNC_ENGINE:-}"')
-    ).stdout.toString();
-
-    await assertEqual("OPML_SYNC_ENGINE default", envFlag, "");
-
     const episode = await fetchText("/audiobooks/smoke-feed.xml/01.mp3");
     const rss = await fetchText("/smoke-feed.xml/feed.xml");
     const opml = await fetchText("/feed.opml");
@@ -111,12 +131,30 @@ async function main() {
     if (!opml.text.includes(`${baseUrl}/smoke-feed.xml/feed.xml`))
       throw new Error("OPML missed public reserved-name URL");
 
+    await compose(
+      "exec",
+      "-T",
+      "opml",
+      "bun",
+      "-e",
+      'const path="/data/smoke-feed.xml/feed.xml"; const xml=await Bun.file(path).text(); await Bun.write(path, xml.replace("Test Title", "Corrupted Smoke Title"));',
+    );
+
+    const corrupted = await fetchText("/smoke-feed.xml/feed.xml");
+
+    if (!corrupted.text.includes("Corrupted Smoke Title"))
+      throw new Error("Forced resync precondition did not publish corruption");
+
     const forced = await fetch(`${baseUrl}/resync?force=1`, {
       headers: { Authorization: `Basic ${Buffer.from("admin:secret").toString("base64")}` },
     });
 
     await assertEqual("forced resync status", forced.status, 202);
-    await waitForReady();
+    await waitForCompletedReady();
+    const repaired = await fetchText("/smoke-feed.xml/feed.xml");
+
+    if (!repaired.text.includes("Test Title") || repaired.text.includes("Corrupted Smoke Title"))
+      throw new Error("Forced resync did not repair RSS corruption");
 
     const container = (await compose("ps", "-q", "opml")).stdout.toString().trim();
     const startedStop = Date.now();
@@ -135,8 +173,18 @@ async function main() {
 
     if (stopMs > 15_000) throw new Error(`SIGTERM exceeded budget: ${stopMs}ms`);
 
+    await compose(
+      "run",
+      "--rm",
+      "--no-deps",
+      "opml",
+      "sh",
+      "-lc",
+      "rm /data/smoke-feed.xml/feed.xml",
+    );
+
     await compose("start", "opml");
-    await waitForReady();
+    await waitForCompletedReady();
 
     const restarted = await fetch(`${baseUrl}/ready`);
     const restartedJson = readySchema.parse(await restarted.json());

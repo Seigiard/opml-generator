@@ -103,32 +103,32 @@ docker compose up -d --build
 
 ## API
 
-| Endpoint                 | Description                                 |
-| ------------------------ | ------------------------------------------- |
-| `GET /`                  | Redirect to /feed.opml                      |
-| `GET /feed.opml`         | Root OPML (aggregates all podcast feeds)    |
-| `GET /{path}/feed.xml`   | Individual podcast RSS feed                 |
-| `GET /audiobooks/{path}` | Stream audio file (supports Range requests) |
-| `GET /static/*`          | Static assets                               |
-| `POST /resync`           | Trigger full resync (requires Basic Auth)   |
-| `GET /ready`             | Publication readiness (`200` or `503`)      |
+| Endpoint                 | Description                                            |
+| ------------------------ | ------------------------------------------------------ |
+| `GET /`                  | Redirect to /feed.opml                                 |
+| `GET /feed.opml`         | Root OPML (aggregates all podcast feeds)               |
+| `GET /{path}/feed.xml`   | Individual podcast RSS feed                            |
+| `GET /audiobooks/{path}` | Stream audio file (supports Range requests)            |
+| `GET /static/*`          | Static assets                                          |
+| `POST /resync`           | Queue a freshness-gated resync (requires Basic Auth)   |
+| `POST /resync?force=1`   | Force a rebuild of declared work (requires Basic Auth) |
+| `GET /ready`             | Publication readiness (`200` or `503`)                 |
 
 `/resync` returns `202` when the shared sync engine accepts or queues a pass. This
-response does not mean that publication is complete. During startup or after
-shutdown starts, it returns `503`. Source notifications remain accepted while the
-engine rebuilds. `/ready` returns `503` until the engine reports an available
-`feed.opml`, and `200` after successful publication.
-
-Returns 503 with `Retry-After: 5` if `feed.opml` doesn't exist yet (initial sync in progress).
+response does not mean that publication is complete. During startup it can queue
+behind the initial pass. After shutdown starts, it returns `503`. Source
+notifications remain accepted while the engine rebuilds. `/ready` returns `503`
+until a `feed.opml` is available, and `200` when prior or newly published output
+can be served.
 
 ## Shutdown and Restart
 
 TERM and INT handling is active during startup, reconciliation, resync, and ordinary updates.
-Shutdown closes event and resync admission immediately; the internal endpoints return `503`.
-It stops new handlers and passes, and gives the active handler up to 8 seconds to finish.
+Shutdown closes HTTP admission first, so nginx can return a connection/proxy error while the process exits.
+It stops new handlers and passes through the shared engine stop hook.
 Pending publication work is recovered on the next startup from the unchanged source files and remaining cache.
 Keep the `/data` volume across restart.
-Readiness stays `503` until that startup has repaired RSS and OPML successfully, even if an old OPML file survives.
+If an old OPML file survives, readiness can return `200` with prior output while verification continues.
 
 Use the configured 15-second container stop timeout.
 The entrypoint forwards signals and waits for its children within that budget.

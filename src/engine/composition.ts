@@ -11,8 +11,10 @@ import { AUDIO_EXTENSIONS } from "../types.ts";
 import type { HandlerDeps } from "../context.ts";
 import { audioSync } from "../effect/handlers/audio-sync.ts";
 import { audioCleanup } from "../effect/handlers/audio-cleanup.ts";
+import { folderCleanup } from "../effect/handlers/folder-cleanup.ts";
 import { folderMetaSync } from "../effect/handlers/folder-meta-sync.ts";
 import { opmlSync } from "../effect/handlers/opml-sync.ts";
+import { sourcePathSync } from "../effect/handlers/source-path-sync.ts";
 import type { EventType } from "../effect/types.ts";
 import { ENTRY_FILE, FEED_FILE, FOLDER_ENTRY_FILE, OPML_FILE } from "../constants.ts";
 import { cacheMirrors } from "../cache-mirrors.ts";
@@ -21,6 +23,7 @@ import { opmlEngineStatePath } from "./policy.ts";
 import {
   EpisodeDeleteWork,
   EpisodeWork,
+  FolderDeleteWork,
   FolderWork,
   type OpmlEngineWork,
   workKey,
@@ -63,6 +66,56 @@ async function obsoleteEpisodeEntries(
   return deleted;
 }
 
+function sourceFolderEntries(entries: readonly SourceEntry[], deps: HandlerDeps): FolderWork[] {
+  const folders = new Set<string>();
+
+  for (const entry of audioEntries(entries)) {
+    let folder = dirname(entry.relativePath);
+
+    folders.add(cachePath(deps.config.dataPath, folder === "." ? "" : folder));
+
+    while (folder !== "." && folder !== "") {
+      folder = dirname(folder);
+      folders.add(cachePath(deps.config.dataPath, folder === "." ? "" : folder));
+    }
+  }
+
+  return [...folders]
+    .sort(
+      (a, b) =>
+        relative(deps.config.dataPath, b).split("/").length -
+        relative(deps.config.dataPath, a).split("/").length,
+    )
+    .map((path) => new FolderWork(path));
+}
+
+async function cachedFolderDeletes(
+  entries: readonly SourceEntry[],
+  deps: HandlerDeps,
+): Promise<FolderDeleteWork[]> {
+  const currentFolders = new Set(sourceFolderEntries(entries, deps).map((work) => work.dataPath));
+  const deleted: FolderDeleteWork[] = [];
+
+  await collectCachedFolderDeletes(deps.config.dataPath, deps, currentFolders, deleted);
+
+  return deleted;
+}
+
+async function collectCachedFolderDeletes(
+  dir: string,
+  deps: HandlerDeps,
+  currentFolders: ReadonlySet<string>,
+  deleted: FolderDeleteWork[],
+): Promise<void> {
+  for (const { path } of await cacheMirrors(dir, deps.config.dataPath, deps.fs))
+    await collectCachedFolderDeletes(path, deps, currentFolders, deleted);
+
+  if (dir === deps.config.dataPath) return;
+
+  if ((await Bun.file(join(dir, FEED_FILE)).exists()) && !currentFolders.has(dir))
+    deleted.push(new FolderDeleteWork(decodeRelative(relative(deps.config.dataPath, dir))));
+}
+
 async function collectObsoleteEpisodes(
   dir: string,
   deps: HandlerDeps,
@@ -81,14 +134,28 @@ async function collectObsoleteEpisodes(
     await collectObsoleteEpisodes(path, deps, present, deleted);
 }
 
-function workFromCascade(event: EventType, deps: HandlerDeps): OpmlEngineWork[] {
+async function workFromCascade(event: EventType, deps: HandlerDeps): Promise<OpmlEngineWork[]> {
   switch (event._tag) {
+    case "AudioFileCreated":
+      return [new EpisodeWork(relative(deps.config.filesPath, join(event.parent, event.name)))];
+    case "AudioFileDeleted":
+      return [
+        new EpisodeDeleteWork(relative(deps.config.filesPath, join(event.parent, event.name))),
+      ];
+    case "FolderDeleted":
+      return [
+        new FolderDeleteWork(relative(deps.config.filesPath, join(event.parent, event.name))),
+      ];
     case "FolderMetaSyncRequested":
       return [new FolderWork(event.path)];
     case "SourcePathSyncRequested": {
-      const relativePath = relative(deps.config.filesPath, event.path);
+      const result = await sourcePathSync(event, deps);
 
-      return event.isDirectory ? [] : [new EpisodeWork(relativePath)];
+      if (result.isErr()) throw result.error;
+
+      return (
+        await Promise.all(result.value.map((cascade) => workFromCascade(cascade, deps)))
+      ).flat();
     }
 
     default:
@@ -104,7 +171,7 @@ async function runHandler(
 
   if (result.isErr()) throw result.error;
 
-  return result.value.flatMap((event) => workFromCascade(event, deps));
+  return (await Promise.all(result.value.map((event) => workFromCascade(event, deps)))).flat();
 }
 
 function handleEpisode(
@@ -124,6 +191,13 @@ function handleEpisode(
 
       const sourcePath = join(options.config.filesPath, work.relativePath);
       const event = { parent: dirname(sourcePath), name: basename(sourcePath) };
+
+      if (work._tag === "FolderDeleteWork") {
+        return runHandler(
+          () => folderCleanup({ _tag: "FolderDeleted", ...event }, options),
+          options,
+        );
+      }
 
       if (work._tag === "EpisodeDeleteWork") {
         return runHandler(
@@ -172,7 +246,7 @@ function episodeLiveOptions(
     key: workKey,
     failureKey: workKey,
     freshness: {
-      check: "content",
+      check: "metadata",
       describe: (work) => {
         if (work._tag === "EpisodeWork") {
           return {
@@ -220,7 +294,12 @@ function episodeLiveOptions(
     declare: (entries, _request: PassRequest) =>
       Effect.tryPromise({
         try: async () => ({
-          work: [...audioEntries(entries), ...(await obsoleteEpisodeEntries(entries, options))],
+          work: [
+            ...(await cachedFolderDeletes(entries, options)),
+            ...(await obsoleteEpisodeEntries(entries, options)),
+            ...audioEntries(entries),
+            ...sourceFolderEntries(entries, options),
+          ],
           publish: publishFinalOpml(options),
         }),
         catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
