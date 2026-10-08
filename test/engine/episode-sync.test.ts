@@ -787,6 +787,173 @@ describe("episode sync engine composition", () => {
     });
   });
 
+  test("unrestricted source names publish every public subscription path", async () => {
+    // #given
+    const tagged = Bun.file(join(AUDIO_FIXTURES, "tagged.mp3"));
+
+    for (const path of [
+      "feed.xml",
+      "feed.opml",
+      "_entry.xml",
+      "entry.xml",
+      "cover.jpg",
+      "feed.xml.tmp",
+      "~",
+      "~feed.xml",
+      "Nested/feed.xml/entry.xml/cover.jpg",
+      "Parent/feed.xml",
+    ]) {
+      await Bun.write(join(filesPath, path, "01.mp3"), tagged);
+    }
+
+    await Bun.write(join(filesPath, "Parent", "direct.mp3"), tagged);
+    await Bun.write(join(filesPath, "root.mp3"), tagged);
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...realDeps(), reconcileIntervalMs: 0 })),
+    );
+
+    // #then
+    const opml = await readOpml(join(dataPath, "feed.opml"));
+
+    expect(opml.opml.body.outline.map((outline) => outline["@_xmlUrl"]).sort()).toEqual(
+      [
+        "{{{BASE_URL}}}/feed.xml",
+        "{{{BASE_URL}}}/feed.xml/feed.xml",
+        "{{{BASE_URL}}}/feed.opml/feed.xml",
+        "{{{BASE_URL}}}/_entry.xml/feed.xml",
+        "{{{BASE_URL}}}/entry.xml/feed.xml",
+        "{{{BASE_URL}}}/cover.jpg/feed.xml",
+        "{{{BASE_URL}}}/feed.xml.tmp/feed.xml",
+        "{{{BASE_URL}}}/~/feed.xml",
+        "{{{BASE_URL}}}/~feed.xml/feed.xml",
+        "{{{BASE_URL}}}/Nested/feed.xml/entry.xml/cover.jpg/feed.xml",
+        "{{{BASE_URL}}}/Parent/feed.xml",
+        "{{{BASE_URL}}}/Parent/feed.xml/feed.xml",
+      ].sort(),
+    );
+  });
+
+  test("punctuation-only and whitespace folder names publish usable podcast titles", async () => {
+    // #given
+    const tagged = Bun.file(join(AUDIO_FIXTURES, "tagged.mp3"));
+
+    for (const folder of ["---", "   ", "my-awesome-book"])
+      for (const name of ["01.mp3", "02.mp3"])
+        await Bun.write(join(filesPath, folder, name), tagged);
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...realDeps(), reconcileIntervalMs: 0 })),
+    );
+
+    // #then
+    const opml = await readOpml(join(dataPath, "feed.opml"));
+
+    expect(opml.opml.body.outline.map((outline) => outline["@_title"]).sort()).toEqual([
+      "---",
+      "My awesome book",
+      "Untitled",
+    ]);
+  });
+
+  test("live file move removes the old feed and publishes the moved feed identity", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Old"), { recursive: true });
+    await mkdir(join(filesPath, "Author", "New"), { recursive: true });
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(filesPath, "Author", "Old", "01.mp3"));
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({
+            ...realDeps(),
+            reconcileIntervalMs: 0,
+          });
+
+          yield* live.ready;
+          yield* Effect.promise(() =>
+            rename(
+              join(filesPath, "Author", "Old", "01.mp3"),
+              join(filesPath, "Author", "New", "01.mp3"),
+            ),
+          );
+          yield* live.notify(["Author/Old/01.mp3", "Author/New/01.mp3"]);
+          yield* live.awaitCompletion;
+        }),
+      ),
+    );
+
+    // #then
+    const opml = await readOpml(join(dataPath, "feed.opml"));
+    const rss = await readRss(join(dataPath, "Author", "New", "feed.xml"));
+
+    expect({
+      oldFeedExists: await Bun.file(join(dataPath, "Author", "Old", "feed.xml")).exists(),
+      newGuid: firstRssItem(rss).guid["#text"],
+      opmlUrls: opml.opml.body.outline.map((outline) => outline["@_xmlUrl"]),
+    }).toEqual({
+      oldFeedExists: false,
+      newGuid: "Author/New/01.mp3",
+      opmlUrls: ["{{{BASE_URL}}}/Author/New/feed.xml"],
+    });
+  });
+
+  test("source read failure keeps prior published results instead of confirming deletion", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
+    await copyFile(
+      join(AUDIO_FIXTURES, "tagged.mp3"),
+      join(filesPath, "Author", "Album", "01.mp3"),
+    );
+    const deps = realDeps();
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...deps, reconcileIntervalMs: 0 })),
+    );
+
+    const status = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({ ...deps, reconcileIntervalMs: 0 });
+          yield* live.ready;
+          const realLstat = deps.fs.lstat;
+          deps.fs.lstat = async (path) => {
+            if (path === join(filesPath, "Author", "Album", "01.mp3"))
+              throw new Error("EACCES controlled read failure");
+
+            return realLstat(path);
+          };
+
+          // #when
+          yield* live.notify(["Author/Album/01.mp3"]);
+          yield* live.awaitCompletion;
+
+          return yield* live.status;
+        }),
+      ),
+    );
+
+    // #then
+    const opml = await readOpml(join(dataPath, "feed.opml"));
+    const rss = await readRss(join(dataPath, "Author", "Album", "feed.xml"));
+
+    expect({
+      state: status.state,
+      entryExists: await Bun.file(
+        join(dataPath, "Author", "Album", "01.mp3", "entry.xml"),
+      ).exists(),
+      guid: firstRssItem(rss).guid["#text"],
+      opmlUrl: firstOpmlOutline(opml)["@_xmlUrl"],
+    }).toEqual({
+      state: "complete-with-errors",
+      entryExists: true,
+      guid: "Author/Album/01.mp3",
+      opmlUrl: "{{{BASE_URL}}}/Author/Album/feed.xml",
+    });
+  });
+
   test("refuses a second owner for the same output tree", async () => {
     // #given
     const release = await Effect.runPromise(
