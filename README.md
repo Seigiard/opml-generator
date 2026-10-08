@@ -90,17 +90,17 @@ docker compose up -d --build
 
 ## Environment Variables
 
-| Variable             | Default       | Description                                                                                              |
-| -------------------- | ------------- | -------------------------------------------------------------------------------------------------------- |
-| `FILES`              | `/audiobooks` | Path to your audiobooks directory                                                                        |
-| `DATA`               | `/data`       | Path for cache and metadata                                                                              |
-| `PORT`               | `3000`        | Internal Bun server port                                                                                 |
-| `DEV_MODE`           | `false`       | Enable hot reload for Bun                                                                                |
-| `ADMIN_USER`         | -             | Username for /resync Basic Auth                                                                          |
-| `ADMIN_TOKEN`        | -             | Password for /resync Basic Auth                                                                          |
-| `RATE_LIMIT_MB`      | `0`           | Streaming rate limit in MB/s (0 = off)                                                                   |
-| `RECONCILE_INTERVAL` | `1800`        | Periodic reconciliation seconds (0 = off, min 60)                                                        |
-| `OPML_SYNC_ENGINE`   | -             | Temporary `episode` mode writes episode `entry.xml` through the shared engine. RSS and OPML stay legacy. |
+| Variable             | Default       | Description                                                                                               |
+| -------------------- | ------------- | --------------------------------------------------------------------------------------------------------- |
+| `FILES`              | `/audiobooks` | Path to your audiobooks directory                                                                         |
+| `DATA`               | `/data`       | Path for cache and metadata                                                                               |
+| `PORT`               | `3000`        | Internal Bun server port                                                                                  |
+| `DEV_MODE`           | `false`       | Enable hot reload for Bun                                                                                 |
+| `ADMIN_USER`         | -             | Username for /resync Basic Auth                                                                           |
+| `ADMIN_TOKEN`        | -             | Password for /resync Basic Auth                                                                           |
+| `RATE_LIMIT_MB`      | `0`           | Streaming rate limit in MB/s (0 = off)                                                                    |
+| `RECONCILE_INTERVAL` | `1800`        | Periodic reconciliation seconds (0 = off, min 60)                                                         |
+| `OPML_SYNC_ENGINE`   | -             | Temporary `episode` mode runs episode, RSS cascade, and final OPML publication through the shared engine. |
 
 ## API
 

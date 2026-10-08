@@ -14,7 +14,7 @@ export interface EpisodeEngineRuntime {
 
   readonly notifyBooksEvent: (event: RawBooksEvent) => Promise<void>;
 
-  readonly requestPass: () => Promise<void>;
+  readonly requestPass: (force?: boolean) => Promise<void>;
 
   readonly stop: () => Promise<void>;
 }
@@ -70,11 +70,11 @@ export function startEpisodeEngineRuntime(deps: HandlerDeps): EpisodeEngineRunti
       const path = relative(deps.config.filesPath, `${event.parent}/${event.name}`);
       await notify([path]);
     },
-    requestPass: async () => {
+    requestPass: async (force = false) => {
       if (controller.signal.aborted) return;
       const live = await session.promise.catch(() => undefined);
 
-      if (live) await Effect.runPromise(live.requestPass({ force: true }));
+      if (live) await Effect.runPromise(live.requestPass({ force }));
     },
     stop: async () => {
       controller.abort();

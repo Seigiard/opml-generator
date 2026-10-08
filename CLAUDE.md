@@ -23,7 +23,7 @@ src/
 ├── cache-projection.ts # Typed interface to cache-layout.js
 ├── cache-mirrors.ts # Structural cache traversal through `~` containers
 ├── cache-upgrade.ts # Legacy/mixed cache detection and journaled upgrade
-├── engine/          # Temporary shared-engine OPML composition (episode-only in #61)
+├── engine/          # Temporary shared-engine OPML composition
 ├── effect/          # Event handling (neverthrow + async/await)
 │   ├── types.ts     # RawBooksEvent, RawDataEvent, EventType
 │   ├── pass-lifecycle.ts # Pass ownership and completion tracking
@@ -206,18 +206,18 @@ Flow: source hints, data adapters, and sync plans → typed `EventType` → `Sim
 
 <important if="you are adding or using environment variables or configuration">
 
-| Variable             | Default       | Description                                                                                                                          |
-| -------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `FILES`              | `/audiobooks` | Source audiobooks directory                                                                                                          |
-| `DATA`               | `/data`       | Generated metadata cache                                                                                                             |
-| `PORT`               | `3000`        | Internal Bun server port                                                                                                             |
-| `LOG_LEVEL`          | `info`        | debug \| info \| warn \| error                                                                                                       |
-| `DEV_MODE`           | `false`       | Enable Bun --watch hot reload                                                                                                        |
-| `ADMIN_USER`         | -             | /resync Basic Auth username                                                                                                          |
-| `ADMIN_TOKEN`        | -             | /resync Basic Auth password                                                                                                          |
-| `RATE_LIMIT_MB`      | `0`           | Streaming rate limit MB/s (0 = off)                                                                                                  |
-| `RECONCILE_INTERVAL` | `1800`        | Periodic reconciliation seconds (0 = off, min 60)                                                                                    |
-| `OPML_SYNC_ENGINE`   | -             | Temporary `episode` mode for shared-engine episode `entry.xml` publication. RSS/final OPML stay out of this mode until later slices. |
+| Variable             | Default       | Description                                                                                  |
+| -------------------- | ------------- | -------------------------------------------------------------------------------------------- |
+| `FILES`              | `/audiobooks` | Source audiobooks directory                                                                  |
+| `DATA`               | `/data`       | Generated metadata cache                                                                     |
+| `PORT`               | `3000`        | Internal Bun server port                                                                     |
+| `LOG_LEVEL`          | `info`        | debug \| info \| warn \| error                                                               |
+| `DEV_MODE`           | `false`       | Enable Bun --watch hot reload                                                                |
+| `ADMIN_USER`         | -             | /resync Basic Auth username                                                                  |
+| `ADMIN_TOKEN`        | -             | /resync Basic Auth password                                                                  |
+| `RATE_LIMIT_MB`      | `0`           | Streaming rate limit MB/s (0 = off)                                                          |
+| `RECONCILE_INTERVAL` | `1800`        | Periodic reconciliation seconds (0 = off, min 60)                                            |
+| `OPML_SYNC_ENGINE`   | -             | Temporary `episode` mode for shared-engine episode, RSS cascade, and final OPML publication. |
 
 </important>
 

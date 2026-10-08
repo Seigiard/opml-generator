@@ -63,7 +63,7 @@ export async function runServer(createContext = buildContext): Promise<void> {
           }
 
           if (req.method === "POST" && url.pathname === "/resync") {
-            void synchronization.requestPass();
+            void synchronization.requestPass(url.searchParams.get("force") === "1");
 
             return new Response("Resync started", { status: 202 });
           }

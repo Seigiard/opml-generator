@@ -5,16 +5,31 @@ import {
   type SourceEntry,
 } from "@seigiard/sync-engine";
 import { Effect } from "effect";
-import { basename, dirname, extname, join } from "node:path";
+import { basename, dirname, extname, join, relative } from "node:path";
 import { AUDIO_EXTENSIONS } from "../types.ts";
 import type { HandlerDeps } from "../context.ts";
 import { audioSync } from "../effect/handlers/audio-sync.ts";
+import { audioCleanup } from "../effect/handlers/audio-cleanup.ts";
+import { folderMetaSync } from "../effect/handlers/folder-meta-sync.ts";
+import { opmlSync } from "../effect/handlers/opml-sync.ts";
+import type { EventType } from "../effect/types.ts";
+import { ENTRY_FILE } from "../constants.ts";
+import { cacheMirrors } from "../cache-mirrors.ts";
+import { decodeRelative } from "../cache-projection.ts";
 import { opmlEngineStatePath } from "./policy.ts";
-import { EpisodeWork, type OpmlEngineWork, workKey } from "./work.ts";
+import {
+  EpisodeDeleteWork,
+  EpisodeWork,
+  FolderWork,
+  type OpmlEngineWork,
+  workKey,
+} from "./work.ts";
 
 export interface EpisodeSynchronizationOptions extends HandlerDeps {
   /** Zero disables the engine's periodic reconciliation. */
   readonly reconcileIntervalMs: number;
+
+  readonly beforeFolderWork?: (work: FolderWork) => Effect.Effect<void, Error>;
 }
 
 const supported = new Set(AUDIO_EXTENSIONS.map((extension) => `.${extension}`));
@@ -29,28 +44,108 @@ function audioEntries(entries: readonly SourceEntry[]): EpisodeWork[] {
   });
 }
 
+async function obsoleteEpisodeEntries(
+  entries: readonly SourceEntry[],
+  deps: HandlerDeps,
+): Promise<EpisodeDeleteWork[]> {
+  const present = new Set(audioEntries(entries).map((entry) => entry.relativePath));
+  const deleted: EpisodeDeleteWork[] = [];
+
+  await collectObsoleteEpisodes(deps.config.dataPath, deps, present, deleted);
+
+  return deleted;
+}
+
+async function collectObsoleteEpisodes(
+  dir: string,
+  deps: HandlerDeps,
+  present: ReadonlySet<string>,
+  deleted: EpisodeDeleteWork[],
+): Promise<void> {
+  if (await Bun.file(join(dir, ENTRY_FILE)).exists()) {
+    const relativePath = decodeRelative(relative(deps.config.dataPath, dir));
+
+    if (!present.has(relativePath)) deleted.push(new EpisodeDeleteWork(relativePath));
+
+    return;
+  }
+
+  for (const { path } of await cacheMirrors(dir, deps.config.dataPath, deps.fs))
+    await collectObsoleteEpisodes(path, deps, present, deleted);
+}
+
+function workFromCascade(event: EventType, deps: HandlerDeps): OpmlEngineWork[] {
+  switch (event._tag) {
+    case "FolderMetaSyncRequested":
+      return [new FolderWork(event.path)];
+    case "SourcePathSyncRequested": {
+      const relativePath = relative(deps.config.filesPath, event.path);
+
+      return event.isDirectory ? [] : [new EpisodeWork(relativePath)];
+    }
+
+    default:
+      return [];
+  }
+}
+
+async function runHandler(
+  run: () => Promise<import("neverthrow").Result<readonly EventType[], Error>>,
+  deps: HandlerDeps,
+): Promise<readonly OpmlEngineWork[]> {
+  const result = await run();
+
+  if (result.isErr()) throw result.error;
+
+  return result.value.flatMap((event) => workFromCascade(event, deps));
+}
+
 function handleEpisode(
   work: OpmlEngineWork,
-  deps: HandlerDeps,
+  options: EpisodeSynchronizationOptions,
 ): Effect.Effect<readonly OpmlEngineWork[], Error> {
   return Effect.tryPromise({
     try: async () => {
-      const sourcePath = join(deps.config.filesPath, work.relativePath);
+      if (work._tag === "FolderWork") {
+        if (options.beforeFolderWork) await Effect.runPromise(options.beforeFolderWork(work));
 
-      const result = await audioSync(
-        { _tag: "AudioFileCreated", parent: dirname(sourcePath), name: basename(sourcePath) },
-        deps,
-      );
+        return runHandler(
+          () => folderMetaSync({ _tag: "FolderMetaSyncRequested", path: work.dataPath }, options),
+          options,
+        );
+      }
 
-      if (result.isErr()) throw result.error;
+      const sourcePath = join(options.config.filesPath, work.relativePath);
+      const event = { parent: dirname(sourcePath), name: basename(sourcePath) };
 
-      return [];
+      if (work._tag === "EpisodeDeleteWork") {
+        return runHandler(
+          () => audioCleanup({ _tag: "AudioFileDeleted", ...event }, options),
+          options,
+        );
+      }
+
+      return runHandler(() => audioSync({ _tag: "AudioFileCreated", ...event }, options), options);
     },
     catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
   });
 }
 
-/** Episode-only temporary composition for #61. RSS and final OPML publication stay on the legacy path until #62. */
+function publishFinalOpml(options: HandlerDeps): Effect.Effect<void, Error> {
+  return Effect.tryPromise({
+    try: async () => {
+      const result = await opmlSync(
+        { _tag: "FeedXmlChanged", path: options.config.dataPath },
+        options,
+      );
+
+      if (result.isErr()) throw result.error;
+    },
+    catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+  });
+}
+
+/** Temporary composition while OPML synchronization moves onto the shared engine. */
 function episodeLiveOptions(
   options: EpisodeSynchronizationOptions,
 ): LiveOptions<OpmlEngineWork, Error, never> {
@@ -62,7 +157,14 @@ function episodeLiveOptions(
     handle: (work) => handleEpisode(work, options),
     key: workKey,
     failureKey: workKey,
-    declare: (entries) => Effect.succeed({ work: audioEntries(entries), publish: Effect.void }),
+    declare: (entries) =>
+      Effect.tryPromise({
+        try: async () => ({
+          work: [...audioEntries(entries), ...(await obsoleteEpisodeEntries(entries, options))],
+          publish: publishFinalOpml(options),
+        }),
+        catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+      }),
   };
 }
 
