@@ -17,7 +17,7 @@ export function cacheFileSystem(deps: Pick<HandlerDeps, "fs" | "config">): FileS
   return guardFileSystem(deps.fs, () => checkFileSystemAccess(deps.fs), deps.config.dataPath);
 }
 
-export function guardFileSystem(
+function guardFileSystem(
   fs: FileSystemService,
   check: () => void,
   dataPath?: string,

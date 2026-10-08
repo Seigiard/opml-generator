@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-export const ENGINE_STATE_DIRECTORY = ".sync-engine";
+const ENGINE_STATE_DIRECTORY = ".sync-engine";
 
 /**
  * `~/.sync-engine` is outside the cache projection: a source `~` encodes as `~/~`,

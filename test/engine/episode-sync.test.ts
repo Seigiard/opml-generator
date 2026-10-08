@@ -13,6 +13,7 @@ import {
   stat,
   symlink,
   unlink,
+  utimes,
 } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -193,6 +194,30 @@ function sourceFilePath(url: string): string {
   return decodeURIComponent(url.slice(BASE_URL.length));
 }
 
+function countedDeps() {
+  const deps = realDeps();
+  const counts = { entryWrites: 0, feedWrites: 0, opmlWrites: 0 };
+
+  return {
+    counts,
+    deps: {
+      ...deps,
+      fs: {
+        ...deps.fs,
+        atomicWrite: async (path: string, content: string) => {
+          if (path.endsWith("entry.xml")) counts.entryWrites += 1;
+
+          if (path.endsWith("feed.xml")) counts.feedWrites += 1;
+
+          if (path.endsWith("feed.opml")) counts.opmlWrites += 1;
+
+          await deps.fs.atomicWrite(path, content);
+        },
+      },
+    },
+  };
+}
+
 describe("episode sync engine composition", () => {
   beforeEach(async () => {
     root = await createTempDir("opml-engine-episode");
@@ -233,6 +258,81 @@ describe("episode sync engine composition", () => {
       episodeNumber: 1,
       pubDate: "2024-01-01T00:00:00.000Z",
       guid: "Author/Album/01.mp3",
+    });
+  });
+
+  test("freshness skips unchanged episode work and reprocesses same-metadata content changes", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
+    const audioPath = join(filesPath, "Author", "Album", "01.mp3");
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), audioPath);
+    const first = countedDeps();
+
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...first.deps, reconcileIntervalMs: 0 })),
+    );
+    const sourceStat = await stat(audioPath);
+    const unchanged = countedDeps();
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...unchanged.deps, reconcileIntervalMs: 0 })),
+    );
+    const bytes = new Uint8Array(await Bun.file(audioPath).arrayBuffer());
+    bytes[bytes.length - 1] = bytes[bytes.length - 1] === 0 ? 1 : 0;
+    await Bun.write(audioPath, bytes);
+    await utimes(audioPath, sourceStat.atime, sourceStat.mtime);
+    const changedContent = countedDeps();
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...changedContent.deps, reconcileIntervalMs: 0 })),
+    );
+
+    // #then
+    const episode = await readEpisode(join(dataPath, "Author", "Album", "01.mp3", "entry.xml"));
+    expect({
+      firstEntryWritten: first.counts.entryWrites > 0,
+      unchangedEntryWrites: unchanged.counts.entryWrites,
+      changedContentEntryWrites: changedContent.counts.entryWrites,
+      title: episode.title,
+    }).toEqual({
+      firstEntryWritten: true,
+      unchangedEntryWrites: 0,
+      changedContentEntryWrites: 1,
+      title: "Test Title",
+    });
+  });
+
+  test("processing version bumps reprocess unchanged episode outputs", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
+    await copyFile(
+      join(AUDIO_FIXTURES, "tagged.mp3"),
+      join(filesPath, "Author", "Album", "01.mp3"),
+    );
+    const first = countedDeps();
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...first.deps, reconcileIntervalMs: 0 })),
+    );
+    const bumped = countedDeps();
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(
+        openEpisodeSynchronization({
+          ...bumped.deps,
+          reconcileIntervalMs: 0,
+          processingVersions: { episode: "2" },
+        }),
+      ),
+    );
+
+    // #then
+    expect({
+      firstEntryWritten: first.counts.entryWrites > 0,
+      bumpedEntryWrites: bumped.counts.entryWrites,
+    }).toEqual({
+      firstEntryWritten: true,
+      bumpedEntryWrites: 1,
     });
   });
 

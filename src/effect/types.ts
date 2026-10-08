@@ -4,12 +4,6 @@ export interface RawBooksEvent {
   events: string;
 }
 
-export interface RawDataEvent {
-  parent: string;
-  name: string;
-  events: string;
-}
-
 export type EventType =
   | { _tag: "SourcePathSyncRequested"; path: string; isDirectory: boolean }
   | { _tag: "AudioFileCreated"; parent: string; name: string }
@@ -24,5 +18,3 @@ export type EventType =
   | { _tag: "FeedXmlDeleted"; path: string }
   | { _tag: "FeedXmlChanged"; path: string }
   | { _tag: "Ignored" };
-
-export type PassScopedEvent = EventType & { readonly __passId?: string };

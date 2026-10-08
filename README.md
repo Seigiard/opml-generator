@@ -90,17 +90,16 @@ docker compose up -d --build
 
 ## Environment Variables
 
-| Variable             | Default       | Description                                                                                               |
-| -------------------- | ------------- | --------------------------------------------------------------------------------------------------------- |
-| `FILES`              | `/audiobooks` | Path to your audiobooks directory                                                                         |
-| `DATA`               | `/data`       | Path for cache and metadata                                                                               |
-| `PORT`               | `3000`        | Internal Bun server port                                                                                  |
-| `DEV_MODE`           | `false`       | Enable hot reload for Bun                                                                                 |
-| `ADMIN_USER`         | -             | Username for /resync Basic Auth                                                                           |
-| `ADMIN_TOKEN`        | -             | Password for /resync Basic Auth                                                                           |
-| `RATE_LIMIT_MB`      | `0`           | Streaming rate limit in MB/s (0 = off)                                                                    |
-| `RECONCILE_INTERVAL` | `1800`        | Periodic reconciliation seconds (0 = off, min 60)                                                         |
-| `OPML_SYNC_ENGINE`   | -             | Temporary `episode` mode runs episode, RSS cascade, and final OPML publication through the shared engine. |
+| Variable             | Default       | Description                                       |
+| -------------------- | ------------- | ------------------------------------------------- |
+| `FILES`              | `/audiobooks` | Path to your audiobooks directory                 |
+| `DATA`               | `/data`       | Path for cache and metadata                       |
+| `PORT`               | `3000`        | Internal Bun server port                          |
+| `DEV_MODE`           | `false`       | Enable hot reload for Bun                         |
+| `ADMIN_USER`         | -             | Username for /resync Basic Auth                   |
+| `ADMIN_TOKEN`        | -             | Password for /resync Basic Auth                   |
+| `RATE_LIMIT_MB`      | `0`           | Streaming rate limit in MB/s (0 = off)            |
+| `RECONCILE_INTERVAL` | `1800`        | Periodic reconciliation seconds (0 = off, min 60) |
 
 ## API
 
@@ -114,13 +113,11 @@ docker compose up -d --build
 | `POST /resync`           | Trigger full resync (requires Basic Auth)   |
 | `GET /ready`             | Publication readiness (`200` or `503`)      |
 
-`/resync` returns `202` when the rebuild is accepted. This response does not mean
-that publication is complete. During initial sync, reconciliation, or another
-resync, it returns `409` and does not defer the request. Resync waits for the
-active handler before clearing generated data and rereading source metadata.
-Source notifications remain accepted during the reset and rebuild. `/ready`
-returns `503` after reset starts and `200` after successful publication. A failed
-rebuild releases the pass so an authenticated retry can recover publication.
+`/resync` returns `202` when the shared sync engine accepts or queues a pass. This
+response does not mean that publication is complete. During startup or after
+shutdown starts, it returns `503`. Source notifications remain accepted while the
+engine rebuilds. `/ready` returns `503` until the engine reports an available
+`feed.opml`, and `200` after successful publication.
 
 Returns 503 with `Retry-After: 5` if `feed.opml` doesn't exist yet (initial sync in progress).
 

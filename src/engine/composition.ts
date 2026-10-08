@@ -2,6 +2,7 @@ import {
   openLiveSynchronization,
   startLiveSynchronization,
   type LiveOptions,
+  type PassRequest,
   type SourceEntry,
 } from "@seigiard/sync-engine";
 import { Effect } from "effect";
@@ -13,9 +14,9 @@ import { audioCleanup } from "../effect/handlers/audio-cleanup.ts";
 import { folderMetaSync } from "../effect/handlers/folder-meta-sync.ts";
 import { opmlSync } from "../effect/handlers/opml-sync.ts";
 import type { EventType } from "../effect/types.ts";
-import { ENTRY_FILE } from "../constants.ts";
+import { ENTRY_FILE, FEED_FILE, FOLDER_ENTRY_FILE, OPML_FILE } from "../constants.ts";
 import { cacheMirrors } from "../cache-mirrors.ts";
-import { decodeRelative } from "../cache-projection.ts";
+import { cachePath, decodeRelative } from "../cache-projection.ts";
 import { opmlEngineStatePath } from "./policy.ts";
 import {
   EpisodeDeleteWork,
@@ -29,10 +30,16 @@ export interface EpisodeSynchronizationOptions extends HandlerDeps {
   /** Zero disables the engine's periodic reconciliation. */
   readonly reconcileIntervalMs: number;
 
+  readonly processingVersions?: { readonly episode?: string; readonly folder?: string };
+
   readonly beforeFolderWork?: (work: FolderWork) => Effect.Effect<void, Error>;
 }
 
 const supported = new Set(AUDIO_EXTENSIONS.map((extension) => `.${extension}`));
+
+const EPISODE_PROCESSING_VERSION = "1";
+
+const FOLDER_PROCESSING_VERSION = "1";
 
 function audioEntries(entries: readonly SourceEntry[]): EpisodeWork[] {
   return entries.flatMap((entry) => {
@@ -145,7 +152,14 @@ function publishFinalOpml(options: HandlerDeps): Effect.Effect<void, Error> {
   });
 }
 
-/** Temporary composition while OPML synchronization moves onto the shared engine. */
+function folderRelativePath(work: FolderWork, dataPath: string): string {
+  return decodeRelative(relative(dataPath, work.dataPath));
+}
+
+function outputRelativePath(dataPath: string, ...parts: readonly string[]): string {
+  return relative(dataPath, join(...parts));
+}
+
 function episodeLiveOptions(
   options: EpisodeSynchronizationOptions,
 ): LiveOptions<OpmlEngineWork, Error, never> {
@@ -157,7 +171,53 @@ function episodeLiveOptions(
     handle: (work) => handleEpisode(work, options),
     key: workKey,
     failureKey: workKey,
-    declare: (entries) =>
+    freshness: {
+      check: "content",
+      describe: (work) => {
+        if (work._tag === "EpisodeWork") {
+          return {
+            sourcePaths: [work.relativePath],
+            resultKind: "episode",
+            processingVersion: options.processingVersions?.episode ?? EPISODE_PROCESSING_VERSION,
+            outputPaths: [
+              outputRelativePath(
+                options.config.dataPath,
+                cachePath(options.config.dataPath, work.relativePath),
+                ENTRY_FILE,
+              ),
+            ],
+          };
+        }
+
+        if (work._tag === "FolderWork") {
+          const sourcePath = folderRelativePath(work, options.config.dataPath);
+
+          const outputPaths = [
+            outputRelativePath(options.config.dataPath, work.dataPath, FEED_FILE),
+          ];
+
+          if (sourcePath !== "")
+            outputPaths.push(
+              outputRelativePath(options.config.dataPath, work.dataPath, FOLDER_ENTRY_FILE),
+            );
+
+          return {
+            sourcePaths: [sourcePath],
+            resultKind: "folder",
+            processingVersion: options.processingVersions?.folder ?? FOLDER_PROCESSING_VERSION,
+            outputPaths,
+          };
+        }
+
+        return undefined;
+      },
+    },
+    recovery: {
+      existing: Effect.promise(() =>
+        Bun.file(join(options.config.dataPath, OPML_FILE)).exists(),
+      ).pipe(Effect.orElseSucceed(() => false)),
+    },
+    declare: (entries, _request: PassRequest) =>
       Effect.tryPromise({
         try: async () => ({
           work: [...audioEntries(entries), ...(await obsoleteEpisodeEntries(entries, options))],

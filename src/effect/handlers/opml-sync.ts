@@ -142,7 +142,7 @@ async function parsePodcastFeed(
 
 const pendingPublications = new WeakMap<FileSystemService, Promise<void>>();
 
-export async function withPublicationLock<T>(
+async function withPublicationLock<T>(
   fs: FileSystemService,
   operation: () => Promise<T>,
 ): Promise<T> {

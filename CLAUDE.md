@@ -7,32 +7,23 @@ Podcast RSS + OPML feed generator for locally stored audiobooks, built on Bun, n
 ```
 src/
 ├── server.ts        # Bootstrap, HTTP server, signal handling, bounded exit
-├── app-lifecycle.ts # Sync passes, admission, readiness, reconciliation, shutdown
-├── http.ts          # Production HTTP handler for events, readiness, and resync
 ├── config.ts        # Environment configuration
 ├── constants.ts     # File names (feed.xml, entry.xml, feed.opml, ...)
-├── scanner.ts       # File scanning, sync planning
 ├── types.ts         # MIME_TYPES, AUDIO_EXTENSIONS
 ├── watcher.sh       # Owned inotify process groups → NUL-delimited events
 ├── watcher-events.ts # Bun stdin framing + JSON serialization → POST /events
 ├── context.ts       # AppContext, HandlerDeps, buildContext()
-├── queue.ts         # SimpleQueue<T> (unrolled linked list)
 ├── stopping.ts      # Filesystem guards with shared publication-lock identity
 ├── cache-boundary.ts # Cache path containment and bounded parents
 ├── cache-layout.js  # Shared Bun/njs private `~` cache codec (+ cache-layout.d.ts)
 ├── cache-projection.ts # Typed interface to cache-layout.js
 ├── cache-mirrors.ts # Structural cache traversal through `~` containers
-├── cache-upgrade.ts # Legacy/mixed cache detection and journaled upgrade
-├── engine/          # Temporary shared-engine OPML composition
+├── engine/          # Shared-engine synchronization composition and runtime
 ├── effect/          # Event handling (neverthrow + async/await)
-│   ├── types.ts     # RawBooksEvent, RawDataEvent, EventType
-│   ├── pass-lifecycle.ts # Pass ownership and completion tracking
-│   ├── consumer.ts  # Event loop (AbortController-based)
-│   ├── adapters/    # Raw watcher events / sync plan → typed EventType
+│   ├── types.ts     # RawBooksEvent and EventType helpers
 │   └── handlers/    # source-path-sync, audio-sync, folder-sync, opml-sync, ...
 ├── audio/           # ID3 reader, cover finder
 ├── rss/             # Podcast RSS 2.0 (iTunes namespace), OPML 2.0
-│   └── episode-cache.ts # Reusable entry.xml validation
 ├── logging/         # Flat JSON logger to stdout, error schema
 └── utils/           # Image processing (sharp)
 test/                # unit/, integration/ (needs Docker), e2e/, helpers/, fixtures/audio/
@@ -41,7 +32,7 @@ docs/adr/            # Architecture decisions
 
 nginx on port 80 exposes `/feed.opml`, source-relative public metadata paths, audio streaming, and `/ready`. It proxies `/resync` behind Basic Auth. Bun on port 3000 (localhost only) handles `GET /ready`, `POST /events/books`, `POST /events/data`, and `POST /resync`.
 
-`/data` is a generated cache with a reversible private projection of `/audiobooks`. Source files and folders are authoritative, and RSS reflects the current Library. An audio file maps to an episode mirror with `entry.xml`. A folder with episodes gets `feed.xml`, `cover.jpg`, and `_entry.xml`. The root gets `feed.opml`. Public metadata paths and Episode identity remain source-relative. The shared engine uses `DATA/~/.sync-engine` for state and the output lease; that path is outside every supported cache projection.
+`/data` is a generated cache with a reversible private projection of `/audiobooks`. Source files and folders are authoritative, and RSS reflects the current Library. An audio file maps to an episode mirror with `entry.xml`. A folder with episodes gets `feed.xml`, `cover.jpg`, and `_entry.xml`. The root gets `feed.opml`. Public metadata paths and Episode identity remain source-relative. The shared engine owns synchronization, freshness state, and the output lease under `DATA/~/.sync-engine`; that path is outside every supported cache projection.
 
 <important if="you need to run commands to build, test, lint, start, or inspect the app">
 
@@ -94,29 +85,24 @@ For concurrent E2E worktrees, use a distinct `COMPOSE_PROJECT_NAME` and port. Se
 
 </important>
 
-<important if="you are changing synchronization passes, the reconcile loop, resync, or the consumer lifecycle">
+<important if="you are changing synchronization passes, the reconcile loop, resync, or the engine lifecycle">
 
 Read `docs/adr/0001-filesystem-authoritative-synchronization.md` first. It carries the publication and recovery guarantees.
 
-- `ApplicationLifecycle` owns initial sync, reconciliation, and resync. It tags planned event occurrences and mandatory cascades, then waits for covered queued work and active handlers. Queue length alone does not establish completion.
-- A pass suppresses its `FeedXmlCreated`/`FeedXmlChanged`/`FeedXmlDeleted` hints and writes one final `feed.opml` after covered RSS work completes. OPML collection and writing are serialized per filesystem service.
-- Ownership belongs to a delivered event occurrence. Coalescing adopts the pending occurrence; an older active handler at the same path cannot complete it or transfer its failures. `SimpleQueue.enqueue(event, true)` preserves covered work's queue position. Ordinary duplicates form one follow-up instead of rotating covered work.
-- Admission is ready before publication. nginx `GET /ready` proxies publication readiness.
-- Resync reserves its pass before returning HTTP `202`. `runResync()` pauses delivery and waits for active deliveries before clearing the cache under the OPML publication lock.
-- A `finally` resumes delivery on success or failure. Reset clears publication readiness; successful rebuild restores it. The rebuild rereads source metadata and uses normal scoped publication completion.
-- `getActivePass()` exposes the owned task for coordination. `createHttpHandler()` is the production HTTP boundary.
-- `ApplicationLifecycle.startReconciliation()` owns interval scheduling. Interval `0` creates no timer.
-- `waitForIdle()` observes pending events and active consumer work for integration callers. Pass completion remains scoped to the pass.
+- `startEpisodeEngineRuntime()` owns initial sync, reconciliation, source notifications, resync, readiness, and shutdown.
+- The shared engine plans current source audio, writes episode mirrors, folds folder RSS work, then writes final OPML after covered RSS work completes.
+- Freshness uses content checks over source descriptors and generated output paths. A forced pass from `/resync?force=1` reprocesses work even when descriptors are unchanged.
+- nginx `GET /ready` proxies engine availability. It returns `200` only after `feed.opml` is available; otherwise it returns `503` with status JSON.
+- `/resync` returns `202` when the engine accepts or queues a pass. It returns `503` before the engine starts or after shutdown starts.
+- `RECONCILE_INTERVAL=0` disables periodic reconciliation.
 
 </important>
 
 <important if="you are changing shutdown, bootstrap, the entrypoint, or process ownership">
 
-- `runServer()` installs TERM and INT handling before awaiting context setup or starting initial sync. The lifecycle owns the consumer, active pass, and reconciliation task.
-- `shutdown()` immediately closes admission and readiness, permanently stops queue delivery, and cancels pass completion waits. It gives the active handler up to 8 seconds to finish and returns `completed` or `deadline`. The server then closes HTTP and exits.
-- Pass setup, reset iterations, scans, and final OPML check stopping after awaited operations. An expired handler cannot begin another filesystem operation. Guarded filesystem services preserve the original OPML lock identity.
-- Queue `pause()`/`resume()` are temporary reset controls. Permanent `stop()` cannot be undone by a reset's `finally`. Pending cascades remain unpublished at exit; the next initial pass repairs them from current sources.
-- `scanFiles()` and `createSyncPlan()` accept the lifecycle's optional `AbortSignal`. Source traversal, cache traversal, and metadata validation check it after awaited operations. Cancellation escapes cache-reuse fallback so a stopped scan cannot start another read or stat.
+- `runServer()` installs TERM and INT handling before awaiting context setup or starting initial sync. The engine runtime owns active work and reconciliation.
+- Shutdown closes HTTP admission and calls the engine runtime stop hook. The server then closes HTTP and exits.
+- Guarded filesystem services preserve the original OPML lock identity.
 - The shell entrypoint forwards signals promptly and waits for Bun, nginx, and the watcher. Unexpected child exits fail the container. Watcher pipelines own process groups so inotify and in-flight wget receive TERM together.
 - Compose uses an init reaper and a 15-second stop grace period for the 8-second application budget plus bounded helper cleanup.
 - The disposable shell watchdog owns its sleep process group. Entrypoint verifies group creation before cancellation so a fast child exit cannot leave an uncancelled 11-second timer.
@@ -125,7 +111,7 @@ Read `docs/adr/0001-filesystem-authoritative-synchronization.md` first. It carri
 
 <important if="you are changing source-path reconciliation, source traversal, or cache mutation guards">
 
-- `ApplicationLifecycle.admitBooksEvent()` enqueues `SourcePathSyncRequested` hints. They check current filesystem state and reconcile descendants. Scan-planned deletions use the same check. Source admission avoids TTL filtering because a repeated hint can describe a newer same-path replacement.
+- Source watcher hints call `notifyBooksEvent()` on the engine runtime. Work checks current filesystem state and reconciles descendants.
 - Audio metadata writes directly trigger folder RSS; folder RSS triggers parent navigation and OPML, including changes to existing podcast information. Prune empty cache branches only when their source subtree has no supported audio.
 - Source type changes remove the obsolete mirror before rebuilding. Episode mirrors retain only `entry.xml`; folder mirrors remove that episode marker. A metadata request for a path now occupied by supported audio reconciles the file. Unsupported regular files remove obsolete mirrors and cannot become episodes. See `src/effect/handlers/mirror-kind.ts`.
 - `src/effect/handlers/source-kind.ts` checks each source component with `fs.lstat()`. Only regular directories and supported regular audio enter the Catalog. Symlinks, broken links, cycles, and paths beneath symlink ancestors are excluded; watcher hints and recovery remove obsolete mirrors. Creation handlers recheck source kind after scanning. Source access errors fail owned work; cache traversal and OPML keep `fs.stat()` semantics.
@@ -141,19 +127,15 @@ Read `docs/adr/0002-unrestricted-source-names-private-cache.md` first. It record
 - `src/cache-layout.js` is the shared Bun/njs codec. `cache-projection.ts` provides its typed interface; `cache-mirrors.ts` traverses structural containers. Public metadata URI resolution uses the same codec.
 - Service names (`feed.xml`, `feed.opml`, `entry.xml`, `_entry.xml`, `cover.jpg`, log names), `.tmp` names, and literal `~` segments use a private `~` container. Other segments keep their existing layout. Each original segment stays unchanged below its container, preserving filesystem length limits.
 - Source `Author/feed.xml` maps to `/data/Author/~/feed.xml`, while public RSS stays `/Author/feed.xml/feed.xml`. Literal source `~` maps to `~/~`; prefix-looking names such as `~feed.xml` remain ordinary. Audio URLs and Episode GUID/filePath remain source-relative.
-- `cache-upgrade.ts` detects legacy/mixed directories and stale journals. Canonical `~` containers alone do not trigger an upgrade.
-- Valid, fresh legacy episode XML is staged in a private `~/.upgrade[-N]` journal before conflicting directories are pruned. A regular `manifest.json` identifies a journal because legacy branches can occupy any directory name. Staged names stay immutable until the manifest is replaced.
-- Recovery copies staged bytes into canonical mirrors, then removes the journal. Upgrade clears readiness during mutation; the completed pass restores it.
 
 </important>
 
-<important if="you are adding or modifying event handlers, adapters, the queue, or the consumer">
+<important if="you are adding or modifying event handlers or engine work">
 
-Flow: source hints, data adapters, and sync plans → typed `EventType` → `SimpleQueue` → consumer loop (`queue.take(signal)`) → handler.
+Flow: source hints and engine plans → typed `EventType` work → handlers → generated outputs.
 
-- Handlers return `Result<readonly EventType[], Error>`. A cascade is the returned event list, and the consumer enqueues it; handlers stay independent of each other. See `src/effect/handlers/`.
-- Handlers get `HandlerDeps = Pick<AppContext, "config" | "logger" | "fs">`. `AppContext` also holds `dedup` (500 ms TTL filter), `queue`, `handlers`, and `lifecycle` (`PassLifecycle`). The filesystem service includes `lstat` and atomic writes. See `src/context.ts`.
-- The queue coalesces pending source-path and folder-metadata requests by path and ordinary OPML hints globally. Active deliveries remain counted until the consumer completes them.
+- Engine work adapters in `src/engine/work.ts` call handlers and keep handler code independent.
+- Handlers get `HandlerDeps = Pick<AppContext, "config" | "logger" | "fs">`. The filesystem service includes `lstat` and atomic writes. See `src/context.ts`.
 - Zod decodes watcher HTTP payloads at the input boundary. Handlers accept typed events only.
 
 </important>
@@ -187,37 +169,33 @@ Flow: source hints, data adapters, and sync plans → typed `EventType` → `Sim
 - RSS episode numbers start at 1 after sorting, on every feed update. Ignore the cached `episodeNumber` in `entry.xml`.
 - OPML collection propagates directory, stat, read, and podcast XML errors. Failure retains prior OPML and fails the pass. Missing paths and valid navigation feeds are normally excluded.
 - Root-level audio publishes `/feed.xml`. Build feed and cover URLs from joined relative paths so an empty root path does not add a second slash.
-- Scanner cache reuse requires a fresh timestamp and valid episode XML: source identity, file size, MIME type, and usable dates/numbers. `src/rss/episode-cache.ts` owns validation.
-- Every pass regenerates the audio-derived folder hierarchy and RSS, including reusable metadata.
-- Every current audio file receives `AudioMirrorSyncRequested`, including reused metadata. Its handler removes obsolete RSS and descendants from the episode mirror while retaining `entry.xml`, without rereading audio metadata.
-- Cache scanning includes directories with missing markers. Remove only the highest obsolete subtree so descendant cascades cannot recreate deleted folders.
+- Engine freshness checks source descriptors and generated outputs before reusing prior work.
+- Every pass verifies the audio-derived folder hierarchy and RSS. Changed content or processing-version bumps reprocess affected work.
 
 </important>
 
 <important if="you are writing or modifying tests, or tests are failing">
 
 - Unit tests (`test/unit/`) cover pure logic with mocked deps. Integration tests (`test/integration/`) need Docker for sharp and ffmpeg. Mocks and assertions are in `test/helpers/`.
-- Integration tests cover lifecycle passes, watcher publication, cache layout/boundaries, and real inotify transport. E2E covers nginx, resync auth, unrestricted source names, signals, deadlines, and captured-cache restart.
-- `test/e2e/shutdown.test.ts` builds isolated production containers. It mounts `shutdown-bootstrap.ts` through the internal `SERVER_MODULE` entrypoint seam; the bootstrap gates only real filesystem operations. The production server owns signals, HTTP, handlers, and shutdown. Tests observe real TERM, Docker terminal states, child wait statuses, and captured cache across restart. Run it alone with `bun test test/e2e/shutdown.test.ts` or through `bun run test:e2e`.
+- Integration tests cover engine passes, cache layout/boundaries, and real output behavior.
+- E2E covers nginx publication and resync auth against production containers.
 - `bun run test:e2e` uses `tools/test-e2e.sh`. It preserves compose-start and test failures through graceful cleanup; teardown failure also fails an otherwise successful run.
-- Folder watcher E2E tracing observes `SourcePathSyncRequested`. Empty source folders stay outside the Catalog.
 
 </important>
 
 <important if="you are adding or using environment variables or configuration">
 
-| Variable             | Default       | Description                                                                                  |
-| -------------------- | ------------- | -------------------------------------------------------------------------------------------- |
-| `FILES`              | `/audiobooks` | Source audiobooks directory                                                                  |
-| `DATA`               | `/data`       | Generated metadata cache                                                                     |
-| `PORT`               | `3000`        | Internal Bun server port                                                                     |
-| `LOG_LEVEL`          | `info`        | debug \| info \| warn \| error                                                               |
-| `DEV_MODE`           | `false`       | Enable Bun --watch hot reload                                                                |
-| `ADMIN_USER`         | -             | /resync Basic Auth username                                                                  |
-| `ADMIN_TOKEN`        | -             | /resync Basic Auth password                                                                  |
-| `RATE_LIMIT_MB`      | `0`           | Streaming rate limit MB/s (0 = off)                                                          |
-| `RECONCILE_INTERVAL` | `1800`        | Periodic reconciliation seconds (0 = off, min 60)                                            |
-| `OPML_SYNC_ENGINE`   | -             | Temporary `episode` mode for shared-engine episode, RSS cascade, and final OPML publication. |
+| Variable             | Default       | Description                                       |
+| -------------------- | ------------- | ------------------------------------------------- |
+| `FILES`              | `/audiobooks` | Source audiobooks directory                       |
+| `DATA`               | `/data`       | Generated metadata cache                          |
+| `PORT`               | `3000`        | Internal Bun server port                          |
+| `LOG_LEVEL`          | `info`        | debug \| info \| warn \| error                    |
+| `DEV_MODE`           | `false`       | Enable Bun --watch hot reload                     |
+| `ADMIN_USER`         | -             | /resync Basic Auth username                       |
+| `ADMIN_TOKEN`        | -             | /resync Basic Auth password                       |
+| `RATE_LIMIT_MB`      | `0`           | Streaming rate limit MB/s (0 = off)               |
+| `RECONCILE_INTERVAL` | `1800`        | Periodic reconciliation seconds (0 = off, min 60) |
 
 </important>
 
