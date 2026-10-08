@@ -50,6 +50,7 @@ Docker dev runs at http://localhost:8080. Run the app and unit/integration tests
 | `bun run test`                                                                                                  | Unit + integration tests in Docker              |
 | `docker compose -f docker-compose.test.yml run --rm test bun test test/unit/effect/handlers/audio-sync.test.ts` | Run one test file in Docker                     |
 | `bun run test:e2e`                                                                                              | Production container E2E tests                  |
+| `bun run smoke:engine`                                                                                          | Manual production-boundary engine smoke         |
 | `bun run test:all`                                                                                              | All tests                                       |
 | `bun run rebuild:test`                                                                                          | Rebuild the test image after dependency changes |
 | `bun --bun tsc --noEmit`                                                                                        | Type check (local run is fine)                  |
@@ -58,6 +59,8 @@ Docker dev runs at http://localhost:8080. Run the app and unit/integration tests
 Other scripts live in `package.json`.
 
 For concurrent E2E worktrees, use a distinct `COMPOSE_PROJECT_NAME` and port. Set matching `TEST_PORT` and `TEST_BASE_URL`, for example `TEST_PORT=18086 TEST_BASE_URL=http://localhost:18086 bun run test:e2e`.
+
+`bun run smoke:engine` is the manual production-boundary gate for the shared engine. It builds and runs the production image, checks first-start readiness, validates SIGTERM exit, and verifies restart replay. It is not part of `bun run test:e2e` or CI because it stops and restarts the production container and owns its compose project and volume.
 
 </important>
 
@@ -127,6 +130,7 @@ Read `docs/adr/0002-unrestricted-source-names-private-cache.md` first. It record
 - `src/cache-layout.js` is the shared Bun/njs codec. `cache-projection.ts` provides its typed interface; `cache-mirrors.ts` traverses structural containers. Public metadata URI resolution uses the same codec.
 - Service names (`feed.xml`, `feed.opml`, `entry.xml`, `_entry.xml`, `cover.jpg`, log names), `.tmp` names, and literal `~` segments use a private `~` container. Other segments keep their existing layout. Each original segment stays unchanged below its container, preserving filesystem length limits.
 - Source `Author/feed.xml` maps to `/data/Author/~/feed.xml`, while public RSS stays `/Author/feed.xml/feed.xml`. Literal source `~` maps to `~/~`; prefix-looking names such as `~feed.xml` remain ordinary. Audio URLs and Episode GUID/filePath remain source-relative.
+- The legacy cache-layout migration was deliberately removed with the old lifecycle. Deployments must already use the canonical `~` layout. Old legacy or mixed cache directories are not journaled or migrated.
 
 </important>
 

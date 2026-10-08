@@ -19,6 +19,7 @@
     "test:integration": "docker compose -f docker-compose.test.yml run --rm test bun test test/integration",
     "test:coverage": "docker compose -f docker-compose.test.yml run --rm test bun test --coverage",
     "test:e2e": "sh tools/test-e2e.sh",
+    "smoke:engine": "bun tools/smoke-engine-production.ts",
     "test:all": "bun run test && bun run test:e2e",
     "lint:anti-slop": "oxlint --config .oxlintrc.anti-slop.json ."
   },
