@@ -116,7 +116,7 @@ async function main() {
       .toString()
       .trim();
 
-    await assertEqual("sync-engine version", version, "0.5.0");
+    await assertEqual("sync-engine version", version, "0.5.1");
 
     const episode = await fetchText("/audiobooks/smoke-feed.xml/01.mp3");
     const rss = await fetchText("/smoke-feed.xml/feed.xml");

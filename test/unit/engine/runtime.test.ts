@@ -102,9 +102,11 @@ describe("episode engine runtime", () => {
       name: "01.mp3",
       events: "CLOSE_WRITE",
     });
+
     const published = await waitFor(() =>
       Bun.file(join(dataPath, "Author", "Album", "01.mp3", "entry.xml")).exists(),
     );
+
     await runtime.stop();
 
     // #then
@@ -121,14 +123,19 @@ describe("episode engine runtime", () => {
     const deps = realDeps();
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
+
     deps.fs.atomicWrite = async (path, content) => {
       entered.resolve();
       await release.promise;
+
       const tmpPath = `${path}.tmp`;
+
       await Bun.write(tmpPath, content);
       await rename(tmpPath, path);
     };
+
     const runtime = startEpisodeEngineRuntime(deps);
+
     await entered.promise;
 
     // #when
@@ -136,10 +143,12 @@ describe("episode engine runtime", () => {
       () => true,
       () => false,
     );
+
     const readySettled = runtime.ready.then(
       () => "fulfilled" as const,
       () => "rejected" as const,
     );
+
     release.resolve();
 
     // #then
@@ -170,6 +179,7 @@ describe("server HTTP event handler", () => {
   test("valid books JSON maps to notifyBooksEvent", async () => {
     // #given
     const calls: unknown[] = [];
+
     const fetch = createServerFetch(
       fakeRuntime({
         notifyBooksEvent: async (event) => {
@@ -198,7 +208,7 @@ describe("server HTTP event handler", () => {
 });
 
 function fakeRuntime(overrides: Partial<EpisodeEngineRuntime> = {}): EpisodeEngineRuntime {
-  return {
+  const runtime: EpisodeEngineRuntime = {
     ready: Promise.resolve(),
     status: async () => ({
       state: "complete",
@@ -215,6 +225,7 @@ function fakeRuntime(overrides: Partial<EpisodeEngineRuntime> = {}): EpisodeEngi
     notifyBooksEvent: async () => "queued",
     requestPass: async () => "queued",
     stop: async () => undefined,
-    ...overrides,
   };
+
+  return Object.assign(runtime, overrides);
 }

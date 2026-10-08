@@ -846,6 +846,7 @@ describe("episode sync engine composition", () => {
     deps.fs.lstat = async (path) => {
       if (path === audioPath) {
         targetLstats += 1;
+
         if (!deletedBeforeHandling) {
           deletedBeforeHandling = true;
           await rm(audioPath);
