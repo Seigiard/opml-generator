@@ -58,6 +58,8 @@ Docker dev runs at http://localhost:8080. Run the app and unit/integration tests
 
 Other scripts live in `package.json`.
 
+`@seigiard/sync-engine@0.5.5` is the reviewed registry release. Version `0.5.4` on npm is an older build. Future engine updates should use a registry version in `package.json`, then run `bun install`, rebuild Docker images, and run the full gates.
+
 For concurrent E2E worktrees, use a distinct `COMPOSE_PROJECT_NAME` and port. Set matching `TEST_PORT` and `TEST_BASE_URL`, for example `TEST_PORT=18086 TEST_BASE_URL=http://localhost:18086 bun run test:e2e`.
 
 `bun run smoke:engine` is the manual production-boundary gate for the shared engine. It builds and runs the production image, checks first-start readiness, validates SIGTERM exit, and verifies restart replay. It is not part of `bun run test:e2e` or CI because it stops and restarts the production container and owns its compose project and volume.

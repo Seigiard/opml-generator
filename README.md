@@ -189,6 +189,8 @@ M4B files contain an entire audiobook with internal chapter markers. This genera
 
 ## Development
 
+`@seigiard/sync-engine@0.5.5` is the reviewed registry release. Version `0.5.4` on npm is an older build. Future engine updates should change the registry version in `package.json`, run `bun install`, rebuild Docker images, and run the full test gates.
+
 ```bash
 # Start dev server with hot reload
 docker compose -f docker-compose.dev.yml up

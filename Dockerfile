@@ -5,12 +5,10 @@ WORKDIR /app
 
 FROM base AS development
 COPY package.json bun.lock* ./
-COPY vendor ./vendor
 RUN bun install
 
 FROM base AS production
 COPY package.json bun.lock* ./
-COPY vendor ./vendor
 RUN bun install --frozen-lockfile --production
 COPY src ./src
 COPY static ./static

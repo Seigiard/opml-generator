@@ -5,7 +5,7 @@
     "": {
       "name": "opds-generator",
       "dependencies": {
-        "@seigiard/sync-engine": "file:vendor/seigiard-sync-engine-0.5.5.tgz",
+        "@seigiard/sync-engine": "0.5.5",
         "effect": "4.0.1",
         "fast-xml-parser": "^5.3.3",
         "knip": "^5.79.0",
@@ -203,7 +203,7 @@
 
     "@rollup/rollup-linux-x64-gnu": ["@rollup/rollup-linux-x64-gnu@4.59.0", "", { "os": "linux", "cpu": "x64" }, "sha512-3AHmtQq/ppNuUspKAlvA8HtLybkDflkMuLK4DPo77DfthRb71V84/c4MlWJXixZz4uruIH4uaa07IqoAkG64fg=="],
 
-    "@seigiard/sync-engine": ["@seigiard/sync-engine@vendor/seigiard-sync-engine-0.5.5.tgz", { "peerDependencies": { "effect": "4.0.1" } }, "sha512-G2Wt1V62P9ciywD4E/2c7l9vjXPzjokQy7c5WWNY8HKFP8hWpKUZr0fZ7M9fNFkVj4a9FVUEIqN2tyA4GZbv0Q=="],
+    "@seigiard/sync-engine": ["@seigiard/sync-engine@0.5.5", "", { "peerDependencies": { "effect": "4.0.1" } }, "sha512-G2Wt1V62P9ciywD4E/2c7l9vjXPzjokQy7c5WWNY8HKFP8hWpKUZr0fZ7M9fNFkVj4a9FVUEIqN2tyA4GZbv0Q=="],
 
     "@tokenizer/inflate": ["@tokenizer/inflate@0.4.1", "", { "dependencies": { "debug": "^4.4.3", "token-types": "^6.1.1" } }, "sha512-2mAv+8pkG6GIZiF1kNg1jAjh27IDxEPKwdGul3snfztFerfPGI1LjDezZp3i7BElXompqEtPmoPx6c2wgtWsOA=="],
 
