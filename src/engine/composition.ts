@@ -63,6 +63,9 @@ async function obsoleteEpisodeEntries(
   deletedFolders: readonly FolderDeleteWork[],
 ): Promise<EpisodeDeleteWork[]> {
   const present = new Set(audioEntries(entries).map((entry) => entry.relativePath));
+  const presentDirectories = new Set(
+    entries.flatMap((entry) => (entry.kind === "directory" ? [entry.path] : [])),
+  );
   const changedPaths = new Set(request.changedPaths);
   const deletedFolderPaths = deletedFolders.map((work) => work.relativePath);
   const deleted: EpisodeDeleteWork[] = [];
@@ -77,8 +80,12 @@ async function obsoleteEpisodeEntries(
   );
 
   for (const path of changedPaths) {
-    if (supported.has(extname(path).toLowerCase()) && !present.has(path))
-      upsertEpisodeDelete(deleted, new EpisodeDeleteWork(path));
+    const isObsoleteChangedAudio =
+      supported.has(extname(path).toLowerCase()) &&
+      !present.has(path) &&
+      !presentDirectories.has(path);
+
+    if (isObsoleteChangedAudio) upsertEpisodeDelete(deleted, new EpisodeDeleteWork(path));
   }
 
   return deleted;
@@ -127,12 +134,20 @@ async function collectCachedFolderDeletes(
   currentFolders: ReadonlySet<string>,
   deleted: FolderDeleteWork[],
 ): Promise<void> {
-  for (const { path } of await cacheMirrors(dir, deps.config.dataPath, deps.fs))
+  const children = await cacheMirrors(dir, deps.config.dataPath, deps.fs);
+
+  for (const { path } of children)
     await collectCachedFolderDeletes(path, deps, currentFolders, deleted);
 
   if (resolve(dir) === resolve(deps.config.dataPath)) return;
 
-  if ((await Bun.file(join(dir, FEED_FILE)).exists()) && !currentFolders.has(resolve(dir)))
+  if (await Bun.file(join(dir, ENTRY_FILE)).exists()) return;
+
+  const hasFolderOutput =
+    (await Bun.file(join(dir, FEED_FILE)).exists()) ||
+    (await Bun.file(join(dir, FOLDER_ENTRY_FILE)).exists());
+
+  if ((hasFolderOutput || children.length === 0) && !currentFolders.has(resolve(dir)))
     deleted.push(
       new FolderDeleteWork(decodeRelative(relative(resolve(deps.config.dataPath), resolve(dir)))),
     );

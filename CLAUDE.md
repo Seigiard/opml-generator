@@ -150,7 +150,7 @@ Flow: source hints and engine plans → typed `EventType` work → handlers → 
 - The source watcher must observe directories such as `events.jsonl`, including moves out of the Library. Source inotify uses `--no-dereference`.
 - Fields are NUL-delimited. `watcher-events.ts` decodes parent/name/events and uses `JSON.stringify()` before invoking `wget -T 2`. Quotes, backslashes, and embedded newlines must remain valid fields. The serializer and wget inherit their worker's process group.
 - Inotify formatting has a 4096-byte limit. The serializer validates frames; a damaged frame fails the owned worker group so later events cannot silently desynchronize.
-- Select `Q_OVERFLOW` and route the books token to `/resync`; inotify does not emit `IN_Q_OVERFLOW`.
+- Select `Q_OVERFLOW` and route the books token to `/resync?force=1`; inotify does not emit `IN_Q_OVERFLOW`.
 
 </important>
 

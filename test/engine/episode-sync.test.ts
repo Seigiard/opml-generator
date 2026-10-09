@@ -192,6 +192,18 @@ async function completesWithin(effect: Effect.Effect<unknown, unknown>, millisec
   ]);
 }
 
+async function existsByLstat(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+
+    throw error;
+  }
+}
+
 function publicMetadataPath(url: string): string {
   if (!url.startsWith(BASE_URL)) throw new Error(`Expected public metadata URL: ${url}`);
 
@@ -1407,6 +1419,43 @@ describe("episode sync engine composition", () => {
     });
   });
 
+  test("hinting an audio-extension directory keeps its folder mirror", async () => {
+    // #given
+    const sourceFolder = join(filesPath, "Author", "Book.mp3");
+    const folderMirror = join(dataPath, "Author", "Book.mp3");
+    await mkdir(sourceFolder, { recursive: true });
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(sourceFolder, "01.mp3"));
+    const deps = realDeps();
+    const realRm = deps.fs.rm;
+    let removedFolderMirror = false;
+
+    deps.fs.rm = async (path, options) => {
+      if (path === folderMirror) removedFolderMirror = true;
+
+      await realRm(path, options);
+    };
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({ ...deps, reconcileIntervalMs: 0 });
+
+          yield* live.ready;
+          yield* live.notify(["Author/Book.mp3"]);
+          yield* live.awaitCompletion;
+        }),
+      ),
+    );
+
+    // #then
+    const rss = await readRss(join(folderMirror, "feed.xml"));
+    expect({ removedFolderMirror, guids: rssGuids(rss) }).toEqual({
+      removedFolderMirror: false,
+      guids: ["Author/Book.mp3/01.mp3"],
+    });
+  });
+
   test("a failed RSS update keeps prior published results and reports work errors", async () => {
     // #given
     await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
@@ -1648,9 +1697,86 @@ describe("episode sync engine composition", () => {
           yield* live.notify(["Author/Album/02.mp3"]);
           yield* live.awaitCompletion;
           const failed = yield* live.status;
+          const mirrorExistsAfterFailure = yield* Effect.promise(() =>
+            existsByLstat(join(dataPath, "Author", "Album", "02.mp3")),
+          );
           failSecondRead = false;
           yield* Effect.promise(() => rm(secondAudioPath));
           yield* live.notify(["Author/Album/02.mp3"]);
+          yield* live.awaitCompletion;
+          const recovered = yield* live.status;
+          const mirrorExistsAfterCleanup = yield* Effect.promise(() =>
+            existsByLstat(join(dataPath, "Author", "Album", "02.mp3")),
+          );
+
+          return { failed, mirrorExistsAfterFailure, recovered, mirrorExistsAfterCleanup };
+        }),
+      ),
+    );
+
+    // #then
+    expect({
+      failedState: observed.failed.state,
+      failedErrors: observed.failed.work.errors.length,
+      mirrorExistsAfterFailure: observed.mirrorExistsAfterFailure,
+      recoveredState: observed.recovered.state,
+      recoveredErrors: observed.recovered.work.errors.length,
+      mirrorExistsAfterCleanup: observed.mirrorExistsAfterCleanup,
+    }).toEqual({
+      failedState: "complete-with-errors",
+      failedErrors: 1,
+      mirrorExistsAfterFailure: false,
+      recoveredState: "complete",
+      recoveredErrors: 0,
+      mirrorExistsAfterCleanup: false,
+    });
+  });
+
+  test("deleting an obsolete empty mirror clears its folder cleanup error", async () => {
+    // #given
+    const albumPath = join(filesPath, "Album");
+    const audioPath = join(albumPath, "01.mp3");
+    const mirrorPath = join(dataPath, "Album");
+    await mkdir(albumPath, { recursive: true });
+    const deps = realDeps();
+    const realAtomicWrite = deps.fs.atomicWrite;
+    const realRm = deps.fs.rm;
+    let failEntryWrite = false;
+    let failFolderRemoval = false;
+
+    deps.fs.atomicWrite = async (path, content) => {
+      if (failEntryWrite && path === join(mirrorPath, "01.mp3", "entry.xml"))
+        throw new Error("controlled entry write failure");
+
+      await realAtomicWrite(path, content);
+    };
+    deps.fs.rm = async (path, options) => {
+      if (failFolderRemoval && path === mirrorPath)
+        throw new Error("controlled folder cleanup failure");
+
+      await realRm(path, options);
+    };
+
+    // #when
+    const observed = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({ ...deps, reconcileIntervalMs: 0 });
+
+          yield* live.ready;
+          yield* Effect.promise(() => copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), audioPath));
+          failEntryWrite = true;
+          yield* live.notify(["Album/01.mp3"]);
+          yield* live.awaitCompletion;
+          failEntryWrite = false;
+          yield* Effect.promise(() => rm(audioPath));
+          failFolderRemoval = true;
+          yield* live.notify(["Album/01.mp3"]);
+          yield* live.awaitCompletion;
+          const failed = yield* live.status;
+          failFolderRemoval = false;
+          yield* Effect.promise(() => rm(albumPath, { recursive: true }));
+          yield* live.notify(["Album"]);
           yield* live.awaitCompletion;
           const recovered = yield* live.status;
 
@@ -1663,7 +1789,7 @@ describe("episode sync engine composition", () => {
     expect({
       failedState: observed.failed.state,
       failedErrors: observed.failed.work.errors.length,
-      mirrorExists: await Bun.file(join(dataPath, "Author", "Album", "02.mp3")).exists(),
+      mirrorExists: await existsByLstat(mirrorPath),
       recoveredState: observed.recovered.state,
       recoveredErrors: observed.recovered.work.errors.length,
     }).toEqual({
