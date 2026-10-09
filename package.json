@@ -21,7 +21,8 @@
     "test:e2e": "sh tools/test-e2e.sh",
     "smoke:engine": "bun tools/smoke-engine-production.ts",
     "test:all": "bun run test && bun run test:e2e",
-    "lint:anti-slop": "oxlint --config .oxlintrc.anti-slop.json ."
+    "lint:anti-slop": "oxlint --config .oxlintrc.anti-slop.json .",
+    "prepare": "if [ -e .git ]; then lefthook install; fi"
   },
   "dependencies": {
     "@seigiard/sync-engine": "0.5.5",
@@ -36,14 +37,12 @@
   "devDependencies": {
     "@oxlint/plugins": "1.87.0",
     "@types/bun": "latest",
+    "lefthook": "2.2.1",
     "oxfmt": "^0.21.0",
     "oxlint": "1.87.0",
     "oxlint-tsgolint": "7.0.2003"
   },
   "peerDependencies": {
     "typescript": "^5"
-  },
-  "lint-staged": {
-    "*": "oxfmt --no-error-on-unmatched-pattern"
   }
 }
