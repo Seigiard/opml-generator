@@ -1,1 +1,1 @@
-This tarball pin is temporary. Before merge, remove `vendor/` and repin to the registry release `@seigiard/sync-engine@0.5.5`.
+This tarball pin is temporary and contains the reviewed `@seigiard/sync-engine@0.5.5` engine archive. Before merge, publish the engine as `0.5.5`, repin this dependency to the registry `@seigiard/sync-engine@0.5.5`, and remove `vendor/`.
