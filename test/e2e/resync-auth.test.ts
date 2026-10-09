@@ -74,14 +74,13 @@ test("nginx retains resync Basic auth and proxies authenticated GET as an accept
     headers: { Authorization: `Basic ${Buffer.from("wrong:credentials").toString("base64")}` },
   });
 
-  const corruptedTitle = await waitForEpisodeTitle("Cached title before resync", async () => {
-    await inContainer(
-      'const path="/data/test/Test Author/Test Audiobook/01 - Chapter One.mp3/entry.xml"; const xml=await Bun.file(path).text(); await Bun.write(path, xml.replace(/<title>[^<]*<\\/title>/, "<title>Cached title before resync</title>"));',
-    );
-  });
+  await inContainer(
+    'const path="/data/test/Test Author/Test Audiobook/feed.xml"; const xml=await Bun.file(path).text(); await Bun.write(path, xml.replace(/<title>Chapter One<\\/title>/, "<title>Cached title before resync</title>"));',
+  );
+  const corruptedTitle = await waitForEpisodeTitle("Cached title before resync");
 
   // #when
-  const accepted = await fetch(`${baseUrl}/resync`, {
+  const accepted = await fetch(`${baseUrl}/resync?force=1`, {
     headers: { Authorization: `Basic ${Buffer.from("admin:secret").toString("base64")}` },
   });
 
@@ -93,7 +92,8 @@ test("nginx retains resync Basic auth and proxies authenticated GET as an accept
   const opmlResponse = await fetch(`${baseUrl}/feed.opml`);
   expect([rssResponse.status, opmlResponse.status]).toEqual([200, 200]);
   const channel = parser.parse(await rssResponse.text()).rss.channel;
-  const outlines = parser.parse(await opmlResponse.text()).opml.body.outline;
+  const rawOutlines = parser.parse(await opmlResponse.text()).opml.body.outline;
+  const outlines = Array.isArray(rawOutlines) ? rawOutlines : [rawOutlines];
 
   // #then
   expect({
@@ -111,7 +111,7 @@ test("nginx retains resync Basic auth and proxies authenticated GET as an accept
       guid: item.guid["#text"],
       number: item["itunes:episode"],
     })),
-    urls: outlines.map((outline: { "@_xmlUrl": string }) => outline["@_xmlUrl"]),
+    opmlUrls: outlines.map((outline: { "@_xmlUrl": string }) => outline["@_xmlUrl"]).sort(),
   }).toEqual({
     unauthorized: [401, 401],
     realm: 'Basic realm="Podcast Admin"',
@@ -124,9 +124,9 @@ test("nginx retains resync Basic auth and proxies authenticated GET as an accept
       { guid: "test/Test Author/Test Audiobook/02 - Chapter Two.mp3", number: 2 },
       { guid: "test/Test Author/Test Audiobook/03 - Chapter Three.m4a", number: 3 },
     ],
-    urls: [
+    opmlUrls: [
       `${baseUrl}/test/Test%20Author/Test%20Audiobook/feed.xml`,
       `${baseUrl}/test/Untagged%20Podcast/feed.xml`,
-    ],
+    ].sort(),
   });
 }, 30_000);

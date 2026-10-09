@@ -6,41 +6,33 @@ Podcast RSS + OPML feed generator for locally stored audiobooks, built on Bun, n
 
 ```
 src/
-├── server.ts        # Bootstrap, HTTP server, signal handling, bounded exit
-├── app-lifecycle.ts # Sync passes, admission, readiness, reconciliation, shutdown
-├── http.ts          # Production HTTP handler for events, readiness, and resync
+├── server.ts        # Bootstrap, HTTP server, signal handling
 ├── config.ts        # Environment configuration
 ├── constants.ts     # File names (feed.xml, entry.xml, feed.opml, ...)
-├── scanner.ts       # File scanning, sync planning
 ├── types.ts         # MIME_TYPES, AUDIO_EXTENSIONS
 ├── watcher.sh       # Owned inotify process groups → NUL-delimited events
 ├── watcher-events.ts # Bun stdin framing + JSON serialization → POST /events
 ├── context.ts       # AppContext, HandlerDeps, buildContext()
-├── queue.ts         # SimpleQueue<T> (unrolled linked list)
-├── stopping.ts      # Filesystem guards with shared publication-lock identity
+├── stopping.ts      # Filesystem mutation guards
 ├── cache-boundary.ts # Cache path containment and bounded parents
 ├── cache-layout.js  # Shared Bun/njs private `~` cache codec (+ cache-layout.d.ts)
 ├── cache-projection.ts # Typed interface to cache-layout.js
 ├── cache-mirrors.ts # Structural cache traversal through `~` containers
-├── cache-upgrade.ts # Legacy/mixed cache detection and journaled upgrade
+├── engine/          # Shared-engine synchronization composition and runtime
 ├── effect/          # Event handling (neverthrow + async/await)
-│   ├── types.ts     # RawBooksEvent, RawDataEvent, EventType
-│   ├── pass-lifecycle.ts # Pass ownership and completion tracking
-│   ├── consumer.ts  # Event loop (AbortController-based)
-│   ├── adapters/    # Raw watcher events / sync plan → typed EventType
-│   └── handlers/    # source-path-sync, audio-sync, folder-sync, opml-sync, ...
+│   ├── types.ts     # RawBooksEvent and EventType helpers
+│   └── handlers/    # source-path-sync, audio-sync, folder-meta-sync, folder-cleanup, opml-sync, ...
 ├── audio/           # ID3 reader, cover finder
 ├── rss/             # Podcast RSS 2.0 (iTunes namespace), OPML 2.0
-│   └── episode-cache.ts # Reusable entry.xml validation
 ├── logging/         # Flat JSON logger to stdout, error schema
 └── utils/           # Image processing (sharp)
-test/                # unit/, integration/ (needs Docker), e2e/, helpers/, fixtures/audio/
+test/                # unit/, engine/, integration/ (needs Docker), e2e/, helpers/, fixtures/audio/
 docs/adr/            # Architecture decisions
 ```
 
-nginx on port 80 exposes `/feed.opml`, source-relative public metadata paths, audio streaming, and `/ready`. It proxies `/resync` behind Basic Auth. Bun on port 3000 (localhost only) handles `GET /ready`, `POST /events/books`, `POST /events/data`, and `POST /resync`.
+nginx on port 80 exposes `/feed.opml`, source-relative public metadata paths, audio streaming, and `/ready`. It proxies `/resync` behind Basic Auth. Bun on port 3000 (localhost only) handles `GET /ready`, `POST /events/books`, and `POST /resync`.
 
-`/data` is a generated cache with a reversible private projection of `/audiobooks`. Source files and folders are authoritative, and RSS reflects the current Library. An audio file maps to an episode mirror with `entry.xml`. A folder with episodes gets `feed.xml`, `cover.jpg`, and `_entry.xml`. The root gets `feed.opml`. Public metadata paths and Episode identity remain source-relative.
+`/data` is a generated cache with a reversible private projection of `/audiobooks`. Source files and folders are authoritative, and RSS reflects the current Library. An audio file maps to an episode mirror with `entry.xml`. A folder with episodes gets `feed.xml`, `cover.jpg`, and `_entry.xml`. The root gets `feed.opml`. Public metadata paths and Episode identity remain source-relative. The shared engine owns synchronization, freshness state, and the output lease under `DATA/~/.sync-engine`; that path is outside every supported cache projection.
 
 <important if="you need to run commands to build, test, lint, start, or inspect the app">
 
@@ -52,12 +44,13 @@ Docker dev runs at http://localhost:8080. Run the app and unit/integration tests
 | `docker compose -f docker-compose.dev.yml logs -f`                                                              | Follow dev logs                                 |
 | `curl http://localhost:8080/feed.opml`                                                                          | Check OPML                                      |
 | `curl http://localhost:8080/Author/Book/feed.xml`                                                               | Check a podcast RSS feed                        |
-| `curl -u admin:secret http://localhost:8080/resync`                                                             | Force resync                                    |
+| `curl -u admin:secret 'http://localhost:8080/resync?force=1'`                                                   | Force resync                                    |
 | `bun run fix`                                                                                                   | format:fix + lint:fix                           |
 | `bun run lint:anti-slop`                                                                                        | Anti-slop Oxlint rules (separate CI job)        |
 | `bun run test`                                                                                                  | Unit + integration tests in Docker              |
 | `docker compose -f docker-compose.test.yml run --rm test bun test test/unit/effect/handlers/audio-sync.test.ts` | Run one test file in Docker                     |
 | `bun run test:e2e`                                                                                              | Production container E2E tests                  |
+| `bun run smoke:engine`                                                                                          | Manual production-boundary engine smoke         |
 | `bun run test:all`                                                                                              | All tests                                       |
 | `bun run rebuild:test`                                                                                          | Rebuild the test image after dependency changes |
 | `bun --bun tsc --noEmit`                                                                                        | Type check (local run is fine)                  |
@@ -65,7 +58,11 @@ Docker dev runs at http://localhost:8080. Run the app and unit/integration tests
 
 Other scripts live in `package.json`.
 
+`@seigiard/sync-engine@0.5.5` is the reviewed registry release. Version `0.5.4` on npm is an older build. Future engine updates should use a registry version in `package.json`, then run `bun install`, rebuild Docker images, and run the full gates.
+
 For concurrent E2E worktrees, use a distinct `COMPOSE_PROJECT_NAME` and port. Set matching `TEST_PORT` and `TEST_BASE_URL`, for example `TEST_PORT=18086 TEST_BASE_URL=http://localhost:18086 bun run test:e2e`.
+
+`bun run smoke:engine` is the manual production-boundary gate for the shared engine. It builds and runs the production image, checks first-start readiness, validates SIGTERM exit, and verifies restart replay. It is not part of `bun run test:e2e` or CI because it stops and restarts the production container and owns its compose project and volume.
 
 </important>
 
@@ -93,42 +90,36 @@ For concurrent E2E worktrees, use a distinct `COMPOSE_PROJECT_NAME` and port. Se
 
 </important>
 
-<important if="you are changing synchronization passes, the reconcile loop, resync, or the consumer lifecycle">
+<important if="you are changing synchronization passes, the reconcile loop, resync, or the engine lifecycle">
 
-Read `docs/adr/0001-filesystem-authoritative-synchronization.md` first. It carries the publication and recovery guarantees.
+Read `docs/adr/0001-filesystem-authoritative-synchronization.md` first. It points to the current shared-engine publication and recovery contract.
 
-- `ApplicationLifecycle` owns initial sync, reconciliation, and resync. It tags planned event occurrences and mandatory cascades, then waits for covered queued work and active handlers. Queue length alone does not establish completion.
-- A pass suppresses its `FeedXmlCreated`/`FeedXmlChanged`/`FeedXmlDeleted` hints and writes one final `feed.opml` after covered RSS work completes. OPML collection and writing are serialized per filesystem service.
-- Ownership belongs to a delivered event occurrence. Coalescing adopts the pending occurrence; an older active handler at the same path cannot complete it or transfer its failures. `SimpleQueue.enqueue(event, true)` preserves covered work's queue position. Ordinary duplicates form one follow-up instead of rotating covered work.
-- Admission is ready before publication. nginx `GET /ready` proxies publication readiness.
-- Resync reserves its pass before returning HTTP `202`. `runResync()` pauses delivery and waits for active deliveries before clearing the cache under the OPML publication lock.
-- A `finally` resumes delivery on success or failure. Reset clears publication readiness; successful rebuild restores it. The rebuild rereads source metadata and uses normal scoped publication completion.
-- `getActivePass()` exposes the owned task for coordination. `createHttpHandler()` is the production HTTP boundary.
-- `ApplicationLifecycle.startReconciliation()` owns interval scheduling. Interval `0` creates no timer.
-- `waitForIdle()` observes pending events and active consumer work for integration callers. Pass completion remains scoped to the pass.
+- `startEpisodeEngineRuntime()` owns initial sync, reconciliation, source notifications, resync, readiness, and shutdown.
+- The shared engine plans current source audio, writes episode mirrors, folds folder RSS work, then writes final OPML after covered RSS work completes.
+- Freshness uses source metadata and generated output paths. A forced pass from `/resync?force=1` reprocesses work even when descriptors are unchanged. Watcher changed-path hints also reprocess the hinted work.
+- nginx `GET /ready` proxies engine availability. It returns `200` only after `feed.opml` is available; otherwise it returns `503` with status JSON.
+- `/resync` returns `202` when the engine accepts or queues a freshness-gated pass. During shutdown, HTTP closes before engine stop completes, so nginx can return a connection or proxy error. Use `/resync?force=1` to force reprocessing.
+- `RECONCILE_INTERVAL=0` disables periodic reconciliation.
 
 </important>
 
 <important if="you are changing shutdown, bootstrap, the entrypoint, or process ownership">
 
-- `runServer()` installs TERM and INT handling before awaiting context setup or starting initial sync. The lifecycle owns the consumer, active pass, and reconciliation task.
-- `shutdown()` immediately closes admission and readiness, permanently stops queue delivery, and cancels pass completion waits. It gives the active handler up to 8 seconds to finish and returns `completed` or `deadline`. The server then closes HTTP and exits.
-- Pass setup, reset iterations, scans, and final OPML check stopping after awaited operations. An expired handler cannot begin another filesystem operation. Guarded filesystem services preserve the original OPML lock identity.
-- Queue `pause()`/`resume()` are temporary reset controls. Permanent `stop()` cannot be undone by a reset's `finally`. Pending cascades remain unpublished at exit; the next initial pass repairs them from current sources.
-- `scanFiles()` and `createSyncPlan()` accept the lifecycle's optional `AbortSignal`. Source traversal, cache traversal, and metadata validation check it after awaited operations. Cancellation escapes cache-reuse fallback so a stopped scan cannot start another read or stat.
+- `runServer()` installs TERM and INT handling before awaiting context setup or starting initial sync. The engine runtime owns active work and reconciliation.
+- Shutdown closes HTTP first, awaits the engine runtime stop hook, then exits.
 - The shell entrypoint forwards signals promptly and waits for Bun, nginx, and the watcher. Unexpected child exits fail the container. Watcher pipelines own process groups so inotify and in-flight wget receive TERM together.
-- Compose uses an init reaper and a 15-second stop grace period for the 8-second application budget plus bounded helper cleanup.
+- Compose uses an init reaper and a 15-second stop grace period. The entrypoint watchdog is the shutdown upper bound for the engine and helper cleanup.
 - The disposable shell watchdog owns its sleep process group. Entrypoint verifies group creation before cancellation so a fast child exit cannot leave an uncancelled 11-second timer.
 
 </important>
 
 <important if="you are changing source-path reconciliation, source traversal, or cache mutation guards">
 
-- `ApplicationLifecycle.admitBooksEvent()` enqueues `SourcePathSyncRequested` hints. They check current filesystem state and reconcile descendants. Scan-planned deletions use the same check. Source admission avoids TTL filtering because a repeated hint can describe a newer same-path replacement.
-- Audio metadata writes directly trigger folder RSS; folder RSS triggers parent navigation and OPML, including changes to existing podcast information. Prune empty cache branches only when their source subtree has no supported audio.
+- Source watcher hints call `notifyBooksEvent()` on the engine runtime. Work checks current filesystem state and reconciles descendants.
+- Audio metadata writes directly trigger folder RSS; folder RSS triggers parent navigation. OPML is rebuilt by the final publication at the end of each pass. Prune empty cache branches only when their source subtree has no supported audio.
 - Source type changes remove the obsolete mirror before rebuilding. Episode mirrors retain only `entry.xml`; folder mirrors remove that episode marker. A metadata request for a path now occupied by supported audio reconciles the file. Unsupported regular files remove obsolete mirrors and cannot become episodes. See `src/effect/handlers/mirror-kind.ts`.
 - `src/effect/handlers/source-kind.ts` checks each source component with `fs.lstat()`. Only regular directories and supported regular audio enter the Catalog. Symlinks, broken links, cycles, and paths beneath symlink ancestors are excluded; watcher hints and recovery remove obsolete mirrors. Creation handlers recheck source kind after scanning. Source access errors fail owned work; cache traversal and OPML keep `fs.stat()` semantics.
-- The source root must remain a regular directory. Passes check it before reset, after planning, and before final publication. A missing or excluded root fails the pass and retains prior OPML; it never becomes a root deletion hint.
+- The source root must remain a regular directory. The engine checks it during source scans and before OPML publication. A missing or excluded root fails the pass and retains prior OPML; it never becomes a root deletion hint.
 - `src/cache-boundary.ts` owns containment and bounded parents. Cache handlers validate entry paths. Mutation guards reject cache-root removal, out-of-root paths, and symlink ancestors. Atomic writes also check temporary paths. Cover encoding completes before guarded directory/write operations.
 
 </important>
@@ -140,34 +131,28 @@ Read `docs/adr/0002-unrestricted-source-names-private-cache.md` first. It record
 - `src/cache-layout.js` is the shared Bun/njs codec. `cache-projection.ts` provides its typed interface; `cache-mirrors.ts` traverses structural containers. Public metadata URI resolution uses the same codec.
 - Service names (`feed.xml`, `feed.opml`, `entry.xml`, `_entry.xml`, `cover.jpg`, log names), `.tmp` names, and literal `~` segments use a private `~` container. Other segments keep their existing layout. Each original segment stays unchanged below its container, preserving filesystem length limits.
 - Source `Author/feed.xml` maps to `/data/Author/~/feed.xml`, while public RSS stays `/Author/feed.xml/feed.xml`. Literal source `~` maps to `~/~`; prefix-looking names such as `~feed.xml` remain ordinary. Audio URLs and Episode GUID/filePath remain source-relative.
-- `cache-upgrade.ts` detects legacy/mixed directories and stale journals. Canonical `~` containers alone do not trigger an upgrade.
-- Valid, fresh legacy episode XML is staged in a private `~/.upgrade[-N]` journal before conflicting directories are pruned. A regular `manifest.json` identifies a journal because legacy branches can occupy any directory name. Staged names stay immutable until the manifest is replaced.
-- Recovery copies staged bytes into canonical mirrors, then removes the journal. Upgrade clears readiness during mutation; the completed pass restores it.
+- The legacy cache-layout migration was deliberately removed with the old lifecycle. Deployments must already use the canonical `~` layout. Old legacy or mixed cache directories are not journaled or migrated.
 
 </important>
 
-<important if="you are adding or modifying event handlers, adapters, the queue, or the consumer">
+<important if="you are adding or modifying event handlers or engine work">
 
-Flow: source hints, data adapters, and sync plans → typed `EventType` → `SimpleQueue` → consumer loop (`queue.take(signal)`) → handler.
+Flow: source hints and engine plans → typed `EventType` work → handlers → generated outputs.
 
-- Handlers return `Result<readonly EventType[], Error>`. A cascade is the returned event list, and the consumer enqueues it; handlers stay independent of each other. See `src/effect/handlers/`.
-- Handlers get `HandlerDeps = Pick<AppContext, "config" | "logger" | "fs">`. `AppContext` also holds `dedup` (500 ms TTL filter), `queue`, `handlers`, and `lifecycle` (`PassLifecycle`). The filesystem service includes `lstat` and atomic writes. See `src/context.ts`.
-- The queue coalesces pending source-path and folder-metadata requests by path and ordinary OPML hints globally. Active deliveries remain counted until the consumer completes them.
+- Engine work adapters in `src/engine/composition.ts` call handlers and keep handler code independent. `src/engine/work.ts` defines work classes and keys.
+- Handlers get `HandlerDeps = Pick<AppContext, "config" | "logger" | "fs">`. The filesystem service includes `lstat` and atomic writes. See `src/context.ts`.
 - Zod decodes watcher HTTP payloads at the input boundary. Handlers accept typed events only.
 
 </important>
 
 <important if="you are changing watchers, data-watcher event handling, or debugging an infinite event loop">
 
-- The data watcher ignores `feed.xml` and `feed.opml` writes. Otherwise the watcher loops forever.
-- Only `entry.xml` and `_entry.xml` produce actionable data-watcher events.
-- A `_entry.xml` change syncs only the parent folder. Syncing the same folder can re-trigger metadata writes.
-- Exclusion patterns live in `src/watcher.sh`.
-- Publication and log exclusions apply only to the data watcher. The source watcher must observe directories such as `events.jsonl`, including moves out of the Library. Source inotify uses `--no-dereference`.
+- There is no data watcher. Generated-file changes do not post back to Bun.
+- Folder follow-up work comes from handler cascades inside `src/engine/composition.ts`; OPML follows from the pass final publication.
+- The source watcher must observe directories such as `events.jsonl`, including moves out of the Library. Source inotify uses `--no-dereference`.
 - Fields are NUL-delimited. `watcher-events.ts` decodes parent/name/events and uses `JSON.stringify()` before invoking `wget -T 2`. Quotes, backslashes, and embedded newlines must remain valid fields. The serializer and wget inherit their worker's process group.
 - Inotify formatting has a 4096-byte limit. The serializer validates frames; a damaged frame fails the owned worker group so later events cannot silently desynchronize.
-- Select `Q_OVERFLOW` and route the books token to `/resync`; inotify does not emit `IN_Q_OVERFLOW`. A data overflow sends nothing because reconciliation repairs generated output.
-- Data marker events with `ISDIR` are ignored.
+- Select `Q_OVERFLOW` and route the books token to `/resync?force=1`; inotify does not emit `IN_Q_OVERFLOW`.
 
 </important>
 
@@ -186,20 +171,17 @@ Flow: source hints, data adapters, and sync plans → typed `EventType` → `Sim
 - RSS episode numbers start at 1 after sorting, on every feed update. Ignore the cached `episodeNumber` in `entry.xml`.
 - OPML collection propagates directory, stat, read, and podcast XML errors. Failure retains prior OPML and fails the pass. Missing paths and valid navigation feeds are normally excluded.
 - Root-level audio publishes `/feed.xml`. Build feed and cover URLs from joined relative paths so an empty root path does not add a second slash.
-- Scanner cache reuse requires a fresh timestamp and valid episode XML: source identity, file size, MIME type, and usable dates/numbers. `src/rss/episode-cache.ts` owns validation.
-- Every pass regenerates the audio-derived folder hierarchy and RSS, including reusable metadata.
-- Every current audio file receives `AudioMirrorSyncRequested`, including reused metadata. Its handler removes obsolete RSS and descendants from the episode mirror while retaining `entry.xml`, without rereading audio metadata.
-- Cache scanning includes directories with missing markers. Remove only the highest obsolete subtree so descendant cascades cannot recreate deleted folders.
+- Engine freshness checks source metadata descriptors and generated outputs before reusing prior work.
+- Every pass verifies the audio-derived folder hierarchy and RSS. Changed-path hints, forced passes, or processing-version bumps reprocess affected work.
 
 </important>
 
 <important if="you are writing or modifying tests, or tests are failing">
 
-- Unit tests (`test/unit/`) cover pure logic with mocked deps. Integration tests (`test/integration/`) need Docker for sharp and ffmpeg. Mocks and assertions are in `test/helpers/`.
-- Integration tests cover lifecycle passes, watcher publication, cache layout/boundaries, and real inotify transport. E2E covers nginx, resync auth, unrestricted source names, signals, deadlines, and captured-cache restart.
-- `test/e2e/shutdown.test.ts` builds isolated production containers. It mounts `shutdown-bootstrap.ts` through the internal `SERVER_MODULE` entrypoint seam; the bootstrap gates only real filesystem operations. The production server owns signals, HTTP, handlers, and shutdown. Tests observe real TERM, Docker terminal states, child wait statuses, and captured cache across restart. Run it alone with `bun test test/e2e/shutdown.test.ts` or through `bun run test:e2e`.
+- Unit tests (`test/unit/`) cover pure logic with mocked deps. Engine tests (`test/engine/`) cover engine passes, cache layout/boundaries, and real output behavior. Mocks and assertions are in `test/helpers/`.
+- Integration tests (`test/integration/`) cover watcher transport with real Linux tools.
+- E2E covers nginx publication and resync auth against production containers.
 - `bun run test:e2e` uses `tools/test-e2e.sh`. It preserves compose-start and test failures through graceful cleanup; teardown failure also fails an otherwise successful run.
-- Folder watcher E2E tracing observes `SourcePathSyncRequested`. Empty source folders stay outside the Catalog.
 
 </important>
 
@@ -228,7 +210,7 @@ Flow: source hints, data adapters, and sync plans → typed `EventType` → `Sim
 
 <important if="you are editing the Dockerfile, docker-compose files, or healthchecks">
 
-The image is Alpine without `curl`. Healthchecks use nginx `GET /ready`, which reflects publication readiness: `wget -q --spider http://127.0.0.1/ready`.
+The image is Alpine without `curl`. Healthchecks use nginx `GET /ready`, which reflects publication readiness: `wget -q --spider http://127.0.0.1/ready`. The image includes `util-linux` because the shared engine output lease uses Linux `flock`.
 
 </important>
 

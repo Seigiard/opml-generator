@@ -36,7 +36,6 @@ export async function checkCacheMutation(
   root: string,
   fs: FileSystemService,
   leafWrite = false,
-  check: () => void = () => {},
 ): Promise<void> {
   const normalized = assertCachePath(path, root);
   const local = relative(resolve(root), normalized);
@@ -51,9 +50,7 @@ export async function checkCacheMutation(
 
   for (const candidate of leafWrite ? paths : paths.slice(0, -1)) {
     try {
-      check();
       const entry = await fs.lstat(candidate);
-      check();
       const leaf = candidate === normalized;
 
       if (!(entry.isDirectory() || (leaf && entry.isFile())))

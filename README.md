@@ -21,7 +21,7 @@ Podcast RSS and OPML feed generator for locally stored audiobooks and podcasts.
 - Episode numbering follows the current sorted listening order
 - HTTP Range request support for seeking/streaming
 - File watching with automatic feed regeneration
-- Full resync via authenticated `/resync` endpoint
+- Authenticated `/resync` for freshness-gated passes and `/resync?force=1` for forced reprocessing
 
 ## Supported Audio Formats
 
@@ -103,34 +103,33 @@ docker compose up -d --build
 
 ## API
 
-| Endpoint                 | Description                                 |
-| ------------------------ | ------------------------------------------- |
-| `GET /`                  | Redirect to /feed.opml                      |
-| `GET /feed.opml`         | Root OPML (aggregates all podcast feeds)    |
-| `GET /{path}/feed.xml`   | Individual podcast RSS feed                 |
-| `GET /audiobooks/{path}` | Stream audio file (supports Range requests) |
-| `GET /static/*`          | Static assets                               |
-| `POST /resync`           | Trigger full resync (requires Basic Auth)   |
-| `GET /ready`             | Publication readiness (`200` or `503`)      |
+| Endpoint                 | Description                                            |
+| ------------------------ | ------------------------------------------------------ |
+| `GET /`                  | Redirect to /feed.opml                                 |
+| `GET /feed.opml`         | Root OPML (aggregates all podcast feeds)               |
+| `GET /{path}/feed.xml`   | Individual podcast RSS feed                            |
+| `GET /audiobooks/{path}` | Stream audio file (supports Range requests)            |
+| `GET /static/*`          | Static assets                                          |
+| `POST /resync`           | Queue a freshness-gated resync (requires Basic Auth)   |
+| `POST /resync?force=1`   | Force a rebuild of declared work (requires Basic Auth) |
+| `GET /ready`             | Publication readiness (`200` or `503`)                 |
 
-`/resync` returns `202` when the rebuild is accepted. This response does not mean
-that publication is complete. During initial sync, reconciliation, or another
-resync, it returns `409` and does not defer the request. Resync waits for the
-active handler before clearing generated data and rereading source metadata.
-Source notifications remain accepted during the reset and rebuild. `/ready`
-returns `503` after reset starts and `200` after successful publication. A failed
-rebuild releases the pass so an authenticated retry can recover publication.
-
-Returns 503 with `Retry-After: 5` if `feed.opml` doesn't exist yet (initial sync in progress).
+`/resync` returns `202` when the shared sync engine accepts or queues a pass. This
+response does not mean that publication is complete. During startup it can queue
+behind the initial pass. During shutdown, HTTP closes before engine stop completes,
+so nginx can return a connection or proxy error. Source notifications remain accepted
+while the engine rebuilds. `/ready` returns `503`
+until a `feed.opml` is available, and `200` when prior or newly published output
+can be served.
 
 ## Shutdown and Restart
 
 TERM and INT handling is active during startup, reconciliation, resync, and ordinary updates.
-Shutdown closes event and resync admission immediately; the internal endpoints return `503`.
-It stops new handlers and passes, and gives the active handler up to 8 seconds to finish.
+Shutdown closes HTTP admission first, so nginx can return a connection/proxy error while the process exits.
+It stops new handlers and passes through the shared engine stop hook.
 Pending publication work is recovered on the next startup from the unchanged source files and remaining cache.
 Keep the `/data` volume across restart.
-Readiness stays `503` until that startup has repaired RSS and OPML successfully, even if an old OPML file survives.
+If an old OPML file survives, readiness can return `200` with prior output while verification continues.
 
 Use the configured 15-second container stop timeout.
 The entrypoint forwards signals and waits for its children within that budget.
@@ -151,6 +150,7 @@ An unexpected child failure produces a nonzero container exit.
         └── episode2.ogg
 
 /data/                          # Mirror cache (auto-generated)
+├── ~/.sync-engine              # Shared engine state and output lease
 ├── feed.opml                   # Root OPML aggregation
 ├── Author/
 │   ├── _entry.xml              # Folder entry for parent
@@ -188,6 +188,8 @@ The cached `episodeNumber` in `entry.xml` does not determine the number publishe
 M4B files contain an entire audiobook with internal chapter markers. This generator treats each M4B as a single episode — chapter extraction is out of scope. Split M4B files beforehand using OpenAudible, ffmpeg, or mp4chaps.
 
 ## Development
+
+`@seigiard/sync-engine@0.5.5` is the reviewed registry release. Version `0.5.4` on npm is an older build. Future engine updates should change the registry version in `package.json`, run `bun install`, rebuild Docker images, and run the full test gates.
 
 ```bash
 # Start dev server with hot reload

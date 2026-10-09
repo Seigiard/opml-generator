@@ -197,7 +197,7 @@ export async function folderMetaSync(
         if (await fs.exists(entryOutputPath)) await fs.rm(entryOutputPath);
       }
 
-      const cascades: EventType[] = [{ _tag: "FeedXmlDeleted", path: normalizedDir }];
+      const cascades: EventType[] = [];
 
       if (relativePath !== "")
         cascades.unshift({
@@ -306,13 +306,6 @@ export async function folderMetaSync(
       cascades.push({
         _tag: "FolderMetaSyncRequested",
         path: cacheParent(normalizedDir, config.dataPath)!,
-      });
-    }
-
-    if (hasEpisodes || hasFolders) {
-      cascades.push({
-        _tag: feedExistedBefore ? "FeedXmlChanged" : "FeedXmlCreated",
-        path: normalizedDir,
       });
     }
 
