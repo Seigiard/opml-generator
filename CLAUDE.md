@@ -115,7 +115,7 @@ Read `docs/adr/0001-filesystem-authoritative-synchronization.md` first. It point
 <important if="you are changing source-path reconciliation, source traversal, or cache mutation guards">
 
 - Source watcher hints call `notifyBooksEvent()` on the engine runtime. Work checks current filesystem state and reconciles descendants.
-- Audio metadata writes directly trigger folder RSS; folder RSS triggers parent navigation and OPML, including changes to existing podcast information. Prune empty cache branches only when their source subtree has no supported audio.
+- Audio metadata writes directly trigger folder RSS; folder RSS triggers parent navigation. OPML is rebuilt by the final publication at the end of each pass. Prune empty cache branches only when their source subtree has no supported audio.
 - Source type changes remove the obsolete mirror before rebuilding. Episode mirrors retain only `entry.xml`; folder mirrors remove that episode marker. A metadata request for a path now occupied by supported audio reconciles the file. Unsupported regular files remove obsolete mirrors and cannot become episodes. See `src/effect/handlers/mirror-kind.ts`.
 - `src/effect/handlers/source-kind.ts` checks each source component with `fs.lstat()`. Only regular directories and supported regular audio enter the Catalog. Symlinks, broken links, cycles, and paths beneath symlink ancestors are excluded; watcher hints and recovery remove obsolete mirrors. Creation handlers recheck source kind after scanning. Source access errors fail owned work; cache traversal and OPML keep `fs.stat()` semantics.
 - The source root must remain a regular directory. The engine checks it during source scans and before OPML publication. A missing or excluded root fails the pass and retains prior OPML; it never becomes a root deletion hint.
@@ -147,7 +147,7 @@ Flow: source hints and engine plans → typed `EventType` work → handlers → 
 <important if="you are changing watchers, data-watcher event handling, or debugging an infinite event loop">
 
 - There is no data watcher. Generated-file changes do not post back to Bun.
-- Folder and OPML follow-up work comes from handler cascades inside `src/engine/composition.ts`.
+- Folder follow-up work comes from handler cascades inside `src/engine/composition.ts`; OPML follows from the pass final publication.
 - The source watcher must observe directories such as `events.jsonl`, including moves out of the Library. Source inotify uses `--no-dereference`.
 - Fields are NUL-delimited. `watcher-events.ts` decodes parent/name/events and uses `JSON.stringify()` before invoking `wget -T 2`. Quotes, backslashes, and embedded newlines must remain valid fields. The serializer and wget inherit their worker's process group.
 - Inotify formatting has a 4096-byte limit. The serializer validates frames; a damaged frame fails the owned worker group so later events cannot silently desynchronize.

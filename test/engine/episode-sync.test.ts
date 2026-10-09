@@ -20,6 +20,7 @@ import { join } from "node:path";
 import {
   openEpisodeSynchronization,
   startEpisodeSynchronization,
+  workFromCascade,
 } from "../../src/engine/composition.ts";
 import { opmlEngineStatePath } from "../../src/engine/policy.ts";
 import type { HandlerDeps } from "../../src/context.ts";
@@ -387,39 +388,30 @@ describe("episode sync engine composition", () => {
 
   test("adding one child only reprocesses the new episode entry", async () => {
     // #given
-    await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
+    const albumPath = join(filesPath, "Author", "Album");
+    const stableDirectoryTime = new Date("2024-01-02T03:04:05.000Z");
+    await mkdir(albumPath, { recursive: true });
 
     for (const name of ["01.mp3", "02.mp3", "03.mp3"]) {
-      await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(filesPath, "Author", "Album", name));
+      await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(albumPath, name));
     }
+    await utimes(albumPath, stableDirectoryTime, stableDirectoryTime);
 
     const counted = countedDeps();
 
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...counted.deps, reconcileIntervalMs: 0 })),
+    );
+    counted.counts.entryWrites = 0;
+    counted.counts.feedWrites = 0;
+    counted.counts.opmlWrites = 0;
+    counted.entryWritesByPath.clear();
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(albumPath, "04.mp3"));
+    await utimes(albumPath, stableDirectoryTime, stableDirectoryTime);
+
     // #when
     await Effect.runPromise(
-      Effect.scoped(
-        Effect.gen(function* () {
-          const live = yield* startEpisodeSynchronization({
-            ...counted.deps,
-            reconcileIntervalMs: 0,
-          });
-
-          yield* live.ready;
-          counted.counts.entryWrites = 0;
-          counted.counts.feedWrites = 0;
-          counted.counts.opmlWrites = 0;
-          counted.entryWritesByPath.clear();
-
-          yield* Effect.promise(() =>
-            copyFile(
-              join(AUDIO_FIXTURES, "tagged.mp3"),
-              join(filesPath, "Author", "Album", "04.mp3"),
-            ),
-          );
-          yield* live.requestPass();
-          yield* live.awaitCompletion;
-        }),
-      ),
+      Effect.scoped(openEpisodeSynchronization({ ...counted.deps, reconcileIntervalMs: 0 })),
     );
 
     // #then
@@ -582,7 +574,7 @@ describe("episode sync engine composition", () => {
     });
   });
 
-  test("a full pass coalesces folder OPML cascades instead of rebuilding per folder", async () => {
+  test("a full pass rebuilds OPML once after folder work drains", async () => {
     // #given
     await mkdir(join(filesPath, "Author", "Book A"), { recursive: true });
     await mkdir(join(filesPath, "Author", "Book B"), { recursive: true });
@@ -607,7 +599,7 @@ describe("episode sync engine composition", () => {
 
     // #then
     expect({ opmlRuns, opmlWrites: counted.counts.opmlWrites }).toEqual({
-      opmlRuns: 2,
+      opmlRuns: 1,
       opmlWrites: 1,
     });
   });
@@ -623,25 +615,34 @@ describe("episode sync engine composition", () => {
       Effect.scoped(openEpisodeSynchronization({ ...realDeps(), reconcileIntervalMs: 0 })),
     );
     const priorOpml = await Bun.file(join(dataPath, "feed.opml")).text();
+    const deps = realDeps();
+    const realAtomicWrite = deps.fs.atomicWrite;
     let armRemoval = false;
     let removedRoot = false;
 
+    deps.fs.atomicWrite = async (path, content) => {
+      await realAtomicWrite(path, content);
+
+      if (path !== join(dataPath, "feed.xml") || !armRemoval || removedRoot) return;
+
+      removedRoot = true;
+      await rm(filesPath, { recursive: true, force: true });
+      await rm(join(dataPath, "Transient", "Album", "feed.xml"), { force: true });
+    };
+
     // #when
-    armRemoval = true;
     await Effect.runPromiseExit(
       Effect.scoped(
-        openEpisodeSynchronization({
-          ...realDeps(),
-          reconcileIntervalMs: 0,
-          processingVersions: { folder: "source-root-guard" },
-          beforeFolderWork: (work) =>
-            Effect.tryPromise(async () => {
-              if (work.dataPath !== dataPath || !armRemoval || removedRoot) return;
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({
+            ...deps,
+            reconcileIntervalMs: 0,
+          });
 
-              removedRoot = true;
-              await rm(filesPath, { recursive: true, force: true });
-              await rm(join(dataPath, "Transient", "Album", "feed.xml"), { force: true });
-            }),
+          yield* live.ready;
+          armRemoval = true;
+          yield* live.requestPass({ force: true });
+          yield* live.awaitCompletion;
         }),
       ),
     );
@@ -650,6 +651,61 @@ describe("episode sync engine composition", () => {
     expect({ removedRoot, opml: await Bun.file(join(dataPath, "feed.opml")).text() }).toEqual({
       removedRoot: true,
       opml: priorOpml,
+    });
+  });
+
+  test("recursive source-path sync waits for started sibling branches after one fails", async () => {
+    // #given
+    await mkdir(join(filesPath, "Parent", "Bad"), { recursive: true });
+    await mkdir(join(filesPath, "Parent", "Slow"), { recursive: true });
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(filesPath, "Parent", "Bad", "01.mp3"));
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(filesPath, "Parent", "Slow", "01.mp3"));
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...realDeps(), reconcileIntervalMs: 0 })),
+    );
+    const deps = realDeps();
+    const realReaddir = deps.fs.readdir;
+    const enteredSlow = Promise.withResolvers<void>();
+    const releaseSlow = Promise.withResolvers<void>();
+    let holdSlow = false;
+
+    deps.fs.readdir = async (path) => {
+      if (path === join(filesPath, "Parent", "Bad"))
+        throw new Error("EACCES controlled branch failure");
+
+      if (path === join(filesPath, "Parent", "Slow") && holdSlow) {
+        enteredSlow.resolve();
+        await releaseSlow.promise;
+      }
+
+      return realReaddir(path);
+    };
+
+    // #when
+    holdSlow = true;
+    const sync = workFromCascade(
+      { _tag: "SourcePathSyncRequested", path: join(filesPath, "Parent"), isDirectory: true },
+      deps,
+    ).then(
+      () => "resolved" as const,
+      () => "rejected" as const,
+    );
+    const entered = await completesWithin(
+      Effect.promise(() => enteredSlow.promise),
+      500,
+    );
+    const settledBeforeRelease = await Promise.race([
+      sync.then(() => true),
+      Bun.sleep(50).then(() => false),
+    ]);
+    releaseSlow.resolve();
+    const result = await sync;
+
+    // #then
+    expect({ entered, settledBeforeRelease, result }).toEqual({
+      entered: true,
+      settledBeforeRelease: false,
+      result: "rejected",
     });
   });
 
@@ -1207,7 +1263,7 @@ describe("episode sync engine composition", () => {
     });
   });
 
-  test("folder removal rebuilds OPML before a later work error prevents final publication", async () => {
+  test("folder removal with a later work error still uses one final OPML publication", async () => {
     // #given
     await mkdir(join(filesPath, "Author", "Keep"), { recursive: true });
     await mkdir(join(filesPath, "Author", "Remove"), { recursive: true });
@@ -1260,7 +1316,7 @@ describe("episode sync engine composition", () => {
       urls: opmlUrls(opml),
     }).toEqual({
       state: "complete-with-errors",
-      opmlRuns: 3,
+      opmlRuns: 1,
       removedFeedExists: false,
       urls: ["{{{BASE_URL}}}/Author/Keep/feed.xml"],
     });

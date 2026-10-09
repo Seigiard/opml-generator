@@ -26,7 +26,6 @@ import {
   EpisodeWork,
   FolderDeleteWork,
   FolderWork,
-  OpmlWork,
   type OpmlEngineWork,
   workKey,
 } from "./work.ts";
@@ -59,13 +58,20 @@ function audioEntries(entries: readonly SourceEntry[]): EpisodeWork[] {
 async function obsoleteEpisodeEntries(
   entries: readonly SourceEntry[],
   deps: HandlerDeps,
+  deletedFolders: readonly FolderDeleteWork[],
 ): Promise<EpisodeDeleteWork[]> {
   const present = new Set(audioEntries(entries).map((entry) => entry.relativePath));
   const deleted: EpisodeDeleteWork[] = [];
+  const deletedFolderPaths = deletedFolders.map((work) => work.relativePath);
 
   await collectObsoleteEpisodes(deps.config.dataPath, deps, present, deleted);
 
-  return deleted;
+  return deleted.filter(
+    (work) =>
+      !deletedFolderPaths.some(
+        (folder) => work.relativePath === folder || work.relativePath.startsWith(`${folder}/`),
+      ),
+  );
 }
 
 function sourceFolderEntries(entries: readonly SourceEntry[], deps: HandlerDeps): FolderWork[] {
@@ -140,7 +146,10 @@ async function collectObsoleteEpisodes(
     await collectObsoleteEpisodes(path, deps, present, deleted);
 }
 
-async function workFromCascade(event: EventType, deps: HandlerDeps): Promise<OpmlEngineWork[]> {
+export async function workFromCascade(
+  event: EventType,
+  deps: HandlerDeps,
+): Promise<OpmlEngineWork[]> {
   switch (event._tag) {
     case "AudioFileCreated":
       return [new EpisodeWork(relative(deps.config.filesPath, join(event.parent, event.name)))];
@@ -156,17 +165,21 @@ async function workFromCascade(event: EventType, deps: HandlerDeps): Promise<Opm
       return [new FolderWork(event.path)];
     case "FeedXmlCreated":
     case "FeedXmlChanged":
-      return [];
     case "FeedXmlDeleted":
-      return [new OpmlWork(event.path)];
+      return [];
     case "SourcePathSyncRequested": {
       const result = await sourcePathSync(event, deps);
 
       if (result.isErr()) throw result.error;
 
-      return (
-        await Promise.all(result.value.map((cascade) => workFromCascade(cascade, deps)))
-      ).flat();
+      const settled = await Promise.allSettled(
+        result.value.map((cascade) => workFromCascade(cascade, deps)),
+      );
+      const rejected = settled.find((item) => item.status === "rejected");
+
+      if (rejected) throw rejected.reason;
+
+      return settled.flatMap((item) => (item.status === "fulfilled" ? item.value : []));
     }
 
     default:
@@ -205,14 +218,6 @@ function handleEpisode(
           () => folderMetaSync({ _tag: "FolderMetaSyncRequested", path: work.dataPath }, options),
           options,
         );
-      }
-
-      if (work._tag === "OpmlWork") {
-        return runHandler(async () => {
-          await assertSourceRootDirectory(options);
-
-          return opmlSync({ _tag: "FeedXmlChanged", path: work.dataPath }, options);
-        }, options);
       }
 
       const sourcePath = join(options.config.filesPath, work.relativePath);
@@ -321,15 +326,19 @@ function episodeLiveOptions(
     },
     declare: (entries, _request: PassRequest) =>
       Effect.tryPromise({
-        try: async () => ({
-          work: [
-            ...(await cachedFolderDeletes(entries, options)),
-            ...(await obsoleteEpisodeEntries(entries, options)),
-            ...audioEntries(entries),
-            ...sourceFolderEntries(entries, options),
-          ],
-          publish: publishFinalOpml(options),
-        }),
+        try: async () => {
+          const folderDeletes = await cachedFolderDeletes(entries, options);
+
+          return {
+            work: [
+              ...folderDeletes,
+              ...(await obsoleteEpisodeEntries(entries, options, folderDeletes)),
+              ...audioEntries(entries),
+              ...sourceFolderEntries(entries, options),
+            ],
+            publish: publishFinalOpml(options),
+          };
+        },
         catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
       }),
   };
