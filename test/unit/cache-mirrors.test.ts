@@ -15,7 +15,9 @@ describe("cacheMirrors", () => {
     const mirrors = await cacheMirrors(root, root, {
       readdir: async (path) => {
         if (path === root) return ["Author", "Gone", "~"];
+
         if (path === join(root, "~")) return [".sync-engine", "Vanished"];
+
         if (path === join(root, "~", ".sync-engine")) return ["freshness.json.tmp"];
 
         return [];

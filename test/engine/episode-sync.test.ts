@@ -407,6 +407,7 @@ describe("episode sync engine composition", () => {
     for (const name of ["01.mp3", "02.mp3", "03.mp3"]) {
       await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(albumPath, name));
     }
+
     await utimes(albumPath, stableDirectoryTime, stableDirectoryTime);
 
     const counted = countedDeps();
@@ -695,6 +696,7 @@ describe("episode sync engine composition", () => {
 
     // #when
     holdSlow = true;
+
     const sync = workFromCascade(
       { _tag: "SourcePathSyncRequested", path: join(filesPath, "Parent"), isDirectory: true },
       deps,
@@ -702,14 +704,17 @@ describe("episode sync engine composition", () => {
       () => "resolved" as const,
       () => "rejected" as const,
     );
+
     const entered = await completesWithin(
       Effect.promise(() => enteredSlow.promise),
       500,
     );
+
     const settledBeforeRelease = await Promise.race([
       sync.then(() => true),
       Bun.sleep(50).then(() => false),
     ]);
+
     releaseSlow.resolve();
     const result = await sync;
 
@@ -796,6 +801,7 @@ describe("episode sync engine composition", () => {
           const bytes = new Uint8Array(
             yield* Effect.promise(() => Bun.file(audioPath).arrayBuffer()),
           );
+
           bytes[bytes.length - 1] = bytes[bytes.length - 1] === 0 ? 1 : 0;
           yield* Effect.promise(() => Bun.write(audioPath, bytes));
           yield* live.notify(["Author/Album/01.mp3"]);
@@ -1292,6 +1298,7 @@ describe("episode sync engine composition", () => {
     deps.logger.info = (tag, message) => {
       if (tag === "OpmlSync" && message === "Regenerating OPML") opmlRuns += 1;
     };
+
     deps.fs.lstat = async (path) => {
       if (path === keepAudioPath && failKeepRead) throw new Error("EACCES controlled read failure");
 
@@ -1475,6 +1482,7 @@ describe("episode sync engine composition", () => {
 
       return realLstat(path);
     };
+
     deps.fs.rm = async (path, options) => {
       if (path === folderMirror) removedFolderMirror = true;
 
@@ -1766,14 +1774,17 @@ describe("episode sync engine composition", () => {
           yield* live.notify(["Author/Album/02.mp3"]);
           yield* live.awaitCompletion;
           const failed = yield* live.status;
+
           const mirrorExistsAfterFailure = yield* Effect.promise(() =>
             existsByLstat(join(dataPath, "Author", "Album", "02.mp3")),
           );
+
           failSecondRead = false;
           yield* Effect.promise(() => rm(secondAudioPath));
           yield* live.notify(["Author/Album/02.mp3"]);
           yield* live.awaitCompletion;
           const recovered = yield* live.status;
+
           const mirrorExistsAfterCleanup = yield* Effect.promise(() =>
             existsByLstat(join(dataPath, "Author", "Album", "02.mp3")),
           );
@@ -1819,6 +1830,7 @@ describe("episode sync engine composition", () => {
 
       await realAtomicWrite(path, content);
     };
+
     deps.fs.rm = async (path, options) => {
       if (failFolderRemoval && path === mirrorPath)
         throw new Error("controlled folder cleanup failure");

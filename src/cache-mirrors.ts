@@ -1,15 +1,21 @@
 import { join, relative } from "node:path";
+import { z } from "zod";
 import type { FileSystemService } from "./context.ts";
 import { isContainer } from "./cache-projection.ts";
 import { OPML_ENGINE_STATE_RELATIVE_PATH } from "./engine/policy.ts";
 
-function isAbsentPathError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error.code === "ENOENT" || error.code === "ENOTDIR")
-  );
+const absentPathError = z.object({ code: z.enum(["ENOENT", "ENOTDIR"]) });
+
+const noEntries: string[] = [];
+
+async function absentAs<T, F>(read: () => Promise<T>, fallback: F): Promise<T | F> {
+  try {
+    return await read();
+  } catch (error) {
+    if (absentPathError.safeParse(error).success) return fallback;
+
+    throw error;
+  }
 }
 
 export async function cacheMirrors(
@@ -22,33 +28,22 @@ export async function cacheMirrors(
 
   for (const name of names) {
     const path = join(directory, name);
-    const info = await fs.stat(path).catch((error: unknown) => {
-      if (isAbsentPathError(error)) return null;
 
-      throw error;
-    });
+    const info = await absentAs(() => fs.stat(path), null);
 
     if (!info) continue;
 
     if (!info.isDirectory()) continue;
 
     if (isContainer(relative(root, path))) {
-      const escapedNames = await fs.readdir(path).catch((error: unknown) => {
-        if (isAbsentPathError(error)) return [];
-
-        throw error;
-      });
+      const escapedNames = await absentAs(() => fs.readdir(path), noEntries);
 
       for (const escaped of escapedNames) {
         const child = join(path, escaped);
 
         if (relative(root, child) === OPML_ENGINE_STATE_RELATIVE_PATH) continue;
 
-        const info = await fs.stat(child).catch((error: unknown) => {
-          if (isAbsentPathError(error)) return null;
-
-          throw error;
-        });
+        const info = await absentAs(() => fs.stat(child), null);
 
         if (!info) continue;
 

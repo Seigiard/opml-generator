@@ -171,6 +171,7 @@ describe("episode engine runtime", () => {
 
     // #when
     let stopped = false;
+
     const stop = runtime.stop().then(() => {
       stopped = true;
     });

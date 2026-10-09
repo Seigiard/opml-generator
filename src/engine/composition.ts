@@ -63,9 +63,11 @@ async function obsoleteEpisodeEntries(
   deletedFolders: readonly FolderDeleteWork[],
 ): Promise<Array<EpisodeDeleteWork | EpisodeWork>> {
   const present = new Set(audioEntries(entries).map((entry) => entry.relativePath));
+
   const presentDirectories = new Set(
     entries.flatMap((entry) => (entry.kind === "directory" ? [entry.path] : [])),
   );
+
   const changedPaths = new Set(request.changedPaths);
   const deletedFolderPaths = deletedFolders.map((work) => work.relativePath);
   const deleted: EpisodeDeleteWork[] = [];
@@ -122,6 +124,7 @@ async function cachedFolderDeletes(
   const currentFolders = new Set(
     sourceFolderEntries(entries, deps).map((work) => resolve(work.dataPath)),
   );
+
   const deleted: FolderDeleteWork[] = [];
 
   await collectCachedFolderDeletes(deps.config.dataPath, deps, currentFolders, deleted);
@@ -181,6 +184,7 @@ async function collectObsoleteEpisodes(
 
   if (children.length === 0 && resolve(dir) !== resolve(deps.config.dataPath)) {
     const relativePath = decodeRelative(relative(deps.config.dataPath, dir));
+
     const hasFolderOutput =
       (await Bun.file(join(dir, FEED_FILE)).exists()) ||
       (await Bun.file(join(dir, FOLDER_ENTRY_FILE)).exists());
@@ -200,6 +204,7 @@ function upsertEpisodeDelete(deleted: EpisodeDeleteWork[], work: EpisodeDeleteWo
 
   if (existing) {
     existing.suppressFolderSync ||= work.suppressFolderSync;
+
     return;
   }
 
@@ -242,6 +247,7 @@ export async function workFromCascade(
       const settled = await Promise.allSettled(
         result.value.map((cascade) => workFromCascade(cascade, deps)),
       );
+
       const rejected = settled.find((item) => item.status === "rejected");
 
       if (rejected) throw rejected.reason;
