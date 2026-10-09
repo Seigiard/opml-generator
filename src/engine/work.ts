@@ -7,7 +7,10 @@ export class EpisodeWork {
 export class EpisodeDeleteWork {
   readonly _tag = "EpisodeDeleteWork";
 
-  constructor(readonly relativePath: string) {}
+  constructor(
+    readonly relativePath: string,
+    readonly suppressFolderSync = false,
+  ) {}
 }
 
 export class FolderWork {

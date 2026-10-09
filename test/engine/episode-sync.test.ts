@@ -1511,6 +1511,162 @@ describe("episode sync engine composition", () => {
     });
   });
 
+  test("deleting a containing folder clears descendant episode work errors", async () => {
+    // #given
+    const albumPath = join(filesPath, "Author", "Album");
+    const firstAudioPath = join(albumPath, "01.mp3");
+    await mkdir(albumPath, { recursive: true });
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), firstAudioPath);
+    const deps = realDeps();
+    const realAtomicWrite = deps.fs.atomicWrite;
+    let failFirstEntry = false;
+
+    deps.fs.atomicWrite = async (path, content) => {
+      if (failFirstEntry && path === join(dataPath, "Author", "Album", "01.mp3", "entry.xml"))
+        throw new Error("controlled episode write failure");
+
+      await realAtomicWrite(path, content);
+    };
+
+    // #when
+    const observed = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({ ...deps, reconcileIntervalMs: 0 });
+
+          yield* live.ready;
+          failFirstEntry = true;
+          yield* live.requestPass({ force: true });
+          yield* live.awaitCompletion;
+          const failed = yield* live.status;
+          failFirstEntry = false;
+          yield* Effect.promise(() => rm(albumPath, { recursive: true }));
+          yield* live.requestPass();
+          yield* live.awaitCompletion;
+          const recovered = yield* live.status;
+
+          return { failed, recovered };
+        }),
+      ),
+    );
+
+    // #then
+    expect({
+      failedState: observed.failed.state,
+      failedErrors: observed.failed.work.errors.length,
+      recoveredState: observed.recovered.state,
+      recoveredErrors: observed.recovered.work.errors.length,
+    }).toEqual({
+      failedState: "complete-with-errors",
+      failedErrors: 1,
+      recoveredState: "complete",
+      recoveredErrors: 0,
+    });
+  });
+
+  test("deleting an episode whose first entry write failed clears its work error", async () => {
+    // #given
+    const albumPath = join(filesPath, "Author", "Album");
+    const firstAudioPath = join(albumPath, "01.mp3");
+    await mkdir(albumPath, { recursive: true });
+    const deps = realDeps();
+    const realAtomicWrite = deps.fs.atomicWrite;
+    let failFirstEntry = false;
+
+    deps.fs.atomicWrite = async (path, content) => {
+      if (failFirstEntry && path === join(dataPath, "Author", "Album", "01.mp3", "entry.xml"))
+        throw new Error("controlled first entry write failure");
+
+      await realAtomicWrite(path, content);
+    };
+
+    // #when
+    const observed = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({ ...deps, reconcileIntervalMs: 0 });
+
+          yield* live.ready;
+          yield* Effect.promise(() => copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), firstAudioPath));
+          failFirstEntry = true;
+          yield* live.notify(["Author/Album/01.mp3"]);
+          yield* live.awaitCompletion;
+          const failed = yield* live.status;
+          failFirstEntry = false;
+          yield* Effect.promise(() => rm(firstAudioPath));
+          yield* live.notify(["Author/Album/01.mp3"]);
+          yield* live.awaitCompletion;
+          const recovered = yield* live.status;
+
+          return { failed, recovered };
+        }),
+      ),
+    );
+
+    // #then
+    expect({
+      failedState: observed.failed.state,
+      failedErrors: observed.failed.work.errors.length,
+      recoveredState: observed.recovered.state,
+      recoveredErrors: observed.recovered.work.errors.length,
+    }).toEqual({
+      failedState: "complete-with-errors",
+      failedErrors: 1,
+      recoveredState: "complete",
+      recoveredErrors: 0,
+    });
+  });
+
+  test("deleting a folder clears that folder's earlier RSS work error", async () => {
+    // #given
+    const albumPath = join(filesPath, "Author", "Album");
+    await mkdir(albumPath, { recursive: true });
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(albumPath, "01.mp3"));
+    let failFolderWork = false;
+
+    // #when
+    const observed = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({
+            ...realDeps(),
+            reconcileIntervalMs: 0,
+            beforeFolderWork: (work) =>
+              failFolderWork && work.dataPath === join(dataPath, "Author", "Album")
+                ? Effect.fail(new Error("controlled folder RSS failure"))
+                : Effect.void,
+          });
+
+          yield* live.ready;
+          failFolderWork = true;
+          yield* live.requestPass({ force: true });
+          yield* live.awaitCompletion;
+          const failed = yield* live.status;
+          failFolderWork = false;
+          yield* Effect.promise(() => rm(albumPath, { recursive: true }));
+          yield* live.requestPass();
+          yield* live.awaitCompletion;
+          const recovered = yield* live.status;
+
+          return { failed, recovered };
+        }),
+      ),
+    );
+
+    // #then
+    expect({
+      failedState: observed.failed.state,
+      failedErrors: observed.failed.work.errors.length,
+      recoveredState: observed.recovered.state,
+      recoveredErrors: observed.recovered.work.errors.length,
+    }).toEqual({
+      failedState: "complete-with-errors",
+      failedErrors: 1,
+      recoveredState: "complete",
+      recoveredErrors: 0,
+    });
+  });
+
   test("keeps cache projection names separate from the engine state area", async () => {
     // #given
     await mkdir(join(filesPath, "feed.xml"), { recursive: true });
