@@ -58,6 +58,11 @@ Docker dev runs at http://localhost:8080. Run the app and unit/integration tests
 
 Other scripts live in `package.json`.
 
+`bun install` installs Lefthook (`lefthook.yml`) in Git checkouts. Before commit,
+it formats and lints staged files, re-stages fixes, and runs the full typecheck
+when TypeScript is staged. Vendored anti-slop rules are excluded. Installs
+without `.git`, including Docker builds, skip hook setup. Tests use Docker.
+
 `@seigiard/sync-engine@0.5.5` is the reviewed registry release. Version `0.5.4` on npm is an older build. Future engine updates should use a registry version in `package.json`, then run `bun install`, rebuild Docker images, and run the full gates.
 
 For concurrent E2E worktrees, use a distinct `COMPOSE_PROJECT_NAME` and port. Set matching `TEST_PORT` and `TEST_BASE_URL`, for example `TEST_PORT=18086 TEST_BASE_URL=http://localhost:18086 bun run test:e2e`.

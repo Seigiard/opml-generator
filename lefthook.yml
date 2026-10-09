@@ -1,0 +1,18 @@
+glob_matcher: doublestar
+
+pre-commit:
+  piped: true
+  jobs:
+    - name: format
+      exclude: "tools/oxlint/anti-slop/**"
+      run: bunx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+      stage_fixed: true
+    - name: lint
+      glob: "**/*.{ts,tsx,js,jsx,mjs,cjs}"
+      exclude: "tools/oxlint/anti-slop/**"
+      run: bunx --no-install oxlint --fix --deny-warnings --no-error-on-unmatched-pattern {staged_files}
+      stage_fixed: true
+    - name: typecheck
+      glob: "**/*.{ts,tsx}"
+      exclude: "tools/oxlint/anti-slop/**"
+      run: bun --bun tsc --noEmit
