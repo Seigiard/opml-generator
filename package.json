@@ -24,7 +24,7 @@
     "lint:anti-slop": "oxlint --config .oxlintrc.anti-slop.json ."
   },
   "dependencies": {
-    "@seigiard/sync-engine": "0.5.1",
+    "@seigiard/sync-engine": "0.5.2",
     "effect": "4.0.1",
     "fast-xml-parser": "^5.3.3",
     "knip": "^5.79.0",

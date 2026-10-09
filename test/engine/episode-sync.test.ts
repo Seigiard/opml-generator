@@ -206,15 +206,20 @@ function sourceFilePath(url: string): string {
 function countedDeps() {
   const deps = realDeps();
   const counts = { entryWrites: 0, feedWrites: 0, opmlWrites: 0 };
+  const entryWritesByPath = new Map<string, number>();
 
   return {
     counts,
+    entryWritesByPath,
     deps: {
       ...deps,
       fs: {
         ...deps.fs,
         atomicWrite: async (path: string, content: string) => {
-          if (path.endsWith("entry.xml")) counts.entryWrites += 1;
+          if (path.endsWith("entry.xml")) {
+            counts.entryWrites += 1;
+            entryWritesByPath.set(path, (entryWritesByPath.get(path) ?? 0) + 1);
+          }
 
           if (path.endsWith("feed.xml")) counts.feedWrites += 1;
 
@@ -377,6 +382,57 @@ describe("episode sync engine composition", () => {
       firstEntryWritten: true,
       plainEntryWrites: 0,
       hintedEntryWrites: 1,
+    });
+  });
+
+  test("adding one child only reprocesses the new episode entry", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
+
+    for (const name of ["01.mp3", "02.mp3", "03.mp3"]) {
+      await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(filesPath, "Author", "Album", name));
+    }
+
+    const counted = countedDeps();
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({
+            ...counted.deps,
+            reconcileIntervalMs: 0,
+          });
+
+          yield* live.ready;
+          counted.counts.entryWrites = 0;
+          counted.counts.feedWrites = 0;
+          counted.counts.opmlWrites = 0;
+          counted.entryWritesByPath.clear();
+
+          yield* Effect.promise(() =>
+            copyFile(
+              join(AUDIO_FIXTURES, "tagged.mp3"),
+              join(filesPath, "Author", "Album", "04.mp3"),
+            ),
+          );
+          yield* live.requestPass();
+          yield* live.awaitCompletion;
+        }),
+      ),
+    );
+
+    // #then
+    const entryPath = (name: string) => join(dataPath, "Author", "Album", name, "entry.xml");
+
+    expect({
+      oldEntryWrites: ["01.mp3", "02.mp3", "03.mp3"].map(
+        (name) => counted.entryWritesByPath.get(entryPath(name)) ?? 0,
+      ),
+      newEntryWrites: counted.entryWritesByPath.get(entryPath("04.mp3")) ?? 0,
+    }).toEqual({
+      oldEntryWrites: [0, 0, 0],
+      newEntryWrites: 1,
     });
   });
 

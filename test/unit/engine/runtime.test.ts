@@ -102,10 +102,12 @@ describe("episode engine runtime", () => {
 
       await realAtomicWrite(path, content);
     };
+
     const runtime = startEpisodeEngineRuntime(deps);
 
     await runtime.ready;
     entryWrites = 0;
+
     const bytes = new Uint8Array(await Bun.file(audioPath).arrayBuffer());
     bytes[bytes.length - 1] = bytes[bytes.length - 1] === 0 ? 1 : 0;
     await Bun.write(audioPath, bytes);
