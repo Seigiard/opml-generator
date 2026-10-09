@@ -20,7 +20,7 @@ async function serializer(input: Uint8Array) {
     fetch: async (request) => {
       requests.push({
         method: request.method,
-        path: new URL(request.url).pathname,
+        path: `${new URL(request.url).pathname}${new URL(request.url).search}`,
         body: await request.text(),
       });
 
@@ -150,7 +150,7 @@ test("the installed Q_OVERFLOW token routes a recovery POST instead of a books h
     token: "Q_OVERFLOW",
     selectionStatus: 2,
     status: 0,
-    requests: [{ method: "POST", path: "/resync", body: "" }],
+    requests: [{ method: "POST", path: "/resync?force=1", body: "" }],
   });
 }, 10_000);
 

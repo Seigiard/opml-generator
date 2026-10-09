@@ -1617,6 +1617,64 @@ describe("episode sync engine composition", () => {
     });
   });
 
+  test("deleting an episode whose first source read failed before mirror creation clears its work error", async () => {
+    // #given
+    const albumPath = join(filesPath, "Author", "Album");
+    const secondAudioPath = join(albumPath, "02.mp3");
+    await mkdir(albumPath, { recursive: true });
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(albumPath, "01.mp3"));
+    const deps = realDeps();
+    const realLstat = deps.fs.lstat;
+    let failSecondRead = false;
+
+    deps.fs.lstat = async (path) => {
+      if (failSecondRead && path === secondAudioPath)
+        throw new Error("controlled source read failure before mirror creation");
+
+      return realLstat(path);
+    };
+
+    // #when
+    const observed = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({ ...deps, reconcileIntervalMs: 0 });
+
+          yield* live.ready;
+          yield* Effect.promise(() =>
+            copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), secondAudioPath),
+          );
+          failSecondRead = true;
+          yield* live.notify(["Author/Album/02.mp3"]);
+          yield* live.awaitCompletion;
+          const failed = yield* live.status;
+          failSecondRead = false;
+          yield* Effect.promise(() => rm(secondAudioPath));
+          yield* live.notify(["Author/Album/02.mp3"]);
+          yield* live.awaitCompletion;
+          const recovered = yield* live.status;
+
+          return { failed, recovered };
+        }),
+      ),
+    );
+
+    // #then
+    expect({
+      failedState: observed.failed.state,
+      failedErrors: observed.failed.work.errors.length,
+      mirrorExists: await Bun.file(join(dataPath, "Author", "Album", "02.mp3")).exists(),
+      recoveredState: observed.recovered.state,
+      recoveredErrors: observed.recovered.work.errors.length,
+    }).toEqual({
+      failedState: "complete-with-errors",
+      failedErrors: 1,
+      mirrorExists: false,
+      recoveredState: "complete",
+      recoveredErrors: 0,
+    });
+  });
+
   test("deleting a folder clears that folder's earlier RSS work error", async () => {
     // #given
     const albumPath = join(filesPath, "Author", "Album");
@@ -1662,6 +1720,64 @@ describe("episode sync engine composition", () => {
     }).toEqual({
       failedState: "complete-with-errors",
       failedErrors: 1,
+      recoveredState: "complete",
+      recoveredErrors: 0,
+    });
+  });
+
+  test("deleting an ancestor folder clears a descendant folder's first RSS work error", async () => {
+    // #given
+    const authorPath = join(filesPath, "Author");
+    const oldAlbumPath = join(authorPath, "OldAlbum");
+    const newAlbumPath = join(authorPath, "NewAlbum");
+    await mkdir(oldAlbumPath, { recursive: true });
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(oldAlbumPath, "01.mp3"));
+    let failNewAlbumFolderWork = false;
+
+    // #when
+    const observed = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({
+            ...realDeps(),
+            reconcileIntervalMs: 0,
+            beforeFolderWork: (work) =>
+              failNewAlbumFolderWork && work.dataPath === join(dataPath, "Author", "NewAlbum")
+                ? Effect.fail(new Error("controlled first RSS failure"))
+                : Effect.void,
+          });
+
+          yield* live.ready;
+          yield* Effect.promise(() => mkdir(newAlbumPath, { recursive: true }));
+          yield* Effect.promise(() =>
+            copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(newAlbumPath, "01.mp3")),
+          );
+          failNewAlbumFolderWork = true;
+          yield* live.notify(["Author/NewAlbum/01.mp3"]);
+          yield* live.awaitCompletion;
+          const failed = yield* live.status;
+          failNewAlbumFolderWork = false;
+          yield* Effect.promise(() => rm(authorPath, { recursive: true }));
+          yield* live.notify(["Author"]);
+          yield* live.awaitCompletion;
+          const recovered = yield* live.status;
+
+          return { failed, recovered };
+        }),
+      ),
+    );
+
+    // #then
+    expect({
+      failedState: observed.failed.state,
+      failedErrors: observed.failed.work.errors.length,
+      newAlbumFeedExists: await Bun.file(join(dataPath, "Author", "NewAlbum", "feed.xml")).exists(),
+      recoveredState: observed.recovered.state,
+      recoveredErrors: observed.recovered.work.errors.length,
+    }).toEqual({
+      failedState: "complete-with-errors",
+      failedErrors: 1,
+      newAlbumFeedExists: false,
       recoveredState: "complete",
       recoveredErrors: 0,
     });

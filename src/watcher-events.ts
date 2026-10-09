@@ -67,7 +67,7 @@ try {
       const overflow = events.split(",").includes("Q_OVERFLOW");
 
       const body = overflow ? "" : JSON.stringify({ parent, name, events });
-      const url = overflow ? `${baseUrl}/resync` : `${baseUrl}/events/books`;
+      const url = overflow ? `${baseUrl}/resync?force=1` : `${baseUrl}/events/books`;
 
       const request = Bun.spawn(
         [

@@ -9,14 +9,17 @@ export class EpisodeDeleteWork {
 
   constructor(
     readonly relativePath: string,
-    readonly suppressFolderSync = false,
+    public suppressFolderSync = false,
   ) {}
 }
 
 export class FolderWork {
   readonly _tag = "FolderWork";
 
-  constructor(readonly dataPath: string) {}
+  constructor(
+    readonly dataPath: string,
+    readonly sourceRelativePath: string,
+  ) {}
 }
 
 export class FolderDeleteWork {
@@ -35,5 +38,7 @@ export function failureKey(work: OpmlEngineWork): string {
   if (work._tag === "EpisodeWork" || work._tag === "EpisodeDeleteWork")
     return `Episode:${work.relativePath}`;
 
-  return workKey(work);
+  if (work._tag === "FolderWork") return `Folder:${work.sourceRelativePath}`;
+
+  return `Folder:${work.relativePath}`;
 }

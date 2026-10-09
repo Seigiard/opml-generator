@@ -26,7 +26,7 @@ import {
   EpisodeWork,
   FolderDeleteWork,
   FolderWork,
-  failureKey as workFailureKey,
+  failureKey,
   type OpmlEngineWork,
   workKey,
 } from "./work.ts";
@@ -76,6 +76,11 @@ async function obsoleteEpisodeEntries(
     deleted,
   );
 
+  for (const path of changedPaths) {
+    if (supported.has(extname(path).toLowerCase()) && !present.has(path))
+      upsertEpisodeDelete(deleted, new EpisodeDeleteWork(path));
+  }
+
   return deleted;
 }
 
@@ -99,7 +104,7 @@ function sourceFolderEntries(entries: readonly SourceEntry[], deps: HandlerDeps)
         relative(deps.config.dataPath, b).split("/").length -
         relative(deps.config.dataPath, a).split("/").length,
     )
-    .map((path) => new FolderWork(path));
+    .map((path) => new FolderWork(path, decodeRelative(relative(deps.config.dataPath, path))));
 }
 
 async function cachedFolderDeletes(
@@ -141,18 +146,22 @@ async function collectObsoleteEpisodes(
   deletedFolderPaths: readonly string[],
   deleted: EpisodeDeleteWork[],
 ): Promise<void> {
-  const children = await cacheMirrors(dir, deps.config.dataPath, deps.fs);
-
   if (await Bun.file(join(dir, ENTRY_FILE)).exists()) {
     const relativePath = decodeRelative(relative(deps.config.dataPath, dir));
 
     if (!present.has(relativePath))
-      deleted.push(
-        new EpisodeDeleteWork(relativePath, isBelowDeletedFolder(relativePath, deletedFolderPaths)),
+      upsertEpisodeDelete(
+        deleted,
+        new EpisodeDeleteWork(
+          relativePath,
+          isInDeletedEpisodeFolder(relativePath, deletedFolderPaths),
+        ),
       );
 
     return;
   }
+
+  const children = await cacheMirrors(dir, deps.config.dataPath, deps.fs);
 
   if (children.length === 0 && resolve(dir) !== resolve(deps.config.dataPath)) {
     const relativePath = decodeRelative(relative(deps.config.dataPath, dir));
@@ -161,7 +170,7 @@ async function collectObsoleteEpisodes(
       (await Bun.file(join(dir, FOLDER_ENTRY_FILE)).exists());
 
     if (!hasFolderOutput && changedPaths.has(relativePath) && !present.has(relativePath))
-      deleted.push(new EpisodeDeleteWork(relativePath));
+      upsertEpisodeDelete(deleted, new EpisodeDeleteWork(relativePath));
 
     return;
   }
@@ -170,13 +179,24 @@ async function collectObsoleteEpisodes(
     await collectObsoleteEpisodes(path, deps, present, changedPaths, deletedFolderPaths, deleted);
 }
 
-function isBelowDeletedFolder(
+function upsertEpisodeDelete(deleted: EpisodeDeleteWork[], work: EpisodeDeleteWork): void {
+  const existing = deleted.find((item) => item.relativePath === work.relativePath);
+
+  if (existing) {
+    existing.suppressFolderSync ||= work.suppressFolderSync;
+    return;
+  }
+
+  deleted.push(work);
+}
+
+function isInDeletedEpisodeFolder(
   relativePath: string,
   deletedFolderPaths: readonly string[],
 ): boolean {
-  return deletedFolderPaths.some(
-    (folder) => relativePath === folder || relativePath.startsWith(`${folder}/`),
-  );
+  const folder = dirname(relativePath);
+
+  return deletedFolderPaths.includes(folder === "." ? "" : folder);
 }
 
 export async function workFromCascade(
@@ -195,7 +215,9 @@ export async function workFromCascade(
         new FolderDeleteWork(relative(deps.config.filesPath, join(event.parent, event.name))),
       ];
     case "FolderMetaSyncRequested":
-      return [new FolderWork(event.path)];
+      return [
+        new FolderWork(event.path, decodeRelative(relative(deps.config.dataPath, event.path))),
+      ];
     case "SourcePathSyncRequested": {
       const result = await sourcePathSync(event, deps);
 
@@ -297,13 +319,6 @@ function outputRelativePath(dataPath: string, ...parts: readonly string[]): stri
   return relative(dataPath, join(...parts));
 }
 
-function failureIdentity(work: OpmlEngineWork, dataPath: string): string {
-  if (work._tag === "FolderWork") return `Folder:${folderRelativePath(work, dataPath)}`;
-  if (work._tag === "FolderDeleteWork") return `Folder:${work.relativePath}`;
-
-  return workFailureKey(work);
-}
-
 function episodeLiveOptions(
   options: EpisodeSynchronizationOptions,
 ): LiveOptions<OpmlEngineWork, Error, never> {
@@ -314,7 +329,7 @@ function episodeLiveOptions(
     reconcileIntervalMs: options.reconcileIntervalMs,
     handle: (work) => handleEpisode(work, options),
     key: workKey,
-    failureKey: (work) => failureIdentity(work, options.config.dataPath),
+    failureKey,
     freshness: {
       check: "metadata",
       describe: (work) => {
