@@ -6,7 +6,7 @@ import {
   type SourceEntry,
 } from "@seigiard/sync-engine";
 import { Effect } from "effect";
-import { basename, dirname, extname, join, relative } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { AUDIO_EXTENSIONS } from "../types.ts";
 import type { HandlerDeps } from "../context.ts";
 import { audioSync } from "../effect/handlers/audio-sync.ts";
@@ -19,6 +19,7 @@ import type { EventType } from "../effect/types.ts";
 import { ENTRY_FILE, FEED_FILE, FOLDER_ENTRY_FILE, OPML_FILE } from "../constants.ts";
 import { cacheMirrors } from "../cache-mirrors.ts";
 import { cachePath, decodeRelative } from "../cache-projection.ts";
+import { readSourceEntry } from "../effect/handlers/source-kind.ts";
 import { opmlEngineStatePath } from "./policy.ts";
 import {
   EpisodeDeleteWork,
@@ -94,7 +95,9 @@ async function cachedFolderDeletes(
   entries: readonly SourceEntry[],
   deps: HandlerDeps,
 ): Promise<FolderDeleteWork[]> {
-  const currentFolders = new Set(sourceFolderEntries(entries, deps).map((work) => work.dataPath));
+  const currentFolders = new Set(
+    sourceFolderEntries(entries, deps).map((work) => resolve(work.dataPath)),
+  );
   const deleted: FolderDeleteWork[] = [];
 
   await collectCachedFolderDeletes(deps.config.dataPath, deps, currentFolders, deleted);
@@ -111,10 +114,12 @@ async function collectCachedFolderDeletes(
   for (const { path } of await cacheMirrors(dir, deps.config.dataPath, deps.fs))
     await collectCachedFolderDeletes(path, deps, currentFolders, deleted);
 
-  if (dir === deps.config.dataPath) return;
+  if (resolve(dir) === resolve(deps.config.dataPath)) return;
 
-  if ((await Bun.file(join(dir, FEED_FILE)).exists()) && !currentFolders.has(dir))
-    deleted.push(new FolderDeleteWork(decodeRelative(relative(deps.config.dataPath, dir))));
+  if ((await Bun.file(join(dir, FEED_FILE)).exists()) && !currentFolders.has(resolve(dir)))
+    deleted.push(
+      new FolderDeleteWork(decodeRelative(relative(resolve(deps.config.dataPath), resolve(dir)))),
+    );
 }
 
 async function collectObsoleteEpisodes(
@@ -150,8 +155,9 @@ async function workFromCascade(event: EventType, deps: HandlerDeps): Promise<Opm
     case "FolderMetaSyncRequested":
       return [new FolderWork(event.path)];
     case "FeedXmlCreated":
-    case "FeedXmlDeleted":
     case "FeedXmlChanged":
+      return [];
+    case "FeedXmlDeleted":
       return [new OpmlWork(event.path)];
     case "SourcePathSyncRequested": {
       const result = await sourcePathSync(event, deps);
@@ -179,6 +185,13 @@ async function runHandler(
   return (await Promise.all(result.value.map((event) => workFromCascade(event, deps)))).flat();
 }
 
+async function assertSourceRootDirectory(deps: HandlerDeps): Promise<void> {
+  const sourceRoot = await readSourceEntry(deps.config.filesPath, deps.config.filesPath, deps.fs);
+
+  if (sourceRoot.kind !== "directory")
+    throw new Error(`Source root is not a directory: ${deps.config.filesPath}`);
+}
+
 function handleEpisode(
   work: OpmlEngineWork,
   options: EpisodeSynchronizationOptions,
@@ -195,10 +208,11 @@ function handleEpisode(
       }
 
       if (work._tag === "OpmlWork") {
-        return runHandler(
-          () => opmlSync({ _tag: "FeedXmlChanged", path: work.dataPath }, options),
-          options,
-        );
+        return runHandler(async () => {
+          await assertSourceRootDirectory(options);
+
+          return opmlSync({ _tag: "FeedXmlChanged", path: work.dataPath }, options);
+        }, options);
       }
 
       const sourcePath = join(options.config.filesPath, work.relativePath);
@@ -221,12 +235,14 @@ function handleEpisode(
       return runHandler(() => audioSync({ _tag: "AudioFileCreated", ...event }, options), options);
     },
     catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
-  });
+  }).pipe(Effect.uninterruptible);
 }
 
 function publishFinalOpml(options: HandlerDeps): Effect.Effect<void, Error> {
   return Effect.tryPromise({
     try: async () => {
+      await assertSourceRootDirectory(options);
+
       const result = await opmlSync(
         { _tag: "FeedXmlChanged", path: options.config.dataPath },
         options,
@@ -235,7 +251,7 @@ function publishFinalOpml(options: HandlerDeps): Effect.Effect<void, Error> {
       if (result.isErr()) throw result.error;
     },
     catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
-  });
+  }).pipe(Effect.uninterruptible);
 }
 
 function folderRelativePath(work: FolderWork, dataPath: string): string {

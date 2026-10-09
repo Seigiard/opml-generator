@@ -90,15 +90,19 @@ describe("episode engine runtime", () => {
     // #given
     await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
     const audioPath = join(filesPath, "Author", "Album", "01.mp3");
+    const siblingPath = join(filesPath, "Author", "Album", "02.mp3");
     const fixedTime = new Date("2024-01-02T03:04:05.000Z");
     await Bun.write(audioPath, Bun.file(join(AUDIO_FIXTURES, "tagged.mp3")));
+    await Bun.write(siblingPath, Bun.file(join(AUDIO_FIXTURES, "tagged.mp3")));
     await utimes(audioPath, fixedTime, fixedTime);
+    await utimes(siblingPath, fixedTime, fixedTime);
     const deps = realDeps();
     const realAtomicWrite = deps.fs.atomicWrite;
-    let entryWrites = 0;
+    const entryWritesByPath = new Map<string, number>();
 
     deps.fs.atomicWrite = async (path, content) => {
-      if (path.endsWith("entry.xml")) entryWrites += 1;
+      if (path.endsWith("entry.xml"))
+        entryWritesByPath.set(path, (entryWritesByPath.get(path) ?? 0) + 1);
 
       await realAtomicWrite(path, content);
     };
@@ -106,7 +110,7 @@ describe("episode engine runtime", () => {
     const runtime = startEpisodeEngineRuntime(deps);
 
     await runtime.ready;
-    entryWrites = 0;
+    entryWritesByPath.clear();
 
     const bytes = new Uint8Array(await Bun.file(audioPath).arrayBuffer());
     bytes[bytes.length - 1] = bytes[bytes.length - 1] === 0 ? 1 : 0;
@@ -120,15 +124,66 @@ describe("episode engine runtime", () => {
       events: "CLOSE_WRITE",
     });
 
-    const rewritten = await waitFor(async () => entryWrites === 1);
+    const targetEntry = join(dataPath, "Author", "Album", "01.mp3", "entry.xml");
+    const siblingEntry = join(dataPath, "Author", "Album", "02.mp3", "entry.xml");
+    const rewritten = await waitFor(async () => entryWritesByPath.get(targetEntry) === 1);
 
     await runtime.stop();
 
     // #then
-    expect({ admission, rewritten, entryWrites }).toEqual({
+    expect({
+      admission,
+      rewritten,
+      targetWrites: entryWritesByPath.get(targetEntry) ?? 0,
+      siblingWrites: entryWritesByPath.get(siblingEntry) ?? 0,
+    }).toEqual({
       admission: "started",
       rewritten: true,
-      entryWrites: 1,
+      targetWrites: 1,
+      siblingWrites: 0,
+    });
+  });
+
+  test("stop waits for an active handler before settling", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
+    await Bun.write(
+      join(filesPath, "Author", "Album", "01.mp3"),
+      Bun.file(join(AUDIO_FIXTURES, "tagged.mp3")),
+    );
+    const deps = realDeps();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+
+    deps.fs.atomicWrite = async (path, content) => {
+      entered.resolve();
+      await release.promise;
+
+      const tmpPath = `${path}.tmp`;
+
+      await Bun.write(tmpPath, content);
+      await rename(tmpPath, path);
+    };
+
+    const runtime = startEpisodeEngineRuntime(deps);
+
+    await entered.promise;
+
+    // #when
+    let stopped = false;
+    const stop = runtime.stop().then(() => {
+      stopped = true;
+    });
+
+    await Bun.sleep(50);
+    const stoppedBeforeRelease = stopped;
+    release.resolve();
+    await stop;
+
+    // #then
+    expect({ stoppedBeforeRelease, stopped }).toEqual({
+      stoppedBeforeRelease: false,
+      stopped: true,
     });
   });
 

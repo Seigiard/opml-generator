@@ -11,12 +11,10 @@ export function cacheFileSystem(deps: Pick<HandlerDeps, "fs" | "config">): FileS
   return guardFileSystem(deps.fs, deps.config.dataPath);
 }
 
-function guardFileSystem(fs: FileSystemService, dataPath?: string): FileSystemService {
+function guardFileSystem(fs: FileSystemService, dataPath: string): FileSystemService {
   const mutation = async (path: string, leafWrite = false, remove = false) => {
-    if (dataPath) {
-      assertCachePath(path, dataPath, !remove);
-      await checkCacheMutation(path, dataPath, fs, leafWrite);
-    }
+    assertCachePath(path, dataPath, !remove);
+    await checkCacheMutation(path, dataPath, fs, leafWrite);
   };
 
   const guarded: FileSystemService = {

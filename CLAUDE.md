@@ -44,7 +44,7 @@ Docker dev runs at http://localhost:8080. Run the app and unit/integration tests
 | `docker compose -f docker-compose.dev.yml logs -f`                                                              | Follow dev logs                                 |
 | `curl http://localhost:8080/feed.opml`                                                                          | Check OPML                                      |
 | `curl http://localhost:8080/Author/Book/feed.xml`                                                               | Check a podcast RSS feed                        |
-| `curl -u admin:secret http://localhost:8080/resync?force=1`                                                     | Force resync                                    |
+| `curl -u admin:secret 'http://localhost:8080/resync?force=1'`                                                   | Force resync                                    |
 | `bun run fix`                                                                                                   | format:fix + lint:fix                           |
 | `bun run lint:anti-slop`                                                                                        | Anti-slop Oxlint rules (separate CI job)        |
 | `bun run test`                                                                                                  | Unit + integration tests in Docker              |
@@ -118,7 +118,7 @@ Read `docs/adr/0001-filesystem-authoritative-synchronization.md` first. It point
 - Audio metadata writes directly trigger folder RSS; folder RSS triggers parent navigation and OPML, including changes to existing podcast information. Prune empty cache branches only when their source subtree has no supported audio.
 - Source type changes remove the obsolete mirror before rebuilding. Episode mirrors retain only `entry.xml`; folder mirrors remove that episode marker. A metadata request for a path now occupied by supported audio reconciles the file. Unsupported regular files remove obsolete mirrors and cannot become episodes. See `src/effect/handlers/mirror-kind.ts`.
 - `src/effect/handlers/source-kind.ts` checks each source component with `fs.lstat()`. Only regular directories and supported regular audio enter the Catalog. Symlinks, broken links, cycles, and paths beneath symlink ancestors are excluded; watcher hints and recovery remove obsolete mirrors. Creation handlers recheck source kind after scanning. Source access errors fail owned work; cache traversal and OPML keep `fs.stat()` semantics.
-- The source root must remain a regular directory. Passes check it before reset, after planning, and before final publication. A missing or excluded root fails the pass and retains prior OPML; it never becomes a root deletion hint.
+- The source root must remain a regular directory. The engine checks it during source scans and before OPML publication. A missing or excluded root fails the pass and retains prior OPML; it never becomes a root deletion hint.
 - `src/cache-boundary.ts` owns containment and bounded parents. Cache handlers validate entry paths. Mutation guards reject cache-root removal, out-of-root paths, and symlink ancestors. Atomic writes also check temporary paths. Cover encoding completes before guarded directory/write operations.
 
 </important>

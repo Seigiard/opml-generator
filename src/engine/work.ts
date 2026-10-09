@@ -36,5 +36,7 @@ export type OpmlEngineWork =
   | OpmlWork;
 
 export function workKey(work: OpmlEngineWork): string {
+  if (work._tag === "OpmlWork") return "OpmlWork";
+
   return `${work._tag}:${"relativePath" in work ? work.relativePath : work.dataPath}`;
 }

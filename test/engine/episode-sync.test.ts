@@ -582,6 +582,120 @@ describe("episode sync engine composition", () => {
     });
   });
 
+  test("a full pass coalesces folder OPML cascades instead of rebuilding per folder", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Book A"), { recursive: true });
+    await mkdir(join(filesPath, "Author", "Book B"), { recursive: true });
+    await copyFile(
+      join(AUDIO_FIXTURES, "tagged.mp3"),
+      join(filesPath, "Author", "Book A", "01.mp3"),
+    );
+    await copyFile(
+      join(AUDIO_FIXTURES, "tagged.mp3"),
+      join(filesPath, "Author", "Book B", "01.mp3"),
+    );
+    const counted = countedDeps();
+    let opmlRuns = 0;
+    counted.deps.logger.info = (tag, message) => {
+      if (tag === "OpmlSync" && message === "Regenerating OPML") opmlRuns += 1;
+    };
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...counted.deps, reconcileIntervalMs: 0 })),
+    );
+
+    // #then
+    expect({ opmlRuns, opmlWrites: counted.counts.opmlWrites }).toEqual({
+      opmlRuns: 2,
+      opmlWrites: 1,
+    });
+  });
+
+  test("missing source root before final OPML publication keeps prior OPML", async () => {
+    // #given
+    await mkdir(join(filesPath, "Transient", "Album"), { recursive: true });
+    await copyFile(
+      join(AUDIO_FIXTURES, "tagged.mp3"),
+      join(filesPath, "Transient", "Album", "01.mp3"),
+    );
+    await Effect.runPromise(
+      Effect.scoped(openEpisodeSynchronization({ ...realDeps(), reconcileIntervalMs: 0 })),
+    );
+    const priorOpml = await Bun.file(join(dataPath, "feed.opml")).text();
+    const deps = realDeps();
+    const realAtomicWrite = deps.fs.atomicWrite;
+    let armRemoval = false;
+    let removedRoot = false;
+
+    deps.fs.atomicWrite = async (path, content) => {
+      await realAtomicWrite(path, content);
+
+      if (path !== join(dataPath, "feed.xml") || !armRemoval || removedRoot) return;
+
+      removedRoot = true;
+      await rm(filesPath, { recursive: true, force: true });
+      await rm(join(dataPath, "feed.xml"), { force: true });
+      await rm(join(dataPath, "Transient", "Album", "feed.xml"), { force: true });
+    };
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({
+            ...deps,
+            reconcileIntervalMs: 0,
+          });
+
+          yield* live.ready;
+          armRemoval = true;
+          yield* live.requestPass();
+          yield* live.awaitCompletion;
+        }),
+      ),
+    );
+
+    // #then
+    expect(await Bun.file(join(dataPath, "feed.opml")).text()).toBe(priorOpml);
+  });
+
+  test("relative DATA path does not plan live folders for deletion", async () => {
+    // #given
+    const previousDataPath = dataPath;
+    dataPath = `./opml-relative-data-${crypto.randomUUID()}`;
+
+    try {
+      await mkdir(dataPath, { recursive: true });
+      await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
+      await copyFile(
+        join(AUDIO_FIXTURES, "tagged.mp3"),
+        join(filesPath, "Author", "Album", "01.mp3"),
+      );
+      await Effect.runPromise(
+        Effect.scoped(openEpisodeSynchronization({ ...realDeps(), reconcileIntervalMs: 0 })),
+      );
+      const counted = countedDeps();
+
+      // #when
+      await Effect.runPromise(
+        Effect.scoped(openEpisodeSynchronization({ ...counted.deps, reconcileIntervalMs: 0 })),
+      );
+
+      // #then
+      expect({
+        entryWrites: counted.counts.entryWrites,
+        feedExists: await Bun.file(join(dataPath, "Author", "Album", "feed.xml")).exists(),
+      }).toEqual({
+        entryWrites: 0,
+        feedExists: true,
+      });
+    } finally {
+      await rm(dataPath, { recursive: true, force: true });
+      dataPath = previousDataPath;
+    }
+  });
+
   test("publishes folder RSS and one final OPML after episode work drains", async () => {
     // #given
     await mkdir(join(filesPath, "Author", "Album"), { recursive: true });

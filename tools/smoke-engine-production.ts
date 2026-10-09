@@ -99,22 +99,21 @@ async function main() {
   let failure: unknown;
   let cleanupFailure: unknown;
 
-  await mkdir(sourceRoot, { recursive: true });
-
-  for (const fixture of fixtures) {
-    const sourceDir = join(sourceRoot, fixture.source);
-
-    await mkdir(sourceDir);
-    createdDirs.push(sourceDir);
-    await Bun.write(
-      join(sourceDir, "01.mp3"),
-      Bun.file(join(import.meta.dir, "..", "test", "fixtures", "audio", "tagged.mp3")),
-    );
-  }
-
-  await compose("down", "-v").catch(() => undefined);
-
   try {
+    await mkdir(sourceRoot, { recursive: true });
+
+    for (const fixture of fixtures) {
+      const sourceDir = join(sourceRoot, fixture.source);
+
+      await mkdir(sourceDir);
+      createdDirs.push(sourceDir);
+      await Bun.write(
+        join(sourceDir, "01.mp3"),
+        Bun.file(join(import.meta.dir, "..", "test", "fixtures", "audio", "tagged.mp3")),
+      );
+    }
+
+    await compose("down", "-v").catch(() => undefined);
     await compose("up", "-d", "--build");
     const firstReadySamples = await waitForReady();
     const ready = await fetch(`${baseUrl}/ready`);
