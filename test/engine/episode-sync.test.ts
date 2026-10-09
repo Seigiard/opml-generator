@@ -623,20 +623,47 @@ describe("episode sync engine composition", () => {
       Effect.scoped(openEpisodeSynchronization({ ...realDeps(), reconcileIntervalMs: 0 })),
     );
     const priorOpml = await Bun.file(join(dataPath, "feed.opml")).text();
-    const deps = realDeps();
-    const realAtomicWrite = deps.fs.atomicWrite;
     let armRemoval = false;
     let removedRoot = false;
 
-    deps.fs.atomicWrite = async (path, content) => {
-      await realAtomicWrite(path, content);
+    // #when
+    armRemoval = true;
+    await Effect.runPromiseExit(
+      Effect.scoped(
+        openEpisodeSynchronization({
+          ...realDeps(),
+          reconcileIntervalMs: 0,
+          processingVersions: { folder: "source-root-guard" },
+          beforeFolderWork: (work) =>
+            Effect.tryPromise(async () => {
+              if (work.dataPath !== dataPath || !armRemoval || removedRoot) return;
 
-      if (path !== join(dataPath, "feed.xml") || !armRemoval || removedRoot) return;
+              removedRoot = true;
+              await rm(filesPath, { recursive: true, force: true });
+              await rm(join(dataPath, "Transient", "Album", "feed.xml"), { force: true });
+            }),
+        }),
+      ),
+    );
 
-      removedRoot = true;
-      await rm(filesPath, { recursive: true, force: true });
-      await rm(join(dataPath, "feed.xml"), { force: true });
-      await rm(join(dataPath, "Transient", "Album", "feed.xml"), { force: true });
+    // #then
+    expect({ removedRoot, opml: await Bun.file(join(dataPath, "feed.opml")).text() }).toEqual({
+      removedRoot: true,
+      opml: priorOpml,
+    });
+  });
+
+  test("adding one episode rebuilds final OPML after RSS changes", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
+    await copyFile(
+      join(AUDIO_FIXTURES, "tagged.mp3"),
+      join(filesPath, "Author", "Album", "01.mp3"),
+    );
+    const counted = countedDeps();
+    let opmlRuns = 0;
+    counted.deps.logger.info = (tag, message) => {
+      if (tag === "OpmlSync" && message === "Regenerating OPML") opmlRuns += 1;
     };
 
     // #when
@@ -644,12 +671,20 @@ describe("episode sync engine composition", () => {
       Effect.scoped(
         Effect.gen(function* () {
           const live = yield* startEpisodeSynchronization({
-            ...deps,
+            ...counted.deps,
             reconcileIntervalMs: 0,
           });
 
           yield* live.ready;
-          armRemoval = true;
+          opmlRuns = 0;
+          counted.counts.opmlWrites = 0;
+
+          yield* Effect.promise(() =>
+            copyFile(
+              join(AUDIO_FIXTURES, "tagged.mp3"),
+              join(filesPath, "Author", "Album", "02.mp3"),
+            ),
+          );
           yield* live.requestPass();
           yield* live.awaitCompletion;
         }),
@@ -657,7 +692,58 @@ describe("episode sync engine composition", () => {
     );
 
     // #then
-    expect(await Bun.file(join(dataPath, "feed.opml")).text()).toBe(priorOpml);
+    expect({ opmlRuns, opmlWrites: counted.counts.opmlWrites }).toEqual({
+      opmlRuns: 1,
+      opmlWrites: 1,
+    });
+    expect(opmlUrls(await readOpml(join(dataPath, "feed.opml")))).toEqual([
+      "{{{BASE_URL}}}/Author/Album/feed.xml",
+    ]);
+  });
+
+  test("changing one episode rebuilds final OPML after RSS changes", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Album"), { recursive: true });
+    const audioPath = join(filesPath, "Author", "Album", "01.mp3");
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), audioPath);
+    const counted = countedDeps();
+    let opmlRuns = 0;
+    counted.deps.logger.info = (tag, message) => {
+      if (tag === "OpmlSync" && message === "Regenerating OPML") opmlRuns += 1;
+    };
+
+    // #when
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({
+            ...counted.deps,
+            reconcileIntervalMs: 0,
+          });
+
+          yield* live.ready;
+          opmlRuns = 0;
+          counted.counts.opmlWrites = 0;
+
+          const bytes = new Uint8Array(
+            yield* Effect.promise(() => Bun.file(audioPath).arrayBuffer()),
+          );
+          bytes[bytes.length - 1] = bytes[bytes.length - 1] === 0 ? 1 : 0;
+          yield* Effect.promise(() => Bun.write(audioPath, bytes));
+          yield* live.notify(["Author/Album/01.mp3"]);
+          yield* live.awaitCompletion;
+        }),
+      ),
+    );
+
+    // #then
+    expect({ opmlRuns, opmlWrites: counted.counts.opmlWrites }).toEqual({
+      opmlRuns: 1,
+      opmlWrites: 0,
+    });
+    expect(opmlUrls(await readOpml(join(dataPath, "feed.opml")))).toEqual([
+      "{{{BASE_URL}}}/Author/Album/feed.xml",
+    ]);
   });
 
   test("relative DATA path does not plan live folders for deletion", async () => {
@@ -1114,6 +1200,65 @@ describe("episode sync engine composition", () => {
       removedFeedExists: await Bun.file(join(dataPath, "Author", "Remove", "feed.xml")).exists(),
       urls: opmlUrls(opml),
     }).toEqual({
+      removedFeedExists: false,
+      urls: ["{{{BASE_URL}}}/Author/Keep/feed.xml"],
+    });
+  });
+
+  test("folder removal rebuilds OPML before a later work error prevents final publication", async () => {
+    // #given
+    await mkdir(join(filesPath, "Author", "Keep"), { recursive: true });
+    await mkdir(join(filesPath, "Author", "Remove"), { recursive: true });
+    const keepAudioPath = join(filesPath, "Author", "Keep", "01.mp3");
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), keepAudioPath);
+    await copyFile(
+      join(AUDIO_FIXTURES, "tagged.mp3"),
+      join(filesPath, "Author", "Remove", "01.mp3"),
+    );
+    const deps = realDeps();
+    const realLstat = deps.fs.lstat;
+    let opmlRuns = 0;
+    let failKeepRead = false;
+    deps.logger.info = (tag, message) => {
+      if (tag === "OpmlSync" && message === "Regenerating OPML") opmlRuns += 1;
+    };
+    deps.fs.lstat = async (path) => {
+      if (path === keepAudioPath && failKeepRead) throw new Error("EACCES controlled read failure");
+
+      return realLstat(path);
+    };
+
+    // #when
+    const status = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({
+            ...deps,
+            reconcileIntervalMs: 0,
+          });
+
+          yield* live.ready;
+          opmlRuns = 0;
+          failKeepRead = true;
+          yield* Effect.promise(() => rm(join(filesPath, "Author", "Remove"), { recursive: true }));
+          yield* live.notify(["Author/Remove", "Author/Keep/01.mp3"]);
+          yield* live.awaitCompletion;
+
+          return yield* live.status;
+        }),
+      ),
+    );
+
+    // #then
+    const opml = await readOpml(join(dataPath, "feed.opml"));
+    expect({
+      state: status.state,
+      opmlRuns,
+      removedFeedExists: await Bun.file(join(dataPath, "Author", "Remove", "feed.xml")).exists(),
+      urls: opmlUrls(opml),
+    }).toEqual({
+      state: "complete-with-errors",
+      opmlRuns: 3,
       removedFeedExists: false,
       urls: ["{{{BASE_URL}}}/Author/Keep/feed.xml"],
     });
