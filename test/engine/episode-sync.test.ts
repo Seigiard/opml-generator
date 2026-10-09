@@ -1001,12 +1001,12 @@ describe("episode sync engine composition", () => {
             )["@_title"],
           };
 
-          yield* live.requestPass({ force: true });
+          const forceAdmission = yield* live.requestPass({ force: true });
           release.resolve();
           yield* live.awaitCompletion;
           const statusAfterFollowUp = yield* live.status;
 
-          return { readableWhileBusy, statusAfterFollowUp };
+          return { forceAdmission, readableWhileBusy, statusAfterFollowUp };
         }),
       ),
     );
@@ -1019,11 +1019,13 @@ describe("episode sync engine composition", () => {
     const rss = await readRss(join(dataPath, "Author", "Album", "feed.xml"));
 
     expect({
+      forceAdmission: observed.forceAdmission,
       readableWhileBusy: observed.readableWhileBusy,
       stateAfterFollowUp: observed.statusAfterFollowUp.state,
       repairedTitle: repairedEpisode.title,
       itemGuids: rss.rss.channel.item.map((item) => item.guid["#text"]),
     }).toEqual({
+      forceAdmission: "queued",
       readableWhileBusy: { rssTitle: "Test Title", opmlTitle: "Test Title" },
       stateAfterFollowUp: "complete",
       repairedTitle: "Test Title",
