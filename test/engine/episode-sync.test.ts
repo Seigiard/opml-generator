@@ -1456,6 +1456,75 @@ describe("episode sync engine composition", () => {
     });
   });
 
+  test("replacing a failed audio-named episode with a directory clears the stale episode error", async () => {
+    // #given
+    const authorPath = join(filesPath, "Author");
+    const audioPath = join(authorPath, "Book.mp3");
+    const sourceFolder = audioPath;
+    const folderMirror = join(dataPath, "Author", "Book.mp3");
+    await mkdir(authorPath, { recursive: true });
+    const deps = realDeps();
+    const realLstat = deps.fs.lstat;
+    const realRm = deps.fs.rm;
+    let failAudioRead = false;
+    let removedFolderMirror = false;
+
+    deps.fs.lstat = async (path) => {
+      if (failAudioRead && path === audioPath)
+        throw new Error("controlled source read failure before mirror creation");
+
+      return realLstat(path);
+    };
+    deps.fs.rm = async (path, options) => {
+      if (path === folderMirror) removedFolderMirror = true;
+
+      await realRm(path, options);
+    };
+
+    // #when
+    const observed = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({ ...deps, reconcileIntervalMs: 0 });
+
+          yield* live.ready;
+          yield* Effect.promise(() => copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), audioPath));
+          failAudioRead = true;
+          yield* live.notify(["Author/Book.mp3"]);
+          yield* live.awaitCompletion;
+          const failed = yield* live.status;
+          failAudioRead = false;
+          yield* Effect.promise(() => rm(audioPath));
+          yield* Effect.promise(() => mkdir(sourceFolder, { recursive: true }));
+          yield* Effect.promise(() =>
+            copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(sourceFolder, "01.mp3")),
+          );
+          yield* live.notify(["Author/Book.mp3"]);
+          yield* live.awaitCompletion;
+          const recovered = yield* live.status;
+
+          return { failed, recovered };
+        }),
+      ),
+    );
+
+    // #then
+    const rss = await readRss(join(folderMirror, "feed.xml"));
+    expect({
+      failedState: observed.failed.state,
+      recoveredState: observed.recovered.state,
+      recoveredErrors: observed.recovered.work.errors.length,
+      removedFolderMirror,
+      guids: rssGuids(rss),
+    }).toEqual({
+      failedState: "complete-with-errors",
+      recoveredState: "complete",
+      recoveredErrors: 0,
+      removedFolderMirror: false,
+      guids: ["Author/Book.mp3/01.mp3"],
+    });
+  });
+
   test("a failed RSS update keeps prior published results and reports work errors", async () => {
     // #given
     await mkdir(join(filesPath, "Author", "Album"), { recursive: true });

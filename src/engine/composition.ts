@@ -61,7 +61,7 @@ async function obsoleteEpisodeEntries(
   deps: HandlerDeps,
   request: PassRequest,
   deletedFolders: readonly FolderDeleteWork[],
-): Promise<EpisodeDeleteWork[]> {
+): Promise<Array<EpisodeDeleteWork | EpisodeWork>> {
   const present = new Set(audioEntries(entries).map((entry) => entry.relativePath));
   const presentDirectories = new Set(
     entries.flatMap((entry) => (entry.kind === "directory" ? [entry.path] : [])),
@@ -69,6 +69,7 @@ async function obsoleteEpisodeEntries(
   const changedPaths = new Set(request.changedPaths);
   const deletedFolderPaths = deletedFolders.map((work) => work.relativePath);
   const deleted: EpisodeDeleteWork[] = [];
+  const staleEpisodeRecoveries: EpisodeWork[] = [];
 
   await collectObsoleteEpisodes(
     deps.config.dataPath,
@@ -80,15 +81,15 @@ async function obsoleteEpisodeEntries(
   );
 
   for (const path of changedPaths) {
-    const isObsoleteChangedAudio =
-      supported.has(extname(path).toLowerCase()) &&
-      !present.has(path) &&
-      !presentDirectories.has(path);
+    const isChangedAudioName = supported.has(extname(path).toLowerCase()) && !present.has(path);
 
-    if (isObsoleteChangedAudio) upsertEpisodeDelete(deleted, new EpisodeDeleteWork(path));
+    if (!isChangedAudioName) continue;
+
+    if (presentDirectories.has(path)) staleEpisodeRecoveries.push(new EpisodeWork(path));
+    else upsertEpisodeDelete(deleted, new EpisodeDeleteWork(path));
   }
 
-  return deleted;
+  return [...deleted, ...staleEpisodeRecoveries];
 }
 
 function sourceFolderEntries(entries: readonly SourceEntry[], deps: HandlerDeps): FolderWork[] {
