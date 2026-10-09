@@ -13,7 +13,7 @@ import { audioSync } from "../effect/handlers/audio-sync.ts";
 import { audioCleanup } from "../effect/handlers/audio-cleanup.ts";
 import { folderCleanup } from "../effect/handlers/folder-cleanup.ts";
 import { folderMetaSync } from "../effect/handlers/folder-meta-sync.ts";
-import { opmlSync } from "../effect/handlers/opml-sync.ts";
+import { publishOpml } from "../effect/handlers/opml-sync.ts";
 import { sourcePathSync } from "../effect/handlers/source-path-sync.ts";
 import type { EventType } from "../effect/types.ts";
 import { ENTRY_FILE, FEED_FILE, FOLDER_ENTRY_FILE, OPML_FILE } from "../constants.ts";
@@ -26,6 +26,7 @@ import {
   EpisodeWork,
   FolderDeleteWork,
   FolderWork,
+  failureKey,
   type OpmlEngineWork,
   workKey,
 } from "./work.ts";
@@ -163,10 +164,6 @@ export async function workFromCascade(
       ];
     case "FolderMetaSyncRequested":
       return [new FolderWork(event.path)];
-    case "FeedXmlCreated":
-    case "FeedXmlChanged":
-    case "FeedXmlDeleted":
-      return [];
     case "SourcePathSyncRequested": {
       const result = await sourcePathSync(event, deps);
 
@@ -248,10 +245,7 @@ function publishFinalOpml(options: HandlerDeps): Effect.Effect<void, Error> {
     try: async () => {
       await assertSourceRootDirectory(options);
 
-      const result = await opmlSync(
-        { _tag: "FeedXmlChanged", path: options.config.dataPath },
-        options,
-      );
+      const result = await publishOpml(options);
 
       if (result.isErr()) throw result.error;
     },
@@ -277,7 +271,7 @@ function episodeLiveOptions(
     reconcileIntervalMs: options.reconcileIntervalMs,
     handle: (work) => handleEpisode(work, options),
     key: workKey,
-    failureKey: workKey,
+    failureKey,
     freshness: {
       check: "metadata",
       describe: (work) => {

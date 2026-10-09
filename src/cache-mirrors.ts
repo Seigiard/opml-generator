@@ -1,8 +1,7 @@
 import { join, relative } from "node:path";
 import type { FileSystemService } from "./context.ts";
 import { isContainer } from "./cache-projection.ts";
-
-const ENGINE_STATE_RELATIVE_PATH = "~/.sync-engine";
+import { OPML_ENGINE_STATE_RELATIVE_PATH } from "./engine/policy.ts";
 
 function isAbsentPathError(error: unknown): boolean {
   return (
@@ -43,7 +42,7 @@ export async function cacheMirrors(
       for (const escaped of escapedNames) {
         const child = join(path, escaped);
 
-        if (relative(root, child) === ENGINE_STATE_RELATIVE_PATH) continue;
+        if (relative(root, child) === OPML_ENGINE_STATE_RELATIVE_PATH) continue;
 
         const info = await fs.stat(child).catch((error: unknown) => {
           if (isAbsentPathError(error)) return null;

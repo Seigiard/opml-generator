@@ -1,12 +1,6 @@
 import type { FileSystemService, HandlerDeps } from "./context.ts";
 import { assertCachePath, checkCacheMutation } from "./cache-boundary.ts";
 
-const originals = new WeakMap<FileSystemService, FileSystemService>();
-
-export function filesystemIdentity(fs: FileSystemService): FileSystemService {
-  return originals.get(fs) ?? fs;
-}
-
 export function cacheFileSystem(deps: Pick<HandlerDeps, "fs" | "config">): FileSystemService {
   return guardFileSystem(deps.fs, deps.config.dataPath);
 }
@@ -54,8 +48,6 @@ function guardFileSystem(fs: FileSystemService, dataPath: string): FileSystemSer
       return fs.unlink(path);
     },
   };
-
-  originals.set(guarded, filesystemIdentity(fs));
 
   return guarded;
 }

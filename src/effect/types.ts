@@ -9,8 +9,4 @@ export type EventType =
   | { _tag: "AudioFileCreated"; parent: string; name: string }
   | { _tag: "AudioFileDeleted"; parent: string; name: string }
   | { _tag: "FolderDeleted"; parent: string; name: string }
-  | { _tag: "FolderMetaSyncRequested"; path: string }
-  | { _tag: "FeedXmlCreated"; path: string }
-  | { _tag: "FeedXmlDeleted"; path: string }
-  | { _tag: "FeedXmlChanged"; path: string }
-  | { _tag: "Ignored" };
+  | { _tag: "FolderMetaSyncRequested"; path: string };

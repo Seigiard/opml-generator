@@ -27,3 +27,10 @@ export type OpmlEngineWork = EpisodeWork | EpisodeDeleteWork | FolderWork | Fold
 export function workKey(work: OpmlEngineWork): string {
   return `${work._tag}:${"relativePath" in work ? work.relativePath : work.dataPath}`;
 }
+
+export function failureKey(work: OpmlEngineWork): string {
+  if (work._tag === "EpisodeWork" || work._tag === "EpisodeDeleteWork")
+    return `Episode:${work.relativePath}`;
+
+  return workKey(work);
+}

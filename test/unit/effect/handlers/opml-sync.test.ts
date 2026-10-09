@@ -1,7 +1,6 @@
 import { describe, test, expect, beforeEach, afterAll } from "bun:test";
-import { opmlSync } from "../../../../src/effect/handlers/opml-sync.ts";
+import { publishOpml } from "../../../../src/effect/handlers/opml-sync.ts";
 import type { HandlerDeps } from "../../../../src/context.ts";
-import type { EventType } from "../../../../src/effect/types.ts";
 import type { LogContext } from "../../../../src/logging/types.ts";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -92,7 +91,7 @@ function makePodcastRss(
   );
 }
 
-describe("opmlSync handler", () => {
+describe("publishOpml", () => {
   beforeEach(async () => {
     mockLogger.reset();
     await rm(TEST_DIR, { recursive: true, force: true }).catch(() => {});
@@ -104,42 +103,19 @@ describe("opmlSync handler", () => {
     await rm(TEST_DIR, { recursive: true, force: true }).catch(() => {});
   });
 
-  test("returns empty array for unrelated events", async () => {
-    // #given
-    const event: EventType = { _tag: "AudioFileCreated", parent: DATA_DIR, name: "track.mp3" };
-    // #when
-    const result = await opmlSync(event, realDeps());
-    // #then
-    expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual([]);
-  });
-
   test("generates feed.opml with discovered podcast feeds", async () => {
     // #given
     const albumDir = join(DATA_DIR, "Author", "Album");
     await mkdir(albumDir, { recursive: true });
     await Bun.write(join(albumDir, "feed.xml"), makePodcastRss("My Audiobook"));
     // #when
-    const event: EventType = { _tag: "FeedXmlCreated", path: albumDir };
-    await opmlSync(event, realDeps());
+    await publishOpml(realDeps());
     // #then
     const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
     expect(content).toContain("<opml");
     expect(content).toContain('version="2.0"');
     expect(content).toContain("My Audiobook");
     expect(content).toContain("/Author/Album/feed.xml");
-  });
-
-  test("handles FeedXmlDeleted event", async () => {
-    // #given
-    const event: EventType = { _tag: "FeedXmlDeleted", path: join(DATA_DIR, "Author", "Album") };
-    // #when
-    const result = await opmlSync(event, realDeps());
-    // #then
-    expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual([]);
-    const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
-    expect(content).toContain("<opml");
   });
 
   test("excludes navigation feeds from OPML", async () => {
@@ -153,8 +129,7 @@ describe("opmlSync handler", () => {
       `<?xml version="1.0"?><feed><title>Navigation</title></feed>`,
     );
     // #when
-    const event: EventType = { _tag: "FeedXmlCreated", path: podcastDir };
-    await opmlSync(event, realDeps());
+    await publishOpml(realDeps());
     // #then
     const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
     expect(content).toContain("Real Podcast");
@@ -170,8 +145,7 @@ describe("opmlSync handler", () => {
     await Bun.write(join(dir1, "feed.xml"), makePodcastRss("Alpha Book"));
     await Bun.write(join(dir2, "feed.xml"), makePodcastRss("Beta Book"));
     // #when
-    const event: EventType = { _tag: "FeedXmlCreated", path: dir1 };
-    await opmlSync(event, realDeps());
+    await publishOpml(realDeps());
     // #then
     const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
     expect(content).toContain("Alpha Book");
@@ -183,9 +157,8 @@ describe("opmlSync handler", () => {
 
   test("writes valid OPML with no feeds when data is empty", async () => {
     // #given
-    const event: EventType = { _tag: "FeedXmlCreated", path: DATA_DIR };
     // #when
-    await opmlSync(event, realDeps());
+    await publishOpml(realDeps());
     // #then
     const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
     expect(content).toContain("<opml");
@@ -199,33 +172,19 @@ describe("opmlSync handler", () => {
     await mkdir(goodDir, { recursive: true });
     await mkdir(badDir, { recursive: true });
     await Bun.write(join(goodDir, "feed.xml"), makePodcastRss("Good Feed"));
-    const event: EventType = { _tag: "FeedXmlCreated", path: goodDir };
     const deps = realDeps();
-    const initial = await opmlSync(event, deps);
+    const initial = await publishOpml(deps);
     expect(initial.isOk()).toBe(true);
     const previous = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
     await Bun.write(join(badDir, "feed.xml"), "<<<not valid xml>>>");
     // #when
-    const result = await opmlSync(event, deps);
+    const result = await publishOpml(deps);
     // #then
     const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
     expect({ successful: result.isOk(), preserved: content === previous }).toEqual({
       successful: false,
       preserved: true,
     });
-  });
-
-  test("returns empty cascades (terminal handler)", async () => {
-    // #given
-    const albumDir = join(DATA_DIR, "Author", "Album");
-    await mkdir(albumDir, { recursive: true });
-    await Bun.write(join(albumDir, "feed.xml"), makePodcastRss("Test"));
-    // #when
-    const event: EventType = { _tag: "FeedXmlCreated", path: albumDir };
-    const result = await opmlSync(event, realDeps());
-    // #then
-    expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual([]);
   });
 
   test("includes author, description, and imageUrl in OPML outlines", async () => {
@@ -241,8 +200,7 @@ describe("opmlSync handler", () => {
       }),
     );
     // #when
-    const event: EventType = { _tag: "FeedXmlCreated", path: albumDir };
-    await opmlSync(event, realDeps());
+    await publishOpml(realDeps());
     // #then
     const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
     expect(content).toContain('author="Jane Doe"');
@@ -258,8 +216,7 @@ describe("opmlSync handler", () => {
     const minimalRss = `<?xml version="1.0"?><rss version="2.0"><channel><title>Minimal</title></channel></rss>`;
     await Bun.write(join(albumDir, "feed.xml"), minimalRss);
     // #when
-    const event: EventType = { _tag: "FeedXmlCreated", path: albumDir };
-    await opmlSync(event, realDeps());
+    await publishOpml(realDeps());
     // #then
     const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
     expect(content).toContain("Minimal");
@@ -269,9 +226,8 @@ describe("opmlSync handler", () => {
 
   test("logs OPML generation info", async () => {
     // #given
-    const event: EventType = { _tag: "FeedXmlCreated", path: DATA_DIR };
     // #when
-    await opmlSync(event, realDeps());
+    await publishOpml(realDeps());
     // #then
     expect(
       mockLogger.infoCalls.some((c) => c.tag === "OpmlSync" && c.msg === "Regenerating OPML"),

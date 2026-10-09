@@ -1457,6 +1457,60 @@ describe("episode sync engine composition", () => {
     });
   });
 
+  test("deleting an episode clears that episode's earlier work error", async () => {
+    // #given
+    const albumPath = join(filesPath, "Author", "Album");
+    const firstAudioPath = join(albumPath, "01.mp3");
+    await mkdir(albumPath, { recursive: true });
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), firstAudioPath);
+    await copyFile(join(AUDIO_FIXTURES, "tagged.mp3"), join(albumPath, "02.mp3"));
+    const deps = realDeps();
+    const realAtomicWrite = deps.fs.atomicWrite;
+    let failFirstEntry = false;
+
+    deps.fs.atomicWrite = async (path, content) => {
+      if (failFirstEntry && path === join(dataPath, "Author", "Album", "01.mp3", "entry.xml"))
+        throw new Error("controlled episode write failure");
+
+      await realAtomicWrite(path, content);
+    };
+
+    // #when
+    const observed = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const live = yield* startEpisodeSynchronization({ ...deps, reconcileIntervalMs: 0 });
+
+          yield* live.ready;
+          failFirstEntry = true;
+          yield* live.requestPass({ force: true });
+          yield* live.awaitCompletion;
+          const failed = yield* live.status;
+          failFirstEntry = false;
+          yield* Effect.promise(() => rm(firstAudioPath));
+          yield* live.requestPass();
+          yield* live.awaitCompletion;
+          const recovered = yield* live.status;
+
+          return { failed, recovered };
+        }),
+      ),
+    );
+
+    // #then
+    expect({
+      failedState: observed.failed.state,
+      failedErrors: observed.failed.work.errors.length,
+      recoveredState: observed.recovered.state,
+      recoveredErrors: observed.recovered.work.errors.length,
+    }).toEqual({
+      failedState: "complete-with-errors",
+      failedErrors: 1,
+      recoveredState: "complete",
+      recoveredErrors: 0,
+    });
+  });
+
   test("keeps cache projection names separate from the engine state area", async () => {
     // #given
     await mkdir(join(filesPath, "feed.xml"), { recursive: true });

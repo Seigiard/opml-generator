@@ -38,8 +38,5 @@ export async function folderCleanup(
 
   const parentDataDir = cacheParent(folderDataDir, config.dataPath);
 
-  return ok([
-    ...(parentDataDir ? [{ _tag: "FolderMetaSyncRequested" as const, path: parentDataDir }] : []),
-    { _tag: "FeedXmlDeleted", path: folderDataDir },
-  ]);
+  return ok(parentDataDir ? [{ _tag: "FolderMetaSyncRequested", path: parentDataDir }] : []);
 }

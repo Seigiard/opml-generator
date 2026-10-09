@@ -13,7 +13,7 @@ src/
 ├── watcher.sh       # Owned inotify process groups → NUL-delimited events
 ├── watcher-events.ts # Bun stdin framing + JSON serialization → POST /events
 ├── context.ts       # AppContext, HandlerDeps, buildContext()
-├── stopping.ts      # Filesystem guards with shared publication-lock identity
+├── stopping.ts      # Filesystem mutation guards
 ├── cache-boundary.ts # Cache path containment and bounded parents
 ├── cache-layout.js  # Shared Bun/njs private `~` cache codec (+ cache-layout.d.ts)
 ├── cache-projection.ts # Typed interface to cache-layout.js
@@ -105,7 +105,6 @@ Read `docs/adr/0001-filesystem-authoritative-synchronization.md` first. It point
 
 - `runServer()` installs TERM and INT handling before awaiting context setup or starting initial sync. The engine runtime owns active work and reconciliation.
 - Shutdown closes HTTP first, awaits the engine runtime stop hook, then exits.
-- Guarded filesystem services preserve the original OPML lock identity.
 - The shell entrypoint forwards signals promptly and waits for Bun, nginx, and the watcher. Unexpected child exits fail the container. Watcher pipelines own process groups so inotify and in-flight wget receive TERM together.
 - Compose uses an init reaper and a 15-second stop grace period. The entrypoint watchdog is the shutdown upper bound for the engine and helper cleanup.
 - The disposable shell watchdog owns its sleep process group. Entrypoint verifies group creation before cancellation so a fast child exit cannot leave an uncancelled 11-second timer.

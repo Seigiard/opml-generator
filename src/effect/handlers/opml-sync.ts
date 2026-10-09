@@ -5,12 +5,10 @@ import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { generateOpml } from "../../rss/opml.ts";
 import { encodeUrlPath } from "../../utils/processor.ts";
 import type { HandlerDeps, FileSystemService } from "../../context.ts";
-import type { EventType } from "../types.ts";
 import { FEED_FILE, OPML_FILE } from "../../constants.ts";
 import type { OpmlOutline } from "../../rss/types.ts";
 import { z } from "zod";
-import { filesystemIdentity, cacheFileSystem } from "../../stopping.ts";
-import { assertCachePath } from "../../cache-boundary.ts";
+import { cacheFileSystem } from "../../stopping.ts";
 import { decodeRelative, isContainer } from "../../cache-projection.ts";
 
 const xmlParser = new XMLParser({
@@ -140,63 +138,11 @@ async function parsePodcastFeed(
   }
 }
 
-const pendingPublications = new WeakMap<FileSystemService, Promise<void>>();
-
-async function withPublicationLock<T>(
-  fs: FileSystemService,
-  operation: () => Promise<T>,
-): Promise<T> {
-  fs = filesystemIdentity(fs);
-  const previous = pendingPublications.get(fs);
-  let release!: () => void;
-
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-
-  pendingPublications.set(fs, current);
-  await previous;
-
-  try {
-    return await operation();
-  } finally {
-    release();
-
-    if (pendingPublications.get(fs) === current) pendingPublications.delete(fs);
-  }
-}
-
-export async function opmlSync(
-  event: EventType,
-  deps: HandlerDeps,
-): Promise<Result<readonly EventType[], Error>> {
-  if (
-    event._tag !== "FeedXmlCreated" &&
-    event._tag !== "FeedXmlDeleted" &&
-    event._tag !== "FeedXmlChanged"
-  )
-    return ok([]);
-
-  try {
-    assertCachePath(event.path, deps.config.dataPath);
-  } catch (error) {
-    return err(error instanceof Error ? error : new Error(String(error)));
-  }
-
-  const publication = withPublicationLock(deps.fs, () => publishOpml(event, deps));
-  deps.logger.debug("OpmlSync", "Publication requested", { trigger: event._tag });
-
-  return publication;
-}
-
-async function publishOpml(
-  event: EventType,
-  deps: HandlerDeps,
-): Promise<Result<readonly EventType[], Error>> {
+export async function publishOpml(deps: HandlerDeps): Promise<Result<readonly never[], Error>> {
   const { config, logger } = deps;
   const fs = cacheFileSystem(deps);
 
-  logger.info("OpmlSync", "Regenerating OPML", { trigger: event._tag });
+  logger.info("OpmlSync", "Regenerating OPML");
 
   let feeds: DiscoveredFeed[];
 

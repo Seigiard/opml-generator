@@ -67,7 +67,7 @@ describe("folderCleanup handler", () => {
 
   test("returns empty array for non-FolderDeleted events", async () => {
     // #given
-    const event: EventType = { _tag: "Ignored" };
+    const event: EventType = { _tag: "FolderMetaSyncRequested", path: "/data" };
     // #when
     const result = await folderCleanup(event, makeDeps());
     // #then
