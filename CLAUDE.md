@@ -63,6 +63,10 @@ it formats and lints staged files, re-stages fixes, and runs the full typecheck
 when TypeScript is staged. Vendored anti-slop rules are excluded. Installs
 without `.git`, including Docker builds, skip hook setup. Tests use Docker.
 
+Oxfmt's print width is explicit in `.oxfmtrc.json` because newer releases changed
+the default. Knip 6 also reports exported types with only local consumers; keep
+those types private.
+
 `@seigiard/sync-engine@0.5.5` is the reviewed registry release. Version `0.5.4` on npm is an older build. Future engine updates should use a registry version in `package.json`, then run `bun install`, rebuild Docker images, and run the full gates.
 
 For concurrent E2E worktrees, use a distinct `COMPOSE_PROJECT_NAME` and port. Set matching `TEST_PORT` and `TEST_BASE_URL`, for example `TEST_PORT=18086 TEST_BASE_URL=http://localhost:18086 bun run test:e2e`.

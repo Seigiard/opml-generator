@@ -1,6 +1,6 @@
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
-export type EventType =
+type EventType =
   | "event_received"
   | "event_ignored"
   | "event_deduplicated"
