@@ -4,14 +4,14 @@ import { log } from "./logging/index.ts";
 import type { LogContext } from "./logging/types.ts";
 import type { LogErrorInput } from "./logging/error-schema.ts";
 
-export interface ConfigService {
+interface ConfigService {
   readonly filesPath: string;
   readonly dataPath: string;
   readonly port: number;
   readonly reconcileInterval: number;
 }
 
-export interface LoggerService {
+interface LoggerService {
   info(tag: string, msg: string, ctx?: LogContext): void;
   warn(tag: string, msg: string, ctx?: LogContext): void;
   error(tag: string, msg: string, err?: LogErrorInput, ctx?: LogContext): void;

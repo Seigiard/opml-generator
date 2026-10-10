@@ -30,7 +30,11 @@ async function serializer(input: Uint8Array) {
 
   const process = Bun.spawn(
     ["bun", "/app/src/watcher-events.ts", `http://127.0.0.1:${server.port}`, "books"],
-    { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
+    {
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+    },
   );
 
   process.stdin.write(input);
@@ -69,7 +73,10 @@ test("real inotify truncated long-path output cannot emit desynchronized future 
       "%w%0%f%0%e%0",
       root,
     ],
-    { stdout: "pipe", stderr: "pipe" },
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+    },
   );
 
   const chunks: Uint8Array[] = [];
