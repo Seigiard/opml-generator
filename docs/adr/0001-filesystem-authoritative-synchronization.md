@@ -1,13 +1,15 @@
 # Filesystem-authoritative synchronization and restart recovery
 
-Status: Superseded for runtime lifecycle details by the shared-engine contract in
-`src/engine/composition.ts`, `src/engine/runtime.ts`, and the synchronization
-section of `CLAUDE.md`.
+Status: Superseded for runtime lifecycle details by
+[the current synchronization contract](../agents/synchronization.md).
+Its implementation entry points are `src/engine/composition.ts` and
+`src/engine/runtime.ts`.
 
 This ADR still records the filesystem-authoritative goal. Its older lifecycle
 details, such as full rebuild on plain resync, HTTP `409` for busy resync, and
 publication readiness only after initial pass completion, no longer describe the
-current shared-engine implementation.
+current shared-engine implementation. The sections below preserve the earlier
+decision; use the current contract when changing runtime behavior.
 
 The source filesystem is authoritative, and the published library is derived from it.
 We choose gradual publication and restart recovery to keep synchronization simple.
