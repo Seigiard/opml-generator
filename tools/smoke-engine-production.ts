@@ -29,6 +29,12 @@ const readySchema = z.object({
   failure: z.unknown().nullable(),
 });
 
+const packageJsonSchema = z.object({
+  dependencies: z.object({
+    "@seigiard/sync-engine": z.string(),
+  }),
+});
+
 async function compose(...args: string[]) {
   return Bun.$`docker compose -f docker-compose.e2e.yml ${args}`.env(composeEnv).quiet();
 }
@@ -135,7 +141,13 @@ async function main() {
       .toString()
       .trim();
 
-    await assertEqual("sync-engine version", version, "0.5.5");
+    const packageJson = packageJsonSchema.parse(
+      await Bun.file(join(import.meta.dir, "..", "package.json")).json(),
+    );
+
+    const declaredVersion = packageJson.dependencies["@seigiard/sync-engine"];
+
+    await assertEqual("sync-engine version", version, declaredVersion);
 
     const episode = await fetchText("/audiobooks/feed.xml/01.mp3");
     const rss = await fetchText("/feed.xml/feed.xml");
