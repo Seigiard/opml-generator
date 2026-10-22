@@ -12,7 +12,16 @@ pre-commit:
       exclude: "tools/oxlint/anti-slop/**"
       run: bunx --no-install oxlint --fix --deny-warnings --no-error-on-unmatched-pattern {staged_files}
       stage_fixed: true
+    - name: anti-slop
+      glob: "**/*.{ts,tsx,js,jsx,mjs,cjs}"
+      exclude: "tools/oxlint/anti-slop/**"
+      run: bunx --no-install oxlint --config .oxlintrc.anti-slop.json --no-error-on-unmatched-pattern {staged_files}
     - name: typecheck
       glob: "**/*.{ts,tsx}"
       exclude: "tools/oxlint/anti-slop/**"
       run: bun --bun tsc --noEmit
+
+pre-push:
+  jobs:
+    - name: knip
+      run: npx --no-install knip
