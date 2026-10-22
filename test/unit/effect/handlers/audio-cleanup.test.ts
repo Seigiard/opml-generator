@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach } from "bun:test";
+import { Result } from "effect";
 import { audioCleanup } from "../../../../src/effect/handlers/audio-cleanup.ts";
 import type { HandlerDeps } from "../../../../src/context.ts";
 import type { EventType } from "../../../../src/effect/types.ts";
@@ -76,8 +77,8 @@ describe("audioCleanup handler", () => {
     // #when
     const result = await audioCleanup(event, makeDeps());
     // #then
-    expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual([]);
+    expect(Result.isSuccess(result)).toBe(true);
+    expect(Result.getOrThrow<readonly EventType[], unknown>(result)).toEqual([]);
   });
 
   test("removes data directory and cascades FolderMetaSyncRequested", async () => {
@@ -91,10 +92,10 @@ describe("audioCleanup handler", () => {
     // #when
     const result = await audioCleanup(event, makeDeps());
     // #then
-    expect(result.isOk()).toBe(true);
+    expect(Result.isSuccess(result)).toBe(true);
     expect(mockFs.rmCalls).toHaveLength(1);
     expect(mockFs.rmCalls[0]!.path).toBe("/data/Author/Book/ch1.mp3");
-    const cascades = result._unsafeUnwrap();
+    const cascades = Result.getOrThrow<readonly EventType[], unknown>(result);
     expect(cascades).toHaveLength(1);
     expect(cascades[0]).toEqual({ _tag: "FolderMetaSyncRequested", path: "/data/Author/Book" });
   });
@@ -113,7 +114,7 @@ describe("audioCleanup handler", () => {
     // #when
     const result = await audioCleanup(event, makeDeps());
     // #then
-    expect(result.isOk()).toBe(true);
+    expect(Result.isSuccess(result)).toBe(true);
     expect(mockLogger.debugCalls.some((c) => c.tag === "AudioCleanup")).toBe(true);
   });
 
@@ -131,6 +132,6 @@ describe("audioCleanup handler", () => {
     // #when
     const result = await audioCleanup(event, makeDeps());
     // #then
-    expect(result.isErr()).toBe(true);
+    expect(Result.isFailure(result)).toBe(true);
   });
 });

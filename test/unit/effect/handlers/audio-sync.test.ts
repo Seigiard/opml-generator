@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, afterAll } from "bun:test";
+import { Result } from "effect";
 import { audioSync } from "../../../../src/effect/handlers/audio-sync.ts";
 import type { HandlerDeps } from "../../../../src/context.ts";
 import type { EventType } from "../../../../src/effect/types.ts";
@@ -105,8 +106,8 @@ describe("audioSync handler", () => {
     // #when
     const result = await audioSync(event, realDeps());
     // #then
-    expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual([]);
+    expect(Result.isSuccess(result)).toBe(true);
+    expect(Result.getOrThrow<readonly EventType[], unknown>(result)).toEqual([]);
   });
 
   test("creates data directory for audio file", async () => {

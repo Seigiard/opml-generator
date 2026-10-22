@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, afterAll } from "bun:test";
+import { Result } from "effect";
 import { publishOpml } from "../../../../src/effect/handlers/opml-sync.ts";
 import type { HandlerDeps } from "../../../../src/context.ts";
 import type { LogContext } from "../../../../src/logging/types.ts";
@@ -174,15 +175,73 @@ describe("publishOpml", () => {
     await Bun.write(join(goodDir, "feed.xml"), makePodcastRss("Good Feed"));
     const deps = realDeps();
     const initial = await publishOpml(deps);
-    expect(initial.isOk()).toBe(true);
+    expect(Result.isSuccess(initial)).toBe(true);
     const previous = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
     await Bun.write(join(badDir, "feed.xml"), "<<<not valid xml>>>");
     // #when
     const result = await publishOpml(deps);
     // #then
     const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
-    expect({ successful: result.isOk(), preserved: content === previous }).toEqual({
+    expect({ successful: Result.isSuccess(result), preserved: content === previous }).toEqual({
       successful: false,
+      preserved: true,
+    });
+  });
+
+  test("keeps a feed when optional metadata is malformed", async () => {
+    // #given
+    const albumDir = join(DATA_DIR, "Author", "Album");
+    await mkdir(albumDir, { recursive: true });
+    const deps = realDeps();
+    await Bun.write(join(albumDir, "feed.xml"), makePodcastRss("Prior feed"));
+    const initial = await publishOpml(deps);
+    expect(Result.isSuccess(initial)).toBe(true);
+    await Bun.write(
+      join(albumDir, "feed.xml"),
+      `<?xml version="1.0"?><rss version="2.0"><channel><title>Valid title</title><itunes:author><name>Malformed</name></itunes:author><itunes:image>x</itunes:image></channel></rss>`,
+    );
+
+    // #when
+    const result = await publishOpml(deps);
+
+    // #then
+    const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
+    expect({
+      successful: Result.isSuccess(result),
+      title: content.includes("Valid title"),
+      author: content.includes("Malformed"),
+      image: content.includes("imageUrl="),
+    }).toEqual({
+      successful: true,
+      title: true,
+      author: false,
+      image: false,
+    });
+  });
+
+  test("rejects a feed with an empty title and retains previous OPML", async () => {
+    // #given
+    const goodDir = join(DATA_DIR, "Good", "Podcast");
+    const badDir = join(DATA_DIR, "Bad", "Podcast");
+    await mkdir(goodDir, { recursive: true });
+    await mkdir(badDir, { recursive: true });
+    await Bun.write(join(goodDir, "feed.xml"), makePodcastRss("Good Feed"));
+    const deps = realDeps();
+    const initial = await publishOpml(deps);
+    expect(Result.isSuccess(initial)).toBe(true);
+    const previous = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
+    await Bun.write(
+      join(badDir, "feed.xml"),
+      `<?xml version="1.0"?><rss version="2.0"><channel><title></title></channel></rss>`,
+    );
+
+    // #when
+    const result = await publishOpml(deps);
+
+    // #then
+    const content = await readFile(join(DATA_DIR, "feed.opml"), "utf-8");
+    expect({ failed: Result.isFailure(result), preserved: content === previous }).toEqual({
+      failed: true,
       preserved: true,
     });
   });
