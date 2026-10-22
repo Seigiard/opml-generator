@@ -38,7 +38,7 @@ nginx on port 80 exposes `/feed.opml`, source-relative public metadata paths, au
 
 Docker dev runs at http://localhost:8080. Run the app and unit/integration tests in Docker. The E2E runner tests production containers. Stop containers gracefully after tests.
 
-Use `package.json` for scripts and `lefthook.yml` for staged-file hooks. Rebuild Docker test images after dependency changes; the test compose file does not mount local dependencies. Local typechecking is allowed.
+Use `package.json` for scripts and `lefthook.yml` for pre-commit (staged files) and pre-push hooks. Rebuild Docker test images after dependency changes; the test compose file does not mount local dependencies. Local typechecking is allowed.
 
 To run one test file in Docker:
 
