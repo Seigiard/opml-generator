@@ -1,5 +1,4 @@
-import { ok, err } from "neverthrow";
-import type { Result } from "neverthrow";
+import { Effect, Option, Result, Schema } from "effect";
 import { join, relative } from "node:path";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { generateOpml } from "../../rss/opml.ts";
@@ -7,7 +6,6 @@ import { encodeUrlPath } from "../../utils/processor.ts";
 import type { HandlerDeps, FileSystemService } from "../../context.ts";
 import { FEED_FILE, OPML_FILE } from "../../constants.ts";
 import type { OpmlOutline } from "../../rss/types.ts";
-import { z } from "zod";
 import { cacheFileSystem } from "../../stopping.ts";
 import { decodeRelative, isContainer } from "../../cache-projection.ts";
 
@@ -25,22 +23,28 @@ interface DiscoveredFeed {
   description?: string;
 }
 
-const optionalText = z.string().optional().catch(undefined);
+const optionalText = Schema.optional(Schema.String).pipe(
+  Schema.catchDecoding(() => Effect.succeed(Option.some(undefined))),
+);
 
-const podcastFeedSchema = z.object({
-  rss: z.object({
-    channel: z.object({
-      title: z.string().min(1),
+const optionalImage = Schema.optional(Schema.Struct({ "@_href": optionalText })).pipe(
+  Schema.catchDecoding(() => Effect.succeed(Option.some(undefined))),
+);
+
+const podcastFeedSchema = Schema.Struct({
+  rss: Schema.Struct({
+    channel: Schema.Struct({
+      title: Schema.String.pipe(Schema.check(Schema.isNonEmpty())),
       "itunes:author": optionalText,
-      "itunes:image": z.object({ "@_href": optionalText }).optional().catch(undefined),
+      "itunes:image": optionalImage,
       description: optionalText,
     }),
   }),
 });
 
-const navigationFeedSchema = z.object({ feed: z.object({ title: z.string() }) });
+const navigationFeedSchema = Schema.Struct({ feed: Schema.Struct({ title: Schema.String }) });
 
-const absentPathError = z.object({ code: z.enum(["ENOENT", "ENOTDIR"]) });
+const absentPathError = Schema.Struct({ code: Schema.Literals(["ENOENT", "ENOTDIR"]) });
 
 async function collectPodcastFeeds(
   dataRoot: string,
@@ -63,7 +67,7 @@ async function walkDirectory(
   try {
     items = await fs.readdir(dir);
   } catch (error) {
-    if (absentPathError.safeParse(error).success) return;
+    if (Schema.is(absentPathError)(error)) return;
     throw error;
   }
 
@@ -83,7 +87,7 @@ async function walkDirectory(
         if (feed) feeds.push(feed);
       }
     } catch (error) {
-      if (absentPathError.safeParse(error).success) continue;
+      if (Schema.is(absentPathError)(error)) continue;
       throw error;
     }
   }
@@ -100,8 +104,8 @@ async function parsePodcastFeed(
     if (XMLValidator.validate(content) !== true) throw new Error(`Invalid feed XML: ${feedPath}`);
     const document: unknown = xmlParser.parse(content);
 
-    if (navigationFeedSchema.safeParse(document).success) return null;
-    const parsed = podcastFeedSchema.parse(document);
+    if (Schema.is(navigationFeedSchema)(document)) return null;
+    const parsed = Schema.decodeUnknownSync(podcastFeedSchema)(document);
 
     const channel = parsed?.rss?.channel;
     const channelTitle = channel?.title;
@@ -133,12 +137,14 @@ async function parsePodcastFeed(
 
     return feed;
   } catch (error) {
-    if (absentPathError.safeParse(error).success) return null;
+    if (Schema.is(absentPathError)(error)) return null;
     throw error;
   }
 }
 
-export async function publishOpml(deps: HandlerDeps): Promise<Result<readonly never[], Error>> {
+export async function publishOpml(
+  deps: HandlerDeps,
+): Promise<Result.Result<readonly never[], Error>> {
   const { config, logger } = deps;
   const fs = cacheFileSystem(deps);
 
@@ -149,7 +155,7 @@ export async function publishOpml(deps: HandlerDeps): Promise<Result<readonly ne
   try {
     feeds = await collectPodcastFeeds(config.dataPath, fs);
   } catch (error) {
-    return err(error instanceof Error ? error : new Error(String(error)));
+    return Result.fail(error instanceof Error ? error : new Error(String(error)));
   }
 
   feeds.sort((a, b) => a.title.localeCompare(b.title));
@@ -176,15 +182,15 @@ export async function publishOpml(deps: HandlerDeps): Promise<Result<readonly ne
     if (existingText === opmlXml) {
       logger.info("OpmlSync", "OPML unchanged", { feeds: feeds.length });
 
-      return ok([]);
+      return Result.succeed([]);
     }
 
     await fs.atomicWrite(opmlPath, opmlXml);
   } catch (error) {
-    return err(error instanceof Error ? error : new Error(String(error)));
+    return Result.fail(error instanceof Error ? error : new Error(String(error)));
   }
 
   logger.info("OpmlSync", "OPML generated", { feeds: feeds.length });
 
-  return ok([]);
+  return Result.succeed([]);
 }

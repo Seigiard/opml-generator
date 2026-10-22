@@ -1,12 +1,15 @@
 import { config } from "./config.ts";
 import { log } from "./logging/index.ts";
 import { buildContext } from "./context.ts";
-import { Cause } from "effect";
+import { Cause, Result, Schema } from "effect";
 import { startEpisodeEngineRuntime, logEpisodeEngineReadyFailure } from "./engine/runtime.ts";
-import { z } from "zod";
 import type { EpisodeEngineRuntime } from "./engine/runtime.ts";
 
-const watcherEventSchema = z.object({ parent: z.string(), name: z.string(), events: z.string() });
+const watcherEventSchema = Schema.Struct({
+  parent: Schema.String,
+  name: Schema.String,
+  events: Schema.String,
+});
 
 export function createServerFetch(synchronization: EpisodeEngineRuntime) {
   return async function fetch(req: Request): Promise<Response> {
@@ -35,10 +38,10 @@ export function createServerFetch(synchronization: EpisodeEngineRuntime) {
         return new Response("Invalid event", { status: 400 });
       }
 
-      const parsed = watcherEventSchema.safeParse(body);
+      const parsed = Schema.decodeUnknownResult(watcherEventSchema)(body);
 
-      if (!parsed.success) return new Response("Invalid event", { status: 400 });
-      const admission = await synchronization.notifyBooksEvent(parsed.data);
+      if (Result.isFailure(parsed)) return new Response("Invalid event", { status: 400 });
+      const admission = await synchronization.notifyBooksEvent(parsed.success);
 
       return new Response(admission === "rejected" ? "Rejected" : "OK", {
         status: admission === "rejected" ? 503 : 202,

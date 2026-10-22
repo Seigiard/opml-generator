@@ -1,5 +1,4 @@
-import { ok, err } from "neverthrow";
-import type { Result } from "neverthrow";
+import { Result } from "effect";
 import { join, basename, dirname, relative, extname } from "node:path";
 import { XMLBuilder } from "fast-xml-parser";
 import { MIME_TYPES } from "../../types.ts";
@@ -49,8 +48,8 @@ function buildEpisodeXml(fields: EpisodeFields): string {
 export async function audioSync(
   event: EventType,
   deps: HandlerDeps,
-): Promise<Result<readonly EventType[], Error>> {
-  if (event._tag !== "AudioFileCreated") return ok([]);
+): Promise<Result.Result<readonly EventType[], Error>> {
+  if (event._tag !== "AudioFileCreated") return Result.succeed([]);
 
   const { parent, name } = event;
   const { config, logger } = deps;
@@ -69,7 +68,7 @@ export async function audioSync(
     const fileStat = await readSourceEntry(filePath, config.filesPath, fs);
 
     if (fileStat.kind !== "audio") {
-      return ok([
+      return Result.succeed([
         {
           _tag: "SourcePathSyncRequested",
           path: filePath,
@@ -112,9 +111,9 @@ export async function audioSync(
 
     logger.info("AudioSync", "Done", { path: relativePath, episode: episodeNumber });
 
-    return ok([{ _tag: "FolderMetaSyncRequested", path: folderDataDir }]);
+    return Result.succeed([{ _tag: "FolderMetaSyncRequested", path: folderDataDir }]);
   } catch (error) {
-    return err(error instanceof Error ? error : new Error(String(error)));
+    return Result.fail(error instanceof Error ? error : new Error(String(error)));
   }
 }
 

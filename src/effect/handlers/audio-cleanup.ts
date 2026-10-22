@@ -1,5 +1,4 @@
-import { ok, err } from "neverthrow";
-import type { Result } from "neverthrow";
+import { Result } from "effect";
 import { join, relative } from "node:path";
 import { cacheFileSystem } from "../../stopping.ts";
 import type { HandlerDeps } from "../../context.ts";
@@ -10,8 +9,8 @@ import { cachePath } from "../../cache-projection.ts";
 export async function audioCleanup(
   event: EventType,
   deps: HandlerDeps,
-): Promise<Result<readonly EventType[], Error>> {
-  if (event._tag !== "AudioFileDeleted") return ok([]);
+): Promise<Result.Result<readonly EventType[], Error>> {
+  if (event._tag !== "AudioFileDeleted") return Result.succeed([]);
 
   const { parent, name } = event;
   const { config, logger } = deps;
@@ -30,7 +29,7 @@ export async function audioCleanup(
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       logger.debug("AudioCleanup", "Already removed", { path: relativePath });
     } else {
-      return err(error instanceof Error ? error : new Error(String(error)));
+      return Result.fail(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -38,7 +37,7 @@ export async function audioCleanup(
 
   const parentDataDir = cacheParent(dataDir, config.dataPath);
 
-  return ok(
+  return Result.succeed(
     parentDataDir ? ([{ _tag: "FolderMetaSyncRequested", path: parentDataDir }] as const) : [],
   );
 }

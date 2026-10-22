@@ -1,13 +1,31 @@
-import { z } from "zod";
+import { Schema } from "effect";
 import { isAbsolute } from "node:path";
 
-const baseUrl = z.url().parse(Bun.argv[2]);
+const urlSchema = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => {
+      try {
+        new URL(value);
 
-z.literal("books").parse(Bun.argv[3]);
+        return undefined;
+      } catch {
+        return "Invalid URL";
+      }
+    }),
+  ),
+);
 
-const groupId = z.coerce.number().int().positive().optional().parse(Bun.argv[4]);
+const baseUrl = Schema.decodeUnknownSync(urlSchema)(Bun.argv[2]);
 
-const eventToken = z.enum([
+Schema.decodeUnknownSync(Schema.Literals(["books"]))(Bun.argv[3]);
+
+const groupId = Schema.decodeUnknownSync(
+  Schema.optional(
+    Schema.NumberFromString.pipe(Schema.check(Schema.isInt(), Schema.isGreaterThan(0))),
+  ),
+)(Bun.argv[4]);
+
+const eventToken = Schema.Literals([
   "ACCESS",
   "MODIFY",
   "ATTRIB",
@@ -28,23 +46,31 @@ const eventToken = z.enum([
   "ISDIR",
 ]);
 
-const frameSchema = z
-  .tuple([
-    z.string(),
-    z.string().refine((name) => !name.includes("/")),
-    z
-      .string()
-      .refine(
-        (events) =>
-          events.length > 0 &&
-          events.split(",").every((token) => eventToken.safeParse(token).success) &&
-          events !== "ISDIR",
-      ),
-  ])
-  .refine(
-    ([parent, , events]) =>
-      events.split(",").includes("Q_OVERFLOW") || (isAbsolute(parent) && parent.endsWith("/")),
-  );
+const nameSchema = Schema.String.pipe(
+  Schema.check(Schema.makeFilter((name) => (!name.includes("/") ? undefined : "Invalid name"))),
+);
+
+const eventsSchema = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((events) => {
+      if (events.length === 0 || events === "ISDIR") return "Invalid events";
+
+      return events.split(",").every((token) => Schema.is(eventToken)(token))
+        ? undefined
+        : "Invalid events";
+    }),
+  ),
+);
+
+const frameSchema = Schema.Tuple([Schema.String, nameSchema, eventsSchema]).pipe(
+  Schema.check(
+    Schema.makeFilter(([parent, , events]) =>
+      events.split(",").includes("Q_OVERFLOW") || (isAbsolute(parent) && parent.endsWith("/"))
+        ? undefined
+        : "Invalid parent",
+    ),
+  ),
+);
 
 const decoder = new TextDecoder();
 
@@ -62,7 +88,7 @@ try {
       pending = pending.slice(boundary + 1);
 
       if (fields.length !== 3) continue;
-      const [parent, name, events] = frameSchema.parse(fields);
+      const [parent, name, events] = Schema.decodeUnknownSync(frameSchema)(fields);
       fields = [];
       const overflow = events.split(",").includes("Q_OVERFLOW");
 

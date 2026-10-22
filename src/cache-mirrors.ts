@@ -1,10 +1,10 @@
 import { join, relative } from "node:path";
-import { z } from "zod";
+import { Schema } from "effect";
 import type { FileSystemService } from "./context.ts";
 import { isContainer } from "./cache-projection.ts";
 import { OPML_ENGINE_STATE_RELATIVE_PATH } from "./engine/policy.ts";
 
-const absentPathError = z.object({ code: z.enum(["ENOENT", "ENOTDIR"]) });
+const absentPathError = Schema.Struct({ code: Schema.Literals(["ENOENT", "ENOTDIR"]) });
 
 const noEntries: string[] = [];
 
@@ -12,7 +12,7 @@ async function absentAs<T, F>(read: () => Promise<T>, fallback: F): Promise<T | 
   try {
     return await read();
   } catch (error) {
-    if (absentPathError.safeParse(error).success) return fallback;
+    if (Schema.is(absentPathError)(error)) return fallback;
 
     throw error;
   }
