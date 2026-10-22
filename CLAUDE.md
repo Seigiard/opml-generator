@@ -164,7 +164,7 @@ Read `src/logging/error-schema.ts` before changing thrown-error logging; decode 
 <important if="you are changing lint configuration, Oxlint versions, or the vendored anti-slop rules">
 
 - Anti-slop rules are vendored from `dmmulroy/anti-slop` at `tools/oxlint/anti-slop/`. `UPSTREAM.md` records the source revision.
-- `bun run lint:anti-slop` checks owned JS/TS, tests included.
+- `.oxlintrc.json` loads the anti-slop plugin, so `bun run lint` (CI and pre-commit) checks owned JS/TS, tests included. There is no separate anti-slop config.
 - Pin Oxlint and `@oxlint/plugins` together. `oxlint-tsgolint` must match Oxlint's peer requirement.
 
 </important>

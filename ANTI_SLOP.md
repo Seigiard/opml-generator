@@ -1,6 +1,6 @@
 # Anti-slop checks
 
-Run `bun run lint:anti-slop` to check owned JavaScript and TypeScript, including tests. A dedicated GitHub Actions job runs the same command on pull requests and pushes. Existing lint commands and workflows are retained.
+`.oxlintrc.json` loads the anti-slop plugin and its rules, so `bun run lint` checks owned JavaScript and TypeScript, including tests. The pre-commit hook and the Docker workflow's `test` job run it.
 
 All 18 upstream generic rules and native `oxc/no-accumulating-spread` are enabled at error severity. No direct Effect dependency is declared, so Effect rules are not registered.
 
@@ -30,7 +30,7 @@ These exit codes describe the installation baseline. Local Docker is unavailable
 ## Cleanup verification
 
 - Anti-slop, existing lint, TypeScript, and Knip pass locally.
-- Watcher payloads and RSS metadata are decoded with Zod at their input boundaries. Handlers receive typed events.
+- Watcher payloads and RSS metadata are decoded with Effect Schema at their input boundaries. Handlers receive typed events.
 - XML nodes have field contracts instead of unknown dictionaries. Existing XMLBuilder assertions state the library's string output invariant.
 - Handler catches return Error values without asserting that every thrown value is an Error. Test call collections are initialized without assertions.
 - Whitespace is committed separately. A second fix/format pass leaves the source diff unchanged.
@@ -40,4 +40,4 @@ Consumer shutdown tests now await actual successful termination. Unexpected Prom
 
 ## Scope
 
-Owned source and tests are included in cleanup. Vendored plugin source, installed dependencies, generated output, and agent tooling are excluded from the check. Existing rules are not suppressed. The separate config avoids inheriting broad legacy ignores that would exclude owned JavaScript or tests.
+Owned source and tests are included in cleanup. Vendored plugin source, installed dependencies, generated output, and agent tooling are excluded from the check. Existing rules are not suppressed. The shared config ignores only vendored, generated, and agent-tooling paths, so owned JavaScript and tests stay covered.
