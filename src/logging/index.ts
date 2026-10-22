@@ -1,14 +1,16 @@
 import type { LogLevel, LogEntry, LogContext } from "./types.ts";
 import { logErrorSchema, type LogErrorInput } from "./error-schema.ts";
-import { z } from "zod";
+import { Result, Schema } from "effect";
 
 const LOG_LEVELS: LogLevel[] = ["debug", "info", "warn", "error"];
 
-const parsedLevel = z
-  .enum(["debug", "info", "warn", "error"])
-  .safeParse(process.env.LOG_LEVEL || "info");
+const parsedLevel = Schema.decodeUnknownResult(Schema.Literals(["debug", "info", "warn", "error"]))(
+  process.env.LOG_LEVEL || "info",
+);
 
-const currentLevelIndex = parsedLevel.success ? LOG_LEVELS.indexOf(parsedLevel.data) : -1;
+const currentLevelIndex = Result.isSuccess(parsedLevel)
+  ? LOG_LEVELS.indexOf(parsedLevel.success)
+  : -1;
 
 function shouldLog(level: LogLevel): boolean {
   return LOG_LEVELS.indexOf(level) >= currentLevelIndex;
@@ -43,7 +45,7 @@ export const log = {
   error(tag: string, msg: string, err?: LogErrorInput, ctx?: LogContext): void {
     if (!shouldLog("error")) return;
 
-    const errorCtx: LogContext = { ...ctx, ...logErrorSchema.parse(err) };
+    const errorCtx: LogContext = { ...ctx, ...Schema.decodeUnknownSync(logErrorSchema)(err) };
 
     emit({ ts: new Date().toISOString(), level: "error", tag, msg, ...errorCtx });
   },

@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach } from "bun:test";
+import { Result } from "effect";
 import { folderCleanup } from "../../../../src/effect/handlers/folder-cleanup.ts";
 import type { HandlerDeps } from "../../../../src/context.ts";
 import type { EventType } from "../../../../src/effect/types.ts";
@@ -71,8 +72,8 @@ describe("folderCleanup handler", () => {
     // #when
     const result = await folderCleanup(event, makeDeps());
     // #then
-    expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual([]);
+    expect(Result.isSuccess(result)).toBe(true);
+    expect(Result.getOrThrow<readonly EventType[], unknown>(result)).toEqual([]);
   });
 
   test("removes folder", async () => {
@@ -81,7 +82,7 @@ describe("folderCleanup handler", () => {
     // #when
     const result = await folderCleanup(event, makeDeps());
     // #then
-    expect(result.isOk()).toBe(true);
+    expect(Result.isSuccess(result)).toBe(true);
     expect(mockFs.rmCalls[0]!.path).toBe("/data/Author/Book");
   });
 
@@ -93,7 +94,7 @@ describe("folderCleanup handler", () => {
     // #when
     const result = await folderCleanup(event, makeDeps());
     // #then
-    expect(result.isOk()).toBe(true);
+    expect(Result.isSuccess(result)).toBe(true);
     expect(mockLogger.debugCalls.some((c) => c.tag === "FolderCleanup")).toBe(true);
   });
 
@@ -105,6 +106,6 @@ describe("folderCleanup handler", () => {
     // #when
     const result = await folderCleanup(event, makeDeps());
     // #then
-    expect(result.isErr()).toBe(true);
+    expect(Result.isFailure(result)).toBe(true);
   });
 });

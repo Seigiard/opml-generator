@@ -1,17 +1,26 @@
-import { z } from "zod";
+import { Schema, SchemaGetter } from "effect";
+
+const logErrorOutputSchema = Schema.Struct({
+  error: Schema.optional(Schema.String),
+  error_stack: Schema.optional(Schema.String),
+});
 
 // Thrown values are not necessarily Error instances. Decode them once at the
 // logging boundary, preserving plain strings and JSON serialization of objects.
-export const logErrorSchema = z.unknown().transform((input) => {
-  if (input instanceof Error) return { error: input.message, error_stack: input.stack };
+export const logErrorSchema = Schema.Unknown.pipe(
+  Schema.decodeTo(logErrorOutputSchema, {
+    decode: SchemaGetter.transform((input) => {
+      if (Schema.is(Schema.instanceOf(Error))(input))
+        return { error: input.message, error_stack: input.stack };
 
-  const message = z.string().safeParse(input);
+      if (Schema.is(Schema.String)(input)) return { error: input };
 
-  if (message.success) return { error: message.data };
+      if (input === undefined || input === null) return {};
 
-  if (input === undefined || input === null) return {};
+      return { error: JSON.stringify(input) };
+    }),
+    encode: SchemaGetter.transform((output) => output),
+  }),
+);
 
-  return { error: JSON.stringify(input) };
-});
-
-export type LogErrorInput = z.input<typeof logErrorSchema>;
+export type LogErrorInput = Schema.Codec.Encoded<typeof logErrorSchema>;

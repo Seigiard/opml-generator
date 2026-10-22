@@ -1,6 +1,6 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { z } from "zod";
+import { Schema } from "effect";
 
 const project = process.env.SMOKE_PROJECT ?? "opml49-63-smoke";
 
@@ -22,16 +22,16 @@ const fixtures = [
   { source: "~", publicPath: "/~/feed.xml", dataFeed: "/data/~/~/feed.xml" },
 ];
 
-const readySchema = z.object({
-  available: z.boolean(),
-  availableFrom: z.string().nullable(),
-  completed: z.boolean(),
-  failure: z.unknown().nullable(),
+const readySchema = Schema.Struct({
+  available: Schema.Boolean,
+  availableFrom: Schema.NullOr(Schema.String),
+  completed: Schema.Boolean,
+  failure: Schema.NullOr(Schema.Unknown),
 });
 
-const packageJsonSchema = z.object({
-  dependencies: z.object({
-    "@seigiard/sync-engine": z.string(),
+const packageJsonSchema = Schema.Struct({
+  dependencies: Schema.Struct({
+    "@seigiard/sync-engine": Schema.String,
   }),
 });
 
@@ -79,7 +79,7 @@ async function waitForCompletedReady() {
   while (Date.now() < deadline) {
     try {
       const response = await fetch(`${baseUrl}/ready`);
-      const body = readySchema.parse(await response.json());
+      const body = Schema.decodeUnknownSync(readySchema)(await response.json());
       statuses.push({ status: response.status, body });
 
       if (response.status === 200 && body.completed && body.failure === null) return body;
@@ -123,7 +123,7 @@ async function main() {
     await compose("up", "-d", "--build");
     const firstReadySamples = await waitForReady();
     const ready = await fetch(`${baseUrl}/ready`);
-    const readyJson = readySchema.parse(await ready.json());
+    const readyJson = Schema.decodeUnknownSync(readySchema)(await ready.json());
     await assertEqual("first ready status", ready.status, 200);
     await assertEqual("first ready available", readyJson.available, true);
     await assertEqual("first ready source", readyJson.availableFrom, "minimum-publication");
@@ -141,7 +141,7 @@ async function main() {
       .toString()
       .trim();
 
-    const packageJson = packageJsonSchema.parse(
+    const packageJson = Schema.decodeUnknownSync(packageJsonSchema)(
       await Bun.file(join(import.meta.dir, "..", "package.json")).json(),
     );
 
@@ -216,7 +216,7 @@ async function main() {
     await waitForCompletedReady();
 
     const restarted = await fetch(`${baseUrl}/ready`);
-    const restartedJson = readySchema.parse(await restarted.json());
+    const restartedJson = Schema.decodeUnknownSync(readySchema)(await restarted.json());
 
     await assertEqual("restart ready status", restarted.status, 200);
     await assertEqual("restart ready available", restartedJson.available, true);

@@ -251,6 +251,36 @@ describe("server HTTP event handler", () => {
     });
   });
 
+  test("books JSON with a non-string field returns 400 without notifying the engine", async () => {
+    // #given
+    const calls: unknown[] = [];
+
+    const fetch = createServerFetch(
+      fakeRuntime({
+        notifyBooksEvent: async (event) => {
+          calls.push(event);
+
+          return "queued";
+        },
+      }),
+    );
+
+    // #when
+    const response = await fetch(
+      new Request("http://127.0.0.1/events/books", {
+        method: "POST",
+        body: JSON.stringify({ parent: 1, name: "01.mp3", events: "CREATE" }),
+      }),
+    );
+
+    // #then
+    expect({ status: response.status, text: await response.text(), calls }).toEqual({
+      status: 400,
+      text: "Invalid event",
+      calls: [],
+    });
+  });
+
   test("valid books JSON maps to notifyBooksEvent", async () => {
     // #given
     const calls: unknown[] = [];

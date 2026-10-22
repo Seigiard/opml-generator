@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach } from "bun:test";
+import { Result } from "effect";
 import { folderCleanup } from "../../../src/effect/handlers/folder-cleanup.ts";
 import { audioCleanup } from "../../../src/effect/handlers/audio-cleanup.ts";
 import type { HandlerDeps } from "../../../src/context.ts";
@@ -182,7 +183,8 @@ describe("Handler integration", () => {
       );
 
       // #then
-      const cascades = result._unsafeUnwrap();
+      expect(Result.isSuccess(result)).toBe(true);
+      const cascades = Result.getOrThrow<readonly EventType[], unknown>(result);
       expect(cascades).toHaveLength(1);
       expect(cascades[0]).toEqual({ _tag: "FolderMetaSyncRequested", path: "/test/data/Fiction" });
     });

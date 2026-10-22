@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, afterAll } from "bun:test";
+import { Result } from "effect";
 import { folderMetaSync } from "../../../../src/effect/handlers/folder-meta-sync.ts";
 import type { HandlerDeps } from "../../../../src/context.ts";
 import type { EventType } from "../../../../src/effect/types.ts";
@@ -139,8 +140,8 @@ describe("folderMetaSync handler", () => {
     // #when
     const result = await folderMetaSync(event, realDeps());
     // #then
-    expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual([]);
+    expect(Result.isSuccess(result)).toBe(true);
+    expect(Result.getOrThrow<readonly EventType[], unknown>(result)).toEqual([]);
   });
 
   test("generates podcast RSS feed.xml when episodes exist", async () => {
@@ -166,7 +167,7 @@ describe("folderMetaSync handler", () => {
     const result = await folderMetaSync(folderMetaSyncEvent(albumDir), realDeps());
 
     // #then
-    expect(result.isOk()).toBe(true);
+    expect(Result.isSuccess(result)).toBe(true);
     const feedPath = join(albumDir, "feed.xml");
     const content = await readFile(feedPath, "utf-8");
 

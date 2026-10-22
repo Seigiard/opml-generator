@@ -1,15 +1,18 @@
 import { expect, test } from "bun:test";
+import { Schema } from "effect";
 import { XMLParser } from "fast-xml-parser";
-import { z } from "zod";
 
 const baseUrl = process.env.TEST_BASE_URL || "http://localhost:8080";
 
 const parser = new XMLParser({ ignoreAttributes: false });
 
-const episodeSchema = z.object({ title: z.string(), guid: z.object({ "#text": z.string() }) });
+const episodeSchema = Schema.Struct({
+  title: Schema.String,
+  guid: Schema.Struct({ "#text": Schema.String }),
+});
 
-const podcastSchema = z.object({
-  rss: z.object({ channel: z.object({ item: z.array(episodeSchema) }) }),
+const podcastSchema = Schema.Struct({
+  rss: Schema.Struct({ channel: Schema.Struct({ item: Schema.Array(episodeSchema) }) }),
 });
 
 async function inContainer(code: string): Promise<string> {
@@ -31,7 +34,7 @@ async function waitForEpisodeTitle(
     const response = await fetch(`${baseUrl}/test/Test%20Author/Test%20Audiobook/feed.xml`);
 
     if (response.status === 200) {
-      const podcast = podcastSchema.parse(parser.parse(await response.text()));
+      const podcast = Schema.decodeUnknownSync(podcastSchema)(parser.parse(await response.text()));
       latest = podcast.rss.channel.item.find(
         (episode) =>
           episode.guid["#text"] === "test/Test Author/Test Audiobook/01 - Chapter One.mp3",

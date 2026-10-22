@@ -1,8 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { XMLParser } from "fast-xml-parser";
 import { acquireOutputTree } from "@seigiard/sync-engine";
-import { z } from "zod";
 import {
   copyFile,
   lstat,
@@ -37,48 +36,37 @@ const tinyPng = Buffer.from(
   "base64",
 );
 
-const rssItemSchema = z.object({
-  title: z.string(),
-  guid: z.object({ "#text": z.string() }),
-  enclosure: z.object({ "@_url": z.string() }),
-  link: z.string().optional(),
-  "itunes:episode": z.number(),
+const rssItemSchema = Schema.Struct({
+  title: Schema.String,
+  guid: Schema.Struct({ "#text": Schema.String }),
+  enclosure: Schema.Struct({ "@_url": Schema.String }),
+  link: Schema.optional(Schema.String),
+  "itunes:episode": Schema.Number,
 });
 
-const rssSchema = z.object({
-  rss: z.object({
-    channel: z.object({
-      title: z.string(),
-      link: z.string().optional(),
-      "itunes:author": z.string().optional(),
-      "itunes:image": z.object({ "@_href": z.string() }).optional(),
-      "atom:link": z.object({ "@_href": z.string() }).optional(),
-      item: z
-        .union([rssItemSchema, z.array(rssItemSchema)])
-        .transform((items) => (Array.isArray(items) ? items : [items])),
+const rssSchema = Schema.Struct({
+  rss: Schema.Struct({
+    channel: Schema.Struct({
+      title: Schema.String,
+      link: Schema.optional(Schema.String),
+      "itunes:author": Schema.optional(Schema.String),
+      "itunes:image": Schema.optional(Schema.Struct({ "@_href": Schema.String })),
+      "atom:link": Schema.optional(Schema.Struct({ "@_href": Schema.String })),
+      item: Schema.ArrayEnsure(rssItemSchema),
     }),
   }),
 });
 
-const opmlSchema = z.object({
-  opml: z.object({
-    body: z.object({
-      outline: z
-        .union([
-          z.object({
-            "@_title": z.string(),
-            "@_xmlUrl": z.string(),
-            "@_imageUrl": z.string().optional(),
-          }),
-          z.array(
-            z.object({
-              "@_title": z.string(),
-              "@_xmlUrl": z.string(),
-              "@_imageUrl": z.string().optional(),
-            }),
-          ),
-        ])
-        .transform((outlines) => (Array.isArray(outlines) ? outlines : [outlines])),
+const opmlSchema = Schema.Struct({
+  opml: Schema.Struct({
+    body: Schema.Struct({
+      outline: Schema.ArrayEnsure(
+        Schema.Struct({
+          "@_title": Schema.String,
+          "@_xmlUrl": Schema.String,
+          "@_imageUrl": Schema.optional(Schema.String),
+        }),
+      ),
     }),
   }),
 });
@@ -145,21 +133,23 @@ async function readEpisode(path: string) {
   return parser.parse(content).episode as Record<string, string | number>;
 }
 
-async function readRss(path: string): Promise<z.infer<typeof rssSchema>> {
+async function readRss(path: string): Promise<Schema.Schema.Type<typeof rssSchema>> {
   // SAFETY: XMLParser output is immediately validated by rssSchema.
   const parsed = parser.parse(await Bun.file(path).text()) as unknown;
 
-  return rssSchema.parse(parsed);
+  return Schema.decodeUnknownSync(rssSchema)(parsed);
 }
 
-async function readOpml(path: string): Promise<z.infer<typeof opmlSchema>> {
+async function readOpml(path: string): Promise<Schema.Schema.Type<typeof opmlSchema>> {
   // SAFETY: XMLParser output is immediately validated by opmlSchema.
   const parsed = parser.parse(await Bun.file(path).text()) as unknown;
 
-  return opmlSchema.parse(parsed);
+  return Schema.decodeUnknownSync(opmlSchema)(parsed);
 }
 
-function firstRssItem(rss: z.infer<typeof rssSchema>): z.infer<typeof rssItemSchema> {
+function firstRssItem(
+  rss: Schema.Schema.Type<typeof rssSchema>,
+): Schema.Schema.Type<typeof rssItemSchema> {
   const item = rss.rss.channel.item[0];
 
   if (!item) throw new Error("Expected RSS feed to contain at least one item");
@@ -168,8 +158,8 @@ function firstRssItem(rss: z.infer<typeof rssSchema>): z.infer<typeof rssItemSch
 }
 
 function firstOpmlOutline(
-  opml: z.infer<typeof opmlSchema>,
-): z.infer<typeof opmlSchema>["opml"]["body"]["outline"][number] {
+  opml: Schema.Schema.Type<typeof opmlSchema>,
+): Schema.Schema.Type<typeof opmlSchema>["opml"]["body"]["outline"][number] {
   const outline = opml.opml.body.outline[0];
 
   if (!outline) throw new Error("Expected OPML to contain at least one outline");
@@ -177,11 +167,11 @@ function firstOpmlOutline(
   return outline;
 }
 
-function rssGuids(rss: z.infer<typeof rssSchema>): string[] {
+function rssGuids(rss: Schema.Schema.Type<typeof rssSchema>): string[] {
   return rss.rss.channel.item.map((item) => item.guid["#text"]);
 }
 
-function opmlUrls(opml: z.infer<typeof opmlSchema>): string[] {
+function opmlUrls(opml: Schema.Schema.Type<typeof opmlSchema>): string[] {
   return opml.opml.body.outline.map((outline) => outline["@_xmlUrl"]);
 }
 

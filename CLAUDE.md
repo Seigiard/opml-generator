@@ -19,7 +19,7 @@ src/
 ├── cache-projection.ts # Typed interface to cache-layout.js
 ├── cache-mirrors.ts # Structural cache traversal through `~` containers
 ├── engine/          # Shared-engine synchronization composition and runtime
-├── effect/          # Event handling (neverthrow + async/await)
+├── effect/          # Event handling (Effect Result + async/await)
 │   ├── types.ts     # RawBooksEvent and EventType helpers
 │   └── handlers/    # source-path-sync, audio-sync, folder-meta-sync, folder-cleanup, opml-sync, ...
 ├── audio/           # ID3 reader, cover finder

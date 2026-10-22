@@ -1,5 +1,5 @@
 import { dirname, basename, join, relative, extname } from "node:path";
-import { ok, err, type Result } from "neverthrow";
+import { Result } from "effect";
 import type { HandlerDeps } from "../../context.ts";
 import { AUDIO_EXTENSIONS } from "../../types.ts";
 import type { EventType } from "../types.ts";
@@ -13,8 +13,8 @@ import { cacheMirrors } from "../../cache-mirrors.ts";
 export async function sourcePathSync(
   event: EventType,
   deps: HandlerDeps,
-): Promise<Result<readonly EventType[], Error>> {
-  if (event._tag !== "SourcePathSyncRequested") return ok([]);
+): Promise<Result.Result<readonly EventType[], Error>> {
+  if (event._tag !== "SourcePathSyncRequested") return Result.succeed([]);
   const parent = dirname(event.path);
   const name = basename(event.path);
 
@@ -30,11 +30,13 @@ export async function sourcePathSync(
       throw new Error("Source root must be a regular directory");
 
     if (current.kind === "missing") {
-      return ok([{ _tag: event.isDirectory ? "FolderDeleted" : "AudioFileDeleted", parent, name }]);
+      return Result.succeed([
+        { _tag: event.isDirectory ? "FolderDeleted" : "AudioFileDeleted", parent, name },
+      ]);
     }
 
     if (current.kind !== "directory") {
-      return ok([
+      return Result.succeed([
         { _tag: current.kind === "audio" ? "AudioFileCreated" : "FolderDeleted", parent, name },
       ]);
     }
@@ -70,8 +72,8 @@ export async function sourcePathSync(
 
     cascades.push({ _tag: "FolderMetaSyncRequested", path: dataDir });
 
-    return ok(cascades);
+    return Result.succeed(cascades);
   } catch (error) {
-    return err(error instanceof Error ? error : new Error(String(error)));
+    return Result.fail(error instanceof Error ? error : new Error(String(error)));
   }
 }

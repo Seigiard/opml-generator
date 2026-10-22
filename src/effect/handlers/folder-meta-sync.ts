@@ -1,5 +1,4 @@
-import { ok, err } from "neverthrow";
-import type { Result } from "neverthrow";
+import { Result } from "effect";
 import { join, relative, dirname, basename } from "node:path";
 import { XMLParser, XMLBuilder } from "fast-xml-parser";
 import { generatePodcastRss } from "../../rss/podcast-rss.ts";
@@ -102,8 +101,8 @@ function parseFolderEntryXml(content: string): FolderChild | null {
 export async function folderMetaSync(
   event: EventType,
   deps: HandlerDeps,
-): Promise<Result<readonly EventType[], Error>> {
-  if (event._tag !== "FolderMetaSyncRequested") return ok([]);
+): Promise<Result.Result<readonly EventType[], Error>> {
+  if (event._tag !== "FolderMetaSyncRequested") return Result.succeed([]);
 
   const folderDataDir = event.path;
   const { config, logger } = deps;
@@ -116,7 +115,7 @@ export async function folderMetaSync(
   try {
     assertCachePath(normalizedDir, config.dataPath);
   } catch (error) {
-    return err(error instanceof Error ? error : new Error(String(error)));
+    return Result.fail(error instanceof Error ? error : new Error(String(error)));
   }
 
   if (relativePath === "") {
@@ -125,7 +124,7 @@ export async function folderMetaSync(
 
       if (root.kind !== "directory") throw new Error("Source root must be a regular directory");
     } catch (error) {
-      return err(error instanceof Error ? error : new Error(String(error)));
+      return Result.fail(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -137,7 +136,9 @@ export async function folderMetaSync(
       sourceFolderExists = s.kind === "directory";
 
       if (s.kind === "audio") {
-        return ok([{ _tag: "SourcePathSyncRequested", path: sourceFolder, isDirectory: false }]);
+        return Result.succeed([
+          { _tag: "SourcePathSyncRequested", path: sourceFolder, isDirectory: false },
+        ]);
       }
     } catch (error) {
       if (
@@ -147,13 +148,13 @@ export async function folderMetaSync(
           (error.code === "ENOENT" || error.code === "ENOTDIR")
         )
       )
-        return err(error instanceof Error ? error : new Error(String(error)));
+        return Result.fail(error instanceof Error ? error : new Error(String(error)));
     }
 
     if (!sourceFolderExists) {
       logger.debug("FolderMetaSync", "Skipping (source folder deleted)", { path: relativePath });
 
-      return ok([
+      return Result.succeed([
         { _tag: "FolderDeleted", parent: dirname(sourceFolder), name: basename(sourceFolder) },
       ]);
     }
@@ -205,7 +206,7 @@ export async function folderMetaSync(
           path: cacheParent(normalizedDir, config.dataPath)!,
         });
 
-      return ok(cascades);
+      return Result.succeed(cascades);
     }
 
     if (hasEpisodes) {
@@ -309,9 +310,9 @@ export async function folderMetaSync(
       });
     }
 
-    return ok(cascades);
+    return Result.succeed(cascades);
   } catch (error) {
-    return err(error instanceof Error ? error : new Error(String(error)));
+    return Result.fail(error instanceof Error ? error : new Error(String(error)));
   }
 }
 

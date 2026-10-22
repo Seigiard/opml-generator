@@ -5,7 +5,7 @@ import {
   type PassRequest,
   type SourceEntry,
 } from "@seigiard/sync-engine";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { AUDIO_EXTENSIONS } from "../types.ts";
 import type { HandlerDeps } from "../context.ts";
@@ -242,10 +242,10 @@ export async function workFromCascade(
     case "SourcePathSyncRequested": {
       const result = await sourcePathSync(event, deps);
 
-      if (result.isErr()) throw result.error;
+      if (Result.isFailure(result)) throw result.failure;
 
       const settled = await Promise.allSettled(
-        result.value.map((cascade) => workFromCascade(cascade, deps)),
+        result.success.map((cascade) => workFromCascade(cascade, deps)),
       );
 
       const rejected = settled.find((item) => item.status === "rejected");
@@ -261,14 +261,14 @@ export async function workFromCascade(
 }
 
 async function runHandler(
-  run: () => Promise<import("neverthrow").Result<readonly EventType[], Error>>,
+  run: () => Promise<Result.Result<readonly EventType[], Error>>,
   deps: HandlerDeps,
 ): Promise<readonly OpmlEngineWork[]> {
   const result = await run();
 
-  if (result.isErr()) throw result.error;
+  if (Result.isFailure(result)) throw result.failure;
 
-  return (await Promise.all(result.value.map((event) => workFromCascade(event, deps)))).flat();
+  return (await Promise.all(result.success.map((event) => workFromCascade(event, deps)))).flat();
 }
 
 async function assertSourceRootDirectory(deps: HandlerDeps): Promise<void> {
@@ -327,7 +327,7 @@ function publishFinalOpml(options: HandlerDeps): Effect.Effect<void, Error> {
 
       const result = await publishOpml(options);
 
-      if (result.isErr()) throw result.error;
+      if (Result.isFailure(result)) throw result.failure;
     },
     catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
   }).pipe(Effect.uninterruptible);

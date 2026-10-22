@@ -1,7 +1,9 @@
 import { mkdtemp, rm, mkdir, cp, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { z } from "zod";
+import { Schema } from "effect";
+
+const isString = Schema.is(Schema.String);
 
 export async function createTempDir(prefix: string): Promise<string> {
   return mkdtemp(join(tmpdir(), `${prefix}-`));
@@ -33,14 +35,10 @@ export async function createFileStructure(root: string, structure: FileTree): Pr
   for (const [name, content] of Object.entries(structure)) {
     const path = join(root, name);
 
-    const file = z.union([z.string(), z.instanceof(Buffer)]).safeParse(content);
-
-    if (file.success) {
-      await Bun.write(path, file.data);
+    if (isString(content) || Buffer.isBuffer(content)) {
+      await Bun.write(path, content);
     } else {
-      // SAFETY: FileTree values are text, Buffer, or nested FileTree; the two
-      // file variants were decoded above, leaving only a nested directory.
-      await createFileStructure(path, content as FileTree);
+      await createFileStructure(path, content);
     }
   }
 }

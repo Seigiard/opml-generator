@@ -1,11 +1,17 @@
 import { afterEach, expect, test } from "bun:test";
 import { dlopen, FFIType } from "bun:ffi";
+import { Schema } from "effect";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir } from "../helpers/fs-helpers.ts";
-import { z } from "zod";
 
 const cleanup: Array<() => Promise<void>> = [];
+
+const BooksEvent = Schema.Struct({
+  parent: Schema.String,
+  name: Schema.String,
+  events: Schema.String,
+});
 
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
@@ -161,6 +167,20 @@ test("the installed Q_OVERFLOW token routes a recovery POST instead of a books h
   });
 }, 10_000);
 
+test("a watcher frame with a path separator in its name emits no books request", async () => {
+  // #given
+  const input = new TextEncoder().encode("/audiobooks/\0nested/01.mp3\0CREATE\0");
+
+  // #when
+  const result = await serializer(input);
+
+  // #then
+  expect({ failed: result.status !== 0, requests: result.requests }).toEqual({
+    failed: true,
+    requests: [],
+  });
+});
+
 test("damaged native framing explicitly terminates the owned worker group", async () => {
   // #given
   const root = await createTempDir("watcher-worker-damage");
@@ -173,14 +193,13 @@ test("damaged native framing explicitly terminates the owned worker group", asyn
   }
 
   await mkdir(directory, { recursive: true });
-  const fields = z.object({ parent: z.string(), name: z.string(), events: z.string() });
-  const requests: Array<z.infer<typeof fields>> = [];
+  const requests: Schema.Schema.Type<typeof BooksEvent>[] = [];
 
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
     fetch: async (request) => {
-      requests.push(fields.parse(await request.json()));
+      requests.push(Schema.decodeUnknownSync(BooksEvent)(await request.json()));
 
       return new Response("OK");
     },

@@ -9,10 +9,11 @@ describe("cacheMirrors", () => {
     const stable = join(root, "Author");
     const vanishedRootEntry = join(root, "Gone");
     const vanishedContainerEntry = join(root, "~", "Vanished");
-    const absent = Object.assign(new Error("missing"), { code: "ENOENT" });
+    const absentRootEntry = Object.assign(new Error("missing"), { code: "ENOENT" });
+    const absentContainerEntry = Object.assign(new Error("not a directory"), { code: "ENOTDIR" });
 
     // #when
-    const mirrors = await cacheMirrors(root, root, {
+    const mirrors = cacheMirrors(root, root, {
       readdir: async (path) => {
         if (path === root) return ["Author", "Gone", "~"];
 
@@ -26,13 +27,15 @@ describe("cacheMirrors", () => {
         if (path === stable || path === join(root, "~") || path === join(root, "~", ".sync-engine"))
           return { isDirectory: () => true, size: 0 };
 
-        if (path === vanishedRootEntry || path === vanishedContainerEntry) throw absent;
+        if (path === vanishedRootEntry) throw absentRootEntry;
+
+        if (path === vanishedContainerEntry) throw absentContainerEntry;
 
         return { isDirectory: () => false, size: 0 };
       },
     });
 
     // #then
-    expect(mirrors).toEqual([{ name: "Author", path: stable }]);
+    await expect(mirrors).resolves.toEqual([{ name: "Author", path: stable }]);
   });
 });
