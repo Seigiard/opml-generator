@@ -62,7 +62,7 @@ outputs.
   independent. `src/engine/work.ts` defines work classes and keys.
 - Handlers get `HandlerDeps = Pick<AppContext, "config" | "logger" | "fs">` from
   `src/context.ts`. The filesystem service includes `lstat` and atomic writes.
-- Zod decodes watcher HTTP payloads at the input boundary. Handlers accept typed
+- Effect Schema decodes watcher HTTP payloads at the input boundary. Handlers accept typed
   events only.
 
 ## Source watcher
@@ -83,7 +83,7 @@ outputs.
 
 ## RSS and OPML
 
-- Zod decodes RSS metadata at its input boundary.
+- Effect Schema decodes RSS metadata at its input boundary.
 - Sort episodes by the `(disc, track, filename)` tuple from ID3. Fall back to a
   natural filename sort.
 - RSS episode numbers start at 1 after sorting, on every feed update. Ignore the
