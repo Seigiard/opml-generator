@@ -1,4 +1,4 @@
 {
   "printWidth": 100,
-  "ignorePatterns": ["tools/oxlint/anti-slop/**"]
+  "ignorePatterns": ["tools/oxlint/anti-slop/**", "static/main.js"]
 }
