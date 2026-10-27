@@ -1,6 +1,13 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["src/watcher-events.ts", "test/**/*.ts", "tools/oxlint/anti-slop/effect/index.ts"],
-  "project": ["src/**/*.ts", "test/**/*.ts", "tools/oxlint/anti-slop/**/*.ts"],
+  "entry": [
+    "src/watcher-events.ts",
+    "test/**/*.ts",
+    "ui/app/main.ts",
+    "ui/app/render.ts",
+    "ui/scripts/build-ui.ts",
+    "tools/oxlint/anti-slop/effect/index.ts"
+  ],
+  "project": ["src/**/*.ts", "test/**/*.ts", "ui/**/*.ts", "tools/oxlint/anti-slop/**/*.ts"],
   "ignore": ["tools/oxlint/anti-slop/**"]
 }

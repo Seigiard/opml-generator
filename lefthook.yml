@@ -15,9 +15,11 @@ pre-commit:
     - name: typecheck
       glob: "**/*.{ts,tsx}"
       exclude: "tools/oxlint/anti-slop/**"
-      run: bun --bun tsc --noEmit
+      run: bun --bun tsc --noEmit && bun --bun tsc --noEmit -p ui/tsconfig.json
 
 pre-push:
   jobs:
+    - name: build-ui
+      run: bun run build:ui:check
     - name: knip
       run: npx --no-install knip

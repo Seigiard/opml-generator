@@ -183,6 +183,7 @@
     ".roo/**",
     ".windsurf/**",
     ".bolt/**",
+    "static/main.js",
     ".zed/**"
   ]
 }

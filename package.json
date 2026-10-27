@@ -6,6 +6,8 @@
   "scripts": {
     "start": "docker compose up",
     "dev": "docker compose -f docker-compose.dev.yml up",
+    "build:ui": "bun ui/scripts/build-ui.ts",
+    "build:ui:check": "bun run build:ui && git diff --exit-code -- static/ && git ls-files --others --exclude-standard static/ | (! grep .)",
     "rebuild": "docker compose build",
     "rebuild:dev": "docker compose -f docker-compose.dev.yml build",
     "rebuild:test": "docker compose -f docker-compose.test.yml build",
@@ -33,6 +35,7 @@
   "devDependencies": {
     "@oxlint/plugins": "1.87.0",
     "@types/bun": "latest",
+    "happy-dom": "^21.0.4",
     "knip": "^6.42.1",
     "lefthook": "2.2.1",
     "oxfmt": "^0.74.0",

@@ -61,7 +61,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version-file: .bun-version
 
       - name: Install dependencies
         run: bun install
@@ -86,7 +86,8 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          # Pinned: Bun.build minified output is only stable within a Bun version; build:ui:check diffs committed static/ artifacts byte-for-byte.
+          bun-version-file: .bun-version
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -95,10 +96,13 @@ jobs:
         run: bun run format
 
       - name: Typecheck
-        run: bun --bun tsc --noEmit
+        run: bun --bun tsc --noEmit && bun --bun tsc --noEmit -p ui/tsconfig.json
 
       - name: Find unused code
         run: npx knip
+
+      - name: Check UI build
+        run: bun run build:ui:check
 
   e2e:
     runs-on: ubuntu-latest
@@ -110,7 +114,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version-file: .bun-version
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

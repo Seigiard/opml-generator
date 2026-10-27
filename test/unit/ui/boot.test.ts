@@ -1,0 +1,158 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { Window } from "happy-dom";
+
+const BOOT_MODULE = "../../../ui/app/boot.ts";
+
+const originalDomParser = Object.getOwnPropertyDescriptor(globalThis, "DOMParser");
+
+type BrowserFunctionReceiver = typeof globalThis | undefined;
+
+function requireGlobalReceiver<Arguments extends unknown[], Result>(
+  implementation: (...args: Arguments) => Result,
+): (...args: Arguments) => Result {
+  return function (this: BrowserFunctionReceiver, ...args: Arguments): Result {
+    if (this !== undefined && this !== globalThis) {
+      throw new TypeError("Illegal invocation");
+    }
+
+    return implementation(...args);
+  };
+}
+
+beforeAll(() => {
+  Object.defineProperty(globalThis, "DOMParser", {
+    configurable: true,
+    writable: true,
+    value: new Window().DOMParser,
+  });
+});
+
+afterAll(() => {
+  if (originalDomParser) {
+    Object.defineProperty(globalThis, "DOMParser", originalDomParser);
+  } else {
+    Reflect.deleteProperty(globalThis, "DOMParser");
+  }
+});
+
+describe("boot", () => {
+  test("normalizes a folder path before fetching its RSS feed", async () => {
+    // #given
+    const window = new Window({ url: "https://library.example/books/first" });
+
+    const text = await Bun.file(
+      new URL("../../fixtures/feeds/podcast.xml", import.meta.url),
+    ).text();
+
+    const events: string[] = [];
+    const { boot } = await import(BOOT_MODULE);
+
+    // #when
+    await boot({
+      document: window.document,
+      location: window.location,
+      history: {
+        replaceState: (_data: null, _unused: string, url?: string | URL | null) => {
+          events.push(`replaceState:${String(url)}`);
+        },
+      },
+      fetch: requireGlobalReceiver(async (input: string | URL | Request) => {
+        events.push(`fetch:${String(input)}`);
+
+        return new Response(text, { status: 200 });
+      }),
+      setTimeout: requireGlobalReceiver(() => 1),
+    });
+
+    // #then
+    expect(events).toEqual(["replaceState:/books/first/", "fetch:/books/first/feed.xml"]);
+  });
+
+  test("shows the building message and retries after Retry-After seconds", async () => {
+    // #given
+    const window = new Window({ url: "https://library.example/books/first/" });
+
+    const text = await Bun.file(
+      new URL("../../fixtures/feeds/podcast.xml", import.meta.url),
+    ).text();
+
+    let calls = 0;
+    let delay: number | undefined;
+    let messageAtSchedule = "";
+    const { boot } = await import(BOOT_MODULE);
+
+    // #when
+    await boot({
+      document: window.document,
+      location: window.location,
+      history: window.history,
+      fetch: requireGlobalReceiver(async () => {
+        calls += 1;
+
+        if (calls === 1) {
+          return new Response(null, { status: 503, headers: { "Retry-After": "7" } });
+        }
+
+        return new Response(text, { status: 200 });
+      }),
+      setTimeout: requireGlobalReceiver((callback: () => void, timeout?: number) => {
+        delay = timeout;
+        messageAtSchedule = window.document.body.textContent?.trim() ?? "";
+        callback();
+
+        return 1;
+      }),
+    });
+
+    // #then
+    expect({ calls, delay, messageAtSchedule }).toEqual({
+      calls: 2,
+      delay: 7000,
+      messageAtSchedule: "library is being built",
+    });
+  });
+
+  test("renders a not-found message with a link to the library", async () => {
+    // #given
+    const window = new Window({ url: "https://library.example/books/missing/" });
+    const { boot } = await import(BOOT_MODULE);
+
+    // #when
+    await boot({
+      document: window.document,
+      location: window.location,
+      history: window.history,
+      fetch: requireGlobalReceiver(async () => new Response(null, { status: 404 })),
+      setTimeout: requireGlobalReceiver(() => 1),
+    });
+
+    // #then
+    expect({
+      hasMessage: window.document.body.textContent?.includes("podcast not found"),
+      href: window.document.body.querySelector("a")?.getAttribute("href"),
+    }).toEqual({ hasMessage: true, href: "/" });
+  });
+
+  test("renders an HTTP failure with a link to the raw feed", async () => {
+    // #given
+    const window = new Window({ url: "https://library.example/books/broken/" });
+    const { boot } = await import(BOOT_MODULE);
+
+    // #when
+    await boot({
+      document: window.document,
+      location: window.location,
+      history: window.history,
+      fetch: requireGlobalReceiver(
+        async () => new Response(null, { status: 500, statusText: "Internal Server Error" }),
+      ),
+      setTimeout: requireGlobalReceiver(() => 1),
+    });
+
+    // #then
+    expect({
+      hasMessage: window.document.body.textContent?.includes("Internal Server Error"),
+      href: window.document.body.querySelector("a")?.getAttribute("href"),
+    }).toEqual({ hasMessage: true, href: "/books/broken/feed.xml" });
+  });
+});

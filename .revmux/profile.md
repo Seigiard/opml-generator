@@ -41,5 +41,5 @@ there. Everything below is here because it changes a verdict.
 - An M4B file is one episode; chapters are not extracted.
 - `/resync` requires Basic Auth only when both `ADMIN_USER` and `ADMIN_TOKEN` are set; otherwise nginx drops the auth block.
 - Unit and engine tests run in Docker (`bun run test`); `test/e2e/` needs the production container; `smoke:engine` is a manual gate and is not in CI.
-- The static feed page (`static/layout.xsl`, `static/subscribe.js`) is plain browser JS run through XSLT; it is tested through the served file with a fake DOM, not through a browser.
+- The browser view is a static shell built from `ui/` into `static/`, served from `/_app/`, tested with happy-dom in Docker and through the production container in e2e.
 - `main` is the deployed branch and has no PR gate; lefthook pre-commit (format, lint, typecheck on staged files) and pre-push (knip) are the gates.

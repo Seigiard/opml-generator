@@ -66,7 +66,8 @@ volumes:
 docker compose up -d
 ```
 
-3. Open http://localhost:8080/feed.opml — add individual podcast `feed.xml` URLs to your podcast app.
+3. Open http://localhost:8080/ to browse the library, or use `/feed.opml` and
+   individual `feed.xml` URLs in your podcast app.
 
 ### Docker Run
 
@@ -105,11 +106,11 @@ docker compose up -d --build
 
 | Endpoint                 | Description                                            |
 | ------------------------ | ------------------------------------------------------ |
-| `GET /`                  | Redirect to /feed.opml                                 |
+| `GET /`                  | Browser shell over /feed.opml                          |
 | `GET /feed.opml`         | Root OPML (aggregates all podcast feeds)               |
 | `GET /{path}/feed.xml`   | Individual podcast RSS feed                            |
 | `GET /audiobooks/{path}` | Stream audio file (supports Range requests)            |
-| `GET /static/*`          | Static assets                                          |
+| `GET /_app/*`            | Browser shell assets                                   |
 | `POST /resync`           | Queue a freshness-gated resync (requires Basic Auth)   |
 | `POST /resync?force=1`   | Force a rebuild of declared work (requires Basic Auth) |
 | `GET /ready`             | Publication readiness (`200` or `503`)                 |
@@ -200,6 +201,9 @@ bun run test
 
 # Run e2e tests
 bun run test:e2e
+
+# Build and verify the committed browser shell
+bun run build:ui:check
 
 # Lint + format
 bun run fix

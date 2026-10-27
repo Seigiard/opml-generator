@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>Audio Library</title>
+  </head>
+  <body>
+    <outline
+      type="rss"
+      text="First &amp; Finest"
+      title="First &amp; Finest"
+      xmlUrl="https://library.example/books/first/feed.xml"
+      author="Ada Author"
+      description="A &lt;b&gt;literal&lt;/b&gt; description"
+      imageUrl="https://library.example/covers/first.jpg"
+    />
+    <outline
+      type="rss"
+      text="Minimal Podcast"
+      title="Minimal Podcast"
+      xmlUrl="https://library.example/books/minimal/feed.xml"
+    />
+  </body>
+</opml>

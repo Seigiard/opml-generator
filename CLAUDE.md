@@ -26,11 +26,16 @@ src/
 ├── rss/             # Podcast RSS 2.0 (iTunes namespace), OPML 2.0
 ├── logging/         # Flat JSON logger to stdout, error schema
 └── utils/           # Image processing (sharp)
+ui/
+├── app/             # Browser shell, feed parsers, routes, and DOM rendering
+├── scripts/         # Deterministic Bun browser build
+└── styles/          # Shell reset and styles
+static/              # Committed shell artifacts served from /_app/
 test/                # unit/, engine/, integration/ (needs Docker), e2e/, helpers/, fixtures/audio/
 docs/adr/            # Architecture decisions
 ```
 
-nginx on port 80 exposes `/feed.opml`, source-relative public metadata paths, audio streaming, and `/ready`. It proxies `/resync` behind Basic Auth. Bun on port 3000 (localhost only) handles `GET /ready`, `POST /events/books`, and `POST /resync`.
+nginx on port 80 exposes the browser shell, `/feed.opml`, source-relative public metadata paths, audio streaming, and `/ready`. Shell assets are under `/_app/`. It proxies `/resync` behind Basic Auth. Bun on port 3000 (localhost only) handles `GET /ready`, `POST /events/books`, and `POST /resync`.
 
 `/data` is a generated cache with a reversible private projection of `/audiobooks`. Source files and folders are authoritative, and RSS reflects the current Library. An audio file maps to an episode mirror with `entry.xml`. A folder with episodes gets `feed.xml`, `cover.jpg`, and `_entry.xml`. The root gets `feed.opml`. Public metadata paths and Episode identity remain source-relative. The shared engine owns synchronization, freshness state, and the output lease under `DATA/~/.sync-engine`; that path is outside every supported cache projection.
 
@@ -38,7 +43,8 @@ nginx on port 80 exposes `/feed.opml`, source-relative public metadata paths, au
 
 Docker dev runs at http://localhost:8080. Run the app and unit/integration tests in Docker. The E2E runner tests production containers. Stop containers gracefully after tests.
 
-Use `package.json` for scripts and `lefthook.yml` for pre-commit (staged files) and pre-push hooks. Rebuild Docker test images after dependency changes; the test compose file does not mount local dependencies. Local typechecking is allowed.
+Use `package.json` for scripts and `lefthook.yml` for pre-commit (staged files) and pre-push hooks. Rebuild Docker test images after dependency changes; the test compose file does not mount local dependencies. Local typechecking is allowed. The committed `static/` output is built from `ui/`; after a `ui/` change, run `bun run build:ui` and commit `static/` because pre-push and CI run `bun run build:ui:check`.
+The UI build must run on the Bun version in `.bun-version`.
 
 To run one test file in Docker:
 
