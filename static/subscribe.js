@@ -4,7 +4,7 @@
     [
       "AntennaPod",
       function (u) {
-        return "antennapod-subscribe://" + u;
+        return "antennapod-subscribe://" + u.replace(/^https?:\/\//, "");
       },
     ],
     // [
