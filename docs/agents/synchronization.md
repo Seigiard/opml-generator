@@ -93,6 +93,8 @@ outputs.
   navigation feeds are normally excluded.
 - Root-level audio publishes `/feed.xml`. Build feed and cover URLs from joined
   relative paths so an empty root path does not add a second slash.
+- Navigation feed items carry `<kind>podcast|navigation</kind>`; the browser shell
+  uses it to decide which entries get subscribe controls.
 
 ## Shutdown and process ownership
 
