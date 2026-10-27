@@ -42,3 +42,7 @@ files/test/.DS_Store
 
 docs/superpowers
 .worktrees
+
+# revmux project profile is shared review calibration; the global ignore hides .revmux/*
+!.revmux/
+!.revmux/profile.md
