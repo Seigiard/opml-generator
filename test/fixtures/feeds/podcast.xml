@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss
+  version="2.0"
+  xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+  xmlns:atom="http://www.w3.org/2005/Atom"
+>
+  <channel>
+    <title>First &amp; Finest</title>
+    <description>A narrated collection</description>
+    <itunes:author>Ada Author</itunes:author>
+    <itunes:image href="https://library.example/covers/first.jpg" />
+    <atom:link href="https://library.example/books/first/feed.xml" rel="self" type="application/rss+xml" />
+    <itunes:type>serial</itunes:type>
+    <item>
+      <title>Opening &lt;b&gt;Chapter&lt;/b&gt;</title>
+      <guid isPermaLink="false">books/first/opening.mp3</guid>
+      <pubDate>Mon, 15 Jan 2024 10:30:00 GMT</pubDate>
+      <enclosure url="https://library.example/audio/opening.mp3" length="1234" type="audio/mpeg" />
+      <itunes:duration>59</itunes:duration>
+      <itunes:episode>1</itunes:episode>
+    </item>
+    <item>
+      <title>Long Chapter</title>
+      <guid isPermaLink="false">books/first/long.mp3</guid>
+      <pubDate>Tue, 16 Jan 2024 10:30:00 GMT</pubDate>
+      <enclosure url="https://library.example/audio/long.mp3" length="5678" type="audio/mpeg" />
+      <itunes:episode>2</itunes:episode>
+    </item>
+  </channel>
+</rss>

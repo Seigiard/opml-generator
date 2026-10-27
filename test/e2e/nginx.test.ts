@@ -1,6 +1,12 @@
 import { describe, test, expect, beforeAll } from "bun:test";
+import { Window } from "happy-dom";
 
 const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:8080";
+
+const SHELL_CSP =
+  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+
+const PODCAST_PATH = "/test/Test%20Author/Test%20Audiobook/";
 
 async function waitForServer(maxWaitMs = 30000): Promise<void> {
   const start = Date.now();
@@ -31,11 +37,58 @@ describe("nginx integration", () => {
     await waitForServer();
   });
 
-  describe("redirects", () => {
-    test("GET / redirects to /feed.opml", async () => {
+  describe("browser shell", () => {
+    test("GET / returns the no-cache HTML shell with feed fallbacks", async () => {
+      // #given / #when
       const response = await fetch(`${BASE_URL}/`, { redirect: "manual" });
-      expect(response.status).toBe(302);
-      expect(response.headers.get("location")).toBe("/feed.opml");
+      const body = await response.text();
+      const document = new Window().document;
+
+      document.write(body);
+
+      // #then
+      expect({
+        status: response.status,
+        contentType: response.headers.get("content-type")?.split(";")[0],
+        cacheControl: response.headers.get("cache-control"),
+        csp: response.headers.get("content-security-policy"),
+        feedFallbacks: Array.from(document.querySelectorAll("noscript a")).map((link) =>
+          link.getAttribute("href"),
+        ),
+        moduleScripts: document.querySelectorAll('script[type="module"][src="/_app/main.js"]')
+          .length,
+        stylesheets: document.querySelectorAll('link[rel="stylesheet"][href="/_app/style.css"]')
+          .length,
+        icons: document.querySelectorAll('link[rel="icon"][href="/_app/favicon/favicon.svg"]')
+          .length,
+      }).toEqual({
+        status: 200,
+        contentType: "text/html",
+        cacheControl: "no-cache",
+        csp: SHELL_CSP,
+        feedFallbacks: ["/feed.opml", "feed.xml"],
+        moduleScripts: 1,
+        stylesheets: 1,
+        icons: 1,
+      });
+    });
+
+    test("GET a podcast folder returns the same no-cache HTML shell", async () => {
+      // #given / #when
+      const response = await fetch(`${BASE_URL}${PODCAST_PATH}`, { redirect: "manual" });
+
+      // #then
+      expect({
+        status: response.status,
+        contentType: response.headers.get("content-type")?.split(";")[0],
+        cacheControl: response.headers.get("cache-control"),
+        csp: response.headers.get("content-security-policy"),
+      }).toEqual({
+        status: 200,
+        contentType: "text/html",
+        cacheControl: "no-cache",
+        csp: SHELL_CSP,
+      });
     });
   });
 
@@ -54,22 +107,66 @@ describe("nginx integration", () => {
     });
   });
 
-  describe("static files", () => {
-    test("GET /static/layout.xsl returns 200", async () => {
-      const response = await fetch(`${BASE_URL}/static/layout.xsl`);
-      expect(response.status).toBe(200);
+  describe("shell assets", () => {
+    test.each([
+      ["/_app/main.js", "text/javascript"],
+      ["/_app/style.css", "text/css"],
+      ["/_app/favicon/favicon.svg", "image/svg+xml"],
+    ])("GET %s returns its static asset", async (path, contentType) => {
+      // #given / #when
+      const response = await fetch(`${BASE_URL}${path}`);
+
+      // #then
+      expect({
+        status: response.status,
+        contentType: response.headers.get("content-type")?.split(";")[0],
+      }).toEqual({ status: 200, contentType });
     });
 
-    test("GET /static/style.css returns 200", async () => {
-      const response = await fetch(`${BASE_URL}/static/style.css`);
-      expect(response.status).toBe(200);
+    test.each(["/_app/", "/_app/index.html", "/static/layout.xsl", "/static/style.css"])(
+      "GET %s returns 404",
+      async (path) => {
+        // #given / #when
+        const response = await fetch(`${BASE_URL}${path}`, { redirect: "manual" });
+
+        // #then
+        expect(response.status).toBe(404);
+      },
+    );
+  });
+
+  describe("feed XML", () => {
+    test("GET /feed.opml keeps the machine-readable OPML endpoint", async () => {
+      // #given / #when
+      const response = await fetch(`${BASE_URL}/feed.opml`);
+      const body = await response.text();
+
+      // #then
+      expect({
+        status: response.status,
+        contentType: response.headers.get("content-type")?.split(";")[0],
+        isXml: body.startsWith("<?xml") && body.includes("<opml"),
+      }).toEqual({ status: 200, contentType: "text/xml", isXml: true });
+    });
+
+    test("GET a podcast feed keeps the machine-readable RSS endpoint", async () => {
+      // #given / #when
+      const response = await fetch(`${BASE_URL}${PODCAST_PATH}feed.xml`);
+      const body = await response.text();
+
+      // #then
+      expect({
+        status: response.status,
+        contentType: response.headers.get("content-type")?.split(";")[0],
+        isXml: body.startsWith("<?xml") && body.includes("<rss"),
+      }).toEqual({ status: 200, contentType: "text/xml", isXml: true });
     });
   });
 
   describe("directory index", () => {
-    test("GET /nonexistent/ returns 404", async () => {
+    test("GET /nonexistent/ returns the browser shell", async () => {
       const response = await fetch(`${BASE_URL}/nonexistent/`, { redirect: "manual" });
-      expect(response.status).toBe(404);
+      expect(response.status).toBe(200);
     });
   });
 
@@ -125,6 +222,19 @@ describe("nginx integration", () => {
 
       expect(rangeResponse.status).toBe(206);
       expect(rangeResponse.headers.get("content-range")).toBeTruthy();
+    });
+  });
+
+  describe("image file serving", () => {
+    test("GET an existing cover returns its image content", async () => {
+      // #given / #when
+      const response = await fetch(`${BASE_URL}${PODCAST_PATH}cover.jpg`);
+
+      // #then
+      expect({
+        status: response.status,
+        contentType: response.headers.get("content-type")?.split(";")[0],
+      }).toEqual({ status: 200, contentType: "image/jpeg" });
     });
   });
 
