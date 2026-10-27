@@ -203,15 +203,28 @@ describe("nginx integration", () => {
     });
 
     test("Range request returns 206 for existing audio", async () => {
+      // #given
+      const expectedAudio = new Uint8Array(
+        await Bun.file(
+          new URL(
+            "../../files/test/Test Author/Test Audiobook/01 - Chapter One.mp3",
+            import.meta.url,
+          ),
+        ).arrayBuffer(),
+      );
+
+      // #when
       const listResponse = await fetch(
         `${BASE_URL}/audiobooks/test/Test%20Author/Test%20Audiobook/01%20-%20Chapter%20One.mp3`,
       );
 
-      if (listResponse.status !== 200) {
-        console.log("Skipping: test audio file not found");
+      const listBody = new Uint8Array(await listResponse.arrayBuffer());
 
-        return;
-      }
+      // #then
+      expect({ status: listResponse.status, body: listBody }).toEqual({
+        status: 200,
+        body: expectedAudio,
+      });
 
       const rangeResponse = await fetch(
         `${BASE_URL}/audiobooks/test/Test%20Author/Test%20Audiobook/01%20-%20Chapter%20One.mp3`,
