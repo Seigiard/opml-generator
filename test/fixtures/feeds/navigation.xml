@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed>
+  <title>Parent &amp; Group</title>
+  <link>/Parent/feed.xml</link>
+  <item>
+    <title>Podcast One</title>
+    <link>/Parent/Podcast%20One/feed.xml</link>
+    <description>3 items</description>
+    <kind>podcast</kind>
+  </item>
+  <item>
+    <title>Nested Group</title>
+    <link>/Parent/Nested%20Group/feed.xml</link>
+    <description>2 items</description>
+    <kind>navigation</kind>
+  </item>
+  <item>
+    <title>Legacy Child</title>
+    <link>/Parent/Legacy%20Child/feed.xml</link>
+    <description>1 item</description>
+  </item>
+</feed>

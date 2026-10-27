@@ -79,6 +79,14 @@ interface FolderChild {
   title: string;
   href: string;
   feedCount: number;
+  kind?: "podcast" | "navigation";
+}
+
+interface NavigationItem {
+  title: string;
+  link: string;
+  description: string;
+  kind?: "podcast" | "navigation";
 }
 
 function parseFolderEntryXml(content: string): FolderChild | null {
@@ -88,11 +96,15 @@ function parseFolderEntryXml(content: string): FolderChild | null {
 
     if (!folder) return null;
 
-    return {
+    const child: FolderChild = {
       title: String(folder.title ?? ""),
       href: String(folder.href ?? ""),
       feedCount: Number(folder.feedCount ?? 0),
     };
+
+    if (folder.kind === "podcast" || folder.kind === "navigation") child.kind = folder.kind;
+
+    return child;
   } catch {
     return null;
   }
@@ -283,6 +295,7 @@ export async function folderMetaSync(
           title: folderName,
           href: selfHref,
           feedCount: episodes.length + folders.length,
+          kind: hasEpisodes ? "podcast" : "navigation",
         },
       }) as string;
 
@@ -369,11 +382,17 @@ async function collectChildren(
 function buildNavigationFeed(title: string, relativePath: string, folders: FolderChild[]): string {
   folders.sort((a, b) => naturalSort(a.title, b.title));
 
-  const items = folders.map((f) => ({
-    title: f.title,
-    link: f.href,
-    description: `${f.feedCount} items`,
-  }));
+  const items = folders.map((f): NavigationItem => {
+    const item: NavigationItem = {
+      title: f.title,
+      link: f.href,
+      description: `${f.feedCount} items`,
+    };
+
+    if (f.kind !== undefined) item.kind = f.kind;
+
+    return item;
+  });
 
   // SAFETY: XMLBuilder.build returns XML text with this builder configuration.
   return xmlBuilder.build({

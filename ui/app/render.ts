@@ -49,7 +49,11 @@ export function renderPodcastList(
       body.appendChild(description);
     }
 
-    body.appendChild(renderSubscribe(document, podcast.xmlUrl, navigatorFor(document)));
+    if (!model.navigation || podcast.kind === "podcast") {
+      const feedUrl = new URL(podcast.xmlUrl, origin).href;
+      body.appendChild(renderSubscribe(document, feedUrl, navigatorFor(document)));
+    }
+
     item.appendChild(body);
     list.appendChild(item);
   }

@@ -4,11 +4,13 @@ interface PodcastListEntry {
   author?: string;
   description?: string;
   imageUrl?: string;
+  kind?: "podcast" | "navigation";
 }
 
 export interface PodcastList {
   title: string;
   podcasts: PodcastListEntry[];
+  navigation?: boolean;
 }
 
 interface PodcastEpisode {
@@ -25,6 +27,8 @@ export interface Podcast {
   imageUrl?: string;
   episodes: PodcastEpisode[];
 }
+
+type ParsedFeed = { kind: "navigation"; model: PodcastList } | { kind: "podcast"; model: Podcast };
 
 export function parseOpml(text: string): PodcastList {
   const document = parseXml(text);
@@ -45,9 +49,40 @@ export function parseOpml(text: string): PodcastList {
   };
 }
 
+/** @public */
 export function parseRss(text: string): Podcast {
   const document = parseXml(text);
 
+  return parseRssDocument(document);
+}
+
+export function parseFeed(text: string): ParsedFeed {
+  const document = parseXml(text);
+
+  if (document.documentElement && localName(document.documentElement) === "feed") {
+    return { kind: "navigation", model: parseNavigationDocument(document) };
+  }
+
+  return { kind: "podcast", model: parseRssDocument(document) };
+}
+
+function parseNavigationDocument(document: XMLDocument): PodcastList {
+  const feed = document.documentElement;
+  const items = feed ? childrenNamed(feed, "item") : [];
+
+  return {
+    title: feed ? (textOf(childNamed(feed, "title")) ?? "") : "",
+    podcasts: items.map((item) => ({
+      title: textOf(childNamed(item, "title")) ?? "",
+      xmlUrl: textOf(childNamed(item, "link")) ?? "",
+      ...optionalChildText(item, "description"),
+      ...optionalKind(item),
+    })),
+    navigation: true,
+  };
+}
+
+function parseRssDocument(document: XMLDocument): Podcast {
   const channel = document.documentElement
     ? childNamed(document.documentElement, "channel")
     : undefined;
@@ -107,6 +142,12 @@ function optionalChildText(element: Element, name: string): Record<string, strin
   const value = textOf(child);
 
   return child && value !== undefined ? { [name]: value } : {};
+}
+
+function optionalKind(element: Element): Record<string, "podcast" | "navigation"> {
+  const value = textOf(childNamed(element, "kind"));
+
+  return value === "podcast" || value === "navigation" ? { kind: value } : {};
 }
 
 function optionalImage(channel: Element): Record<string, string> {

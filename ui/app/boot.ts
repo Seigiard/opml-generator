@@ -1,4 +1,4 @@
-import { parseOpml, parseRss } from "./parse-feed.ts";
+import { parseFeed, parseOpml } from "./parse-feed.ts";
 import { renderPodcast, renderPodcastList } from "./render.ts";
 import { feedUrlFor, normalizePath } from "./routes.ts";
 
@@ -57,10 +57,18 @@ export async function boot(options: BootOptions): Promise<void> {
         app.replaceChildren(renderPodcastList(options.document, model, options.location.origin));
         options.document.title = model.title;
       } else {
-        const model = parseRss(text);
-        const feedUrl = new URL(route.feedUrl, options.location.origin).href;
-        app.replaceChildren(renderPodcast(options.document, model, feedUrl));
-        options.document.title = model.title;
+        const feed = parseFeed(text);
+
+        if (feed.kind === "navigation") {
+          app.replaceChildren(
+            renderPodcastList(options.document, feed.model, options.location.origin),
+          );
+          options.document.title = feed.model.title;
+        } else {
+          const feedUrl = new URL(route.feedUrl, options.location.origin).href;
+          app.replaceChildren(renderPodcast(options.document, feed.model, feedUrl));
+          options.document.title = feed.model.title;
+        }
       }
 
       return;
