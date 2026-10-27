@@ -5,6 +5,7 @@ services:
       target: development
     volumes:
       - ./src:/app/src:ro
+      - ./static:/app/static:ro
       - ./test:/app/test:ro
       - ./files:/app/files:ro
       - ./bunfig.toml:/app/bunfig.toml:ro
