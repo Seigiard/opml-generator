@@ -33,22 +33,49 @@ http {
         # Use relative redirects (no host prefix)
         absolute_redirect off;
 
-        # Root redirect to feed.opml
+        # The browser shell is served for the root page. The shell fetches the
+        # machine-readable OPML feed in the browser.
         location = / {
-            return 302 /feed.opml;
+            root /app/static;
+            try_files /index.html =404;
+            add_header Cache-Control "no-cache";
+            add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
         }
 
-        # Static assets from /static folder
-        location /static/ {
+        # Static shell assets are private to the shell namespace.
+        location = /_app/ {
+            return 404;
+        }
+
+        location = /_app/index.html {
+            return 404;
+        }
+
+        location /_app/ {
             alias /app/static/;
-            expires 1d;
-            add_header Cache-Control "public, immutable";
+            add_header Cache-Control "no-cache";
+            types {
+                text/javascript js;
+                text/css css;
+                image/svg+xml svg;
+                image/png png;
+                image/x-icon ico;
+                application/manifest+json webmanifest;
+            }
+        }
+
+        location /static/ {
+            return 404;
         }
 
         # Publication readiness from Bun lifecycle
         location = /ready {
             proxy_pass http://127.0.0.1:${BUN_PORT}/ready;
             proxy_set_header Host $host;
+        }
+
+        location = /events {
+            return 404;
         }
 
         # Admin endpoint: /resync (only if auth configured)
@@ -103,13 +130,13 @@ http {
             error_page 404 = @check_initializing;
         }
 
-        # All other paths - serve from /data
+        # Every other browser path receives the same static shell. The browser
+        # fetches the feed that corresponds to the path.
         location / {
-            root /data;
-            try_files $cache_uri $cache_uri/ =404;
-
-            # 503 for missing feed.opml (initializing)
-            error_page 404 = @check_initializing;
+            root /app/static;
+            try_files /index.html =404;
+            add_header Cache-Control "no-cache";
+            add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
         }
 
         location @check_initializing {
@@ -125,7 +152,7 @@ http {
         location @initializing {
             default_type application/json;
             return 503 '{"status":"initializing","message":"Server is starting, please retry later"}';
-            add_header Retry-After 5;
+            add_header Retry-After 5 always;
         }
     }
 }
