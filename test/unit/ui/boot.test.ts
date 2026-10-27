@@ -36,6 +36,99 @@ afterAll(() => {
 });
 
 describe("boot", () => {
+  test("renders a navigation feed as an ordered child list with podcast-only subscriptions", async () => {
+    // #given
+    const window = new Window({ url: "https://library.example/Parent/" });
+
+    const text = await Bun.file(
+      new URL("../../fixtures/feeds/navigation.xml", import.meta.url),
+    ).text();
+
+    const { boot } = await import(BOOT_MODULE);
+
+    // #when
+    await boot({
+      document: window.document,
+      location: window.location,
+      history: window.history,
+      fetch: requireGlobalReceiver(async () => new Response(text, { status: 200 })),
+      setTimeout: requireGlobalReceiver(() => 1),
+    });
+
+    const items = Array.from(window.document.querySelectorAll("ul.podcasts > li.podcast"));
+
+    // #then
+    expect({
+      documentTitle: window.document.title,
+      heading: window.document.querySelector("h1")?.textContent,
+      items: items.map((item) => ({
+        title: item.querySelector("a.podcast__title")?.textContent,
+        href: item.querySelector("a.podcast__title")?.getAttribute("href"),
+        subscribe: item.querySelector("small.subscribe a:last-child")?.getAttribute("href") ?? null,
+      })),
+      podcastHeaderCount: window.document.querySelectorAll("header.feed-header").length,
+      episodeListCount: window.document.querySelectorAll("ol.episodes").length,
+    }).toEqual({
+      documentTitle: "Parent & Group",
+      heading: "Parent & Group",
+      items: [
+        {
+          title: "Podcast One",
+          href: "/Parent/Podcast%20One/",
+          subscribe: "antennapod-subscribe://library.example/Parent/Podcast%20One/feed.xml",
+        },
+        {
+          title: "Nested Group",
+          href: "/Parent/Nested%20Group/",
+          subscribe: null,
+        },
+        {
+          title: "Legacy Child",
+          href: "/Parent/Legacy%20Child/",
+          subscribe: null,
+        },
+      ],
+      podcastHeaderCount: 0,
+      episodeListCount: 0,
+    });
+  });
+
+  test("keeps rendering podcast RSS as a podcast page", async () => {
+    // #given
+    const window = new Window({ url: "https://library.example/books/first/" });
+
+    const text = await Bun.file(
+      new URL("../../fixtures/feeds/podcast.xml", import.meta.url),
+    ).text();
+
+    const { boot } = await import(BOOT_MODULE);
+
+    // #when
+    await boot({
+      document: window.document,
+      location: window.location,
+      history: window.history,
+      fetch: requireGlobalReceiver(async () => new Response(text, { status: 200 })),
+      setTimeout: requireGlobalReceiver(() => 1),
+    });
+
+    // #then
+    expect({
+      documentTitle: window.document.title,
+      title: window.document.querySelector("h1.feed-header__title")?.textContent,
+      episodes: Array.from(
+        window.document.querySelectorAll("ol.episodes > li.episode a.episode__title"),
+        (episode) => episode.textContent,
+      ),
+      navigationListCount: window.document.querySelectorAll("ul.podcasts").length,
+    }).toEqual({
+      documentTitle: "First & Finest",
+      title: "First & Finest",
+      episodes: ["Opening <b>Chapter</b>", "Long Chapter"],
+      navigationListCount: 0,
+    });
+  });
+
   test("normalizes a folder path before fetching its RSS feed", async () => {
     // #given
     const window = new Window({ url: "https://library.example/books/first" });
