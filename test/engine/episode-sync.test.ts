@@ -514,7 +514,7 @@ describe("episode sync engine composition", () => {
         openEpisodeSynchronization({
           ...bumped.deps,
           reconcileIntervalMs: 0,
-          processingVersions: { folder: "2" },
+          processingVersions: { folder: "3" },
         }),
       ),
     );

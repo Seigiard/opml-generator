@@ -44,7 +44,7 @@ const supported = new Set(AUDIO_EXTENSIONS.map((extension) => `.${extension}`));
 
 const EPISODE_PROCESSING_VERSION = "1";
 
-const FOLDER_PROCESSING_VERSION = "1";
+const FOLDER_PROCESSING_VERSION = "2";
 
 function audioEntries(entries: readonly SourceEntry[]): EpisodeWork[] {
   return entries.flatMap((entry) => {
