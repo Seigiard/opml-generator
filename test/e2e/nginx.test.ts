@@ -8,6 +8,14 @@ const SHELL_CSP =
 
 const PODCAST_PATH = "/test/Test%20Author/Test%20Audiobook/";
 
+const BROWSE_PODCAST_PATH = "/browse/test/Test%20Author/Test%20Audiobook/";
+
+const COLLISION_BOOK_PATH = "/audiobooks/Collision%20Book/";
+
+const BROWSE_COLLISION_BOOK_PATH = "/browse/audiobooks/Collision%20Book/";
+
+const BROWSE_SOURCE_BOOK_PATH = "/browse/browse/Browse%20Book/";
+
 async function waitForServer(maxWaitMs = 30000): Promise<void> {
   const start = Date.now();
 
@@ -66,16 +74,50 @@ describe("nginx integration", () => {
         contentType: "text/html",
         cacheControl: "no-cache",
         csp: SHELL_CSP,
-        feedFallbacks: ["/feed.opml", "feed.xml"],
+        feedFallbacks: ["/feed.opml"],
         moduleScripts: 1,
         stylesheets: 1,
         icons: 1,
       });
     });
 
-    test("GET a podcast folder returns the same no-cache HTML shell", async () => {
+    test.each([BROWSE_PODCAST_PATH, "/browse/", BROWSE_SOURCE_BOOK_PATH])(
+      "GET %s returns the no-cache HTML shell",
+      async (path) => {
+        // #given / #when
+        const response = await fetch(`${BASE_URL}${path}`, { redirect: "manual" });
+
+        // #then
+        expect({
+          status: response.status,
+          contentType: response.headers.get("content-type")?.split(";")[0],
+          cacheControl: response.headers.get("cache-control"),
+          csp: response.headers.get("content-security-policy"),
+        }).toEqual({
+          status: 200,
+          contentType: "text/html",
+          cacheControl: "no-cache",
+          csp: SHELL_CSP,
+        });
+      },
+    );
+
+    test("GET /browse redirects to /browse/", async () => {
       // #given / #when
-      const response = await fetch(`${BASE_URL}${PODCAST_PATH}`, { redirect: "manual" });
+      const response = await fetch(`${BASE_URL}/browse`, { redirect: "manual" });
+
+      // #then
+      expect({ status: response.status, location: response.headers.get("location") }).toEqual({
+        status: 301,
+        location: "/browse/",
+      });
+    });
+
+    test("GET a browser page for a folder named audiobooks returns the shell", async () => {
+      // #given / #when
+      const response = await fetch(`${BASE_URL}${BROWSE_COLLISION_BOOK_PATH}`, {
+        redirect: "manual",
+      });
 
       // #then
       expect({
@@ -161,12 +203,47 @@ describe("nginx integration", () => {
         isXml: body.startsWith("<?xml") && body.includes("<rss"),
       }).toEqual({ status: 200, contentType: "text/xml", isXml: true });
     });
+
+    test("GET the collision fixture feed keeps the machine-readable RSS endpoint", async () => {
+      // #given / #when
+      const response = await fetch(`${BASE_URL}${COLLISION_BOOK_PATH}feed.xml`);
+      const body = await response.text();
+
+      // #then
+      expect({
+        status: response.status,
+        contentType: response.headers.get("content-type")?.split(";")[0],
+        isXml: body.startsWith("<?xml") && body.includes("<rss"),
+      }).toEqual({ status: 200, contentType: "text/xml", isXml: true });
+    });
+
+    test("GET a feed below a source folder named browse keeps the machine-readable RSS endpoint", async () => {
+      // #given / #when
+      const response = await fetch(`${BASE_URL}/browse/Browse%20Book/feed.xml`);
+      const body = await response.text();
+
+      // #then
+      expect({
+        status: response.status,
+        contentType: response.headers.get("content-type")?.split(";")[0],
+        isXml: body.startsWith("<?xml") && body.includes("<rss"),
+      }).toEqual({ status: 200, contentType: "text/xml", isXml: true });
+    });
   });
 
   describe("directory index", () => {
-    test("GET /nonexistent/ returns the browser shell", async () => {
-      const response = await fetch(`${BASE_URL}/nonexistent/`, { redirect: "manual" });
-      expect(response.status).toBe(200);
+    test.each([
+      PODCAST_PATH,
+      "/nonexistent/",
+      COLLISION_BOOK_PATH,
+      "/browse/books/art.jpg",
+      "/browse/books/feed.xml",
+    ])("GET %s returns 404 outside the browser namespace", async (path) => {
+      // #given / #when
+      const response = await fetch(`${BASE_URL}${path}`, { redirect: "manual" });
+
+      // #then
+      expect({ status: response.status }).toEqual({ status: 404 });
     });
   });
 
@@ -197,9 +274,38 @@ describe("nginx integration", () => {
   });
 
   describe("audio file serving", () => {
-    test("GET /audiobooks/ path returns audio content or 404", async () => {
+    test("GET a missing audio path returns 404", async () => {
+      // #given / #when
       const response = await fetch(`${BASE_URL}/audiobooks/nonexistent.mp3`);
-      expect([200, 404]).toContain(response.status);
+
+      // #then
+      expect({ status: response.status }).toEqual({ status: 404 });
+    });
+
+    test("GET the collision fixture streams MPEG audio", async () => {
+      // #given / #when
+      const response = await fetch(
+        `${BASE_URL}/audiobooks/audiobooks/Collision%20Book/01%20-%20Collision%20Chapter.mp3`,
+      );
+
+      // #then
+      expect({
+        status: response.status,
+        contentType: response.headers.get("content-type")?.split(";")[0],
+      }).toEqual({ status: 200, contentType: "audio/mpeg" });
+    });
+
+    test("GET the browse fixture streams MPEG audio", async () => {
+      // #given / #when
+      const response = await fetch(
+        `${BASE_URL}/audiobooks/browse/Browse%20Book/01%20-%20Browse%20Chapter.mp3`,
+      );
+
+      // #then
+      expect({
+        status: response.status,
+        contentType: response.headers.get("content-type")?.split(";")[0],
+      }).toEqual({ status: 200, contentType: "audio/mpeg" });
     });
 
     test("Range request returns 206 for existing audio", async () => {

@@ -14,38 +14,38 @@ describe("feedUrlFor", () => {
     expect(route).toEqual({ feedUrl: "/feed.opml", kind: "list" });
   });
 
-  test("maps a folder page to its RSS feed", async () => {
+  test.each([
+    ["/browse/books/first/", { feedUrl: "/books/first/feed.xml", kind: "podcast" }],
+    ["/browse/", { feedUrl: "/feed.xml", kind: "podcast" }],
+    ["/browse//evil.example/x/", null],
+    ["/books/first/", null],
+  ])("maps %s according to the browser URL contract", async (pathname, expected) => {
     // #given
     const { feedUrlFor } = await import(ROUTES_MODULE);
 
     // #when
-    const route = feedUrlFor("/books/first/");
+    const route = feedUrlFor(pathname);
 
     // #then
-    expect(route).toEqual({ feedUrl: "/books/first/feed.xml", kind: "podcast" });
+    expect(route).toEqual(expected);
   });
 });
 
 describe("normalizePath", () => {
-  test("returns a trailing-slash path for a folder path", async () => {
+  test.each([
+    ["/browse/books/first", "/browse/books/first/"],
+    ["/browse", "/browse/"],
+    ["/browse/books/first/", null],
+    ["/browse//evil.example/x", null],
+    ["/books/first", null],
+  ])("normalizes %s according to the browser URL contract", async (pathname, expected) => {
     // #given
     const { normalizePath } = await import(ROUTES_MODULE);
 
     // #when
-    const normalized = normalizePath("/books/first");
+    const normalized = normalizePath(pathname);
 
     // #then
-    expect(normalized).toBe("/books/first/");
-  });
-
-  test("does not replace a path that already has a trailing slash", async () => {
-    // #given
-    const { normalizePath } = await import(ROUTES_MODULE);
-
-    // #when
-    const normalized = normalizePath("/books/first/");
-
-    // #then
-    expect(normalized).toBeNull();
+    expect(normalized).toEqual(expected);
   });
 });

@@ -19,8 +19,8 @@ describe("renderPodcastList", () => {
           imageUrl: "https://library.example/covers/first.jpg",
         },
         {
-          title: "Minimal Podcast",
-          xmlUrl: "https://library.example/books/minimal/feed.xml",
+          title: "Root Podcast",
+          xmlUrl: "https://library.example/feed.xml",
         },
       ],
     };
@@ -45,10 +45,10 @@ describe("renderPodcastList", () => {
         alt: first.querySelector("img.podcast__cover")?.getAttribute("alt"),
       },
       body: first.querySelector("div.podcast__body")?.tagName,
-      title: {
-        text: first.querySelector("a.podcast__title")?.textContent,
-        href: first.querySelector("a.podcast__title")?.getAttribute("href"),
-      },
+      titleLinks: [first, second].map((item) => ({
+        text: item.querySelector("a.podcast__title")?.textContent,
+        href: item.querySelector("a.podcast__title")?.getAttribute("href"),
+      })),
       author: first.querySelector("small.podcast__author")?.textContent,
       description: first.querySelector("p.podcast__desc")?.textContent,
       subscribe: [
@@ -74,10 +74,10 @@ describe("renderPodcastList", () => {
         alt: "",
       },
       body: "DIV",
-      title: {
-        text: "First & Finest",
-        href: "/books/first/",
-      },
+      titleLinks: [
+        { text: "First & Finest", href: "/browse/books/first/" },
+        { text: "Root Podcast", href: "/browse/" },
+      ],
       author: "Ada Author",
       description: "A narrated collection",
       subscribe: [

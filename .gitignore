@@ -36,9 +36,17 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Runtime data
 data/
 files/*
+!files/audiobooks/
+files/audiobooks/*
+!files/audiobooks/Collision Book/
+!files/audiobooks/Collision Book/**
+!files/browse/
+files/browse/*
+!files/browse/Browse Book/
+!files/browse/Browse Book/**
 !files/test/
 !files/test/**
-files/test/.DS_Store
+files/**/.DS_Store
 
 docs/superpowers
 .worktrees
