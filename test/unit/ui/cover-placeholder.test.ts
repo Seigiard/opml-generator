@@ -2,12 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { coverPlaceholder } from "../../../ui/app/cover-placeholder.ts";
 
 describe("coverPlaceholder", () => {
-  // Expected values come from the published FNV-1a 32-bit vectors
-  // ("a" = 0xe40c292c, "foobar" = 0xbf9cf968) packed by hand into the
-  // cells/lightness/chroma layout and shifted down by 2^19.
+  // Expected values are the low 20 bits of the published FNV-1a 32-bit vectors
+  // ("" = 0x811c9dc5, "a" = 0xe40c292c, "foobar" = 0xbf9cf968); the Cyrillic
+  // value was computed independently in Python by Seigiard/opds-generator,
+  // which must produce the same codes.
   test.each([
-    ["a", 272748],
-    ["foobar", 326056],
+    ["", 826821],
+    ["a", 796972],
+    ["foobar", 850280],
+    ["война и мир", 599160],
   ])("encodes %p as %i", (title, expected) => {
     // #given
     // #when
@@ -29,20 +32,18 @@ describe("coverPlaceholder", () => {
     expect(results[0]).toBe(results[1]);
   });
 
-  test("keeps every value inside the 20-bit range and the two middle lightness levels", () => {
+  test("keeps every value an unsigned 20-bit integer", () => {
     // #given
     const titles = Array.from({ length: 64 }, (_, index) => `Audiobook ${index}`);
 
     // #when
-    const violations = titles.flatMap((title) => {
-      const unsigned = coverPlaceholder(title) + 2 ** 19;
-      const lightness = (unsigned >> 6) & 3;
-      const inRange = Number.isInteger(unsigned) && unsigned >= 0 && unsigned < 2 ** 20;
+    const outOfRange = titles.filter((title) => {
+      const code = coverPlaceholder(title);
 
-      return inRange && (lightness === 1 || lightness === 2) ? [] : [{ title, unsigned }];
+      return !Number.isInteger(code) || code < 0 || code >= 2 ** 20;
     });
 
     // #then
-    expect(violations).toEqual([]);
+    expect(outOfRange).toEqual([]);
   });
 });

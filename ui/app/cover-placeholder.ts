@@ -2,33 +2,28 @@ const FNV_OFFSET_BASIS = 0x811c9dc5;
 
 const FNV_PRIME = 0x01000193;
 
-// Values are centered on zero because larger custom-property integers lose
-// precision in browsers; the CSS decoder adds the offset back.
-const LQIP_OFFSET = 2 ** 19;
+const LQIP_MASK = 0xfffff;
 
 const encoder = new TextEncoder();
 
 /**
- * Encodes a title as the 20-bit `--lqip` value the `.cover` styles decode:
- * six 2-bit greyscale cells (bits 8–19), a 2-bit Oklab lightness (bits 6–7),
- * and 3-bit Oklab a and b (bits 3–5, 0–2).
+ * 20-bit `--lqip` code derived from a title, decoded by the `.cover` styles.
+ * Bit layout follows https://leanrada.com/notes/css-only-lqip/, stored
+ * unsigned instead of the article's -2^19 offset:
+ *   bits 19..8  six 2-bit grey cells, 3x2, top-left first
+ *   bits  7..6  L of the Oklab base colour
+ *   bits  5..3  a, bits 2..0  b
+ * The CSS limits L to the two lightest levels, scales a/b to pastel chroma,
+ * and keeps grey cells at 40% opacity so the base hue shows through.
+ * Seigiard/opds-generator encodes book titles the same way; keep the two in
+ * step so one title gets one code and one picture in both viewers.
  */
 export function coverPlaceholder(title: string): number {
-  const hash = fnv1a(title.trim().normalize("NFC").toLowerCase());
-  const cells = (hash >>> 8) & 0xfff;
-  // Only the two middle lightness levels, so no placeholder is near-black or near-white.
-  const lightness = 1 + ((hash >>> 6) & 1);
-  const chroma = hash & 0x3f;
-
-  return ((cells << 8) | (lightness << 6) | chroma) - LQIP_OFFSET;
-}
-
-function fnv1a(text: string): number {
   let hash = FNV_OFFSET_BASIS;
 
-  for (const byte of encoder.encode(text)) {
-    hash = Math.imul(hash ^ byte, FNV_PRIME);
+  for (const byte of encoder.encode(title.trim().normalize("NFC").toLowerCase())) {
+    hash = Math.imul(hash ^ byte, FNV_PRIME) >>> 0;
   }
 
-  return hash >>> 0;
+  return hash & LQIP_MASK;
 }

@@ -232,7 +232,7 @@ describe("renderPodcast", () => {
 });
 
 describe("cover placeholder", () => {
-  // --lqip values are the hand-packed FNV-1a vectors pinned in cover-placeholder.test.ts.
+  // --lqip values are the FNV-1a vectors pinned in cover-placeholder.test.ts.
   test("sets a title placeholder on every cover, with or without an image", async () => {
     // #given
     const document = createUiWindow("https://library.example/").document;
@@ -279,9 +279,9 @@ describe("cover placeholder", () => {
         image: cover?.querySelector("img")?.getAttribute("src") ?? null,
       })),
     ).toEqual([
-      { lqip: "272748", image: "https://library.example/books/a/cover.jpg" },
-      { lqip: "326056", image: null },
-      { lqip: "326056", image: null },
+      { lqip: "796972", image: "https://library.example/books/a/cover.jpg" },
+      { lqip: "850280", image: null },
+      { lqip: "850280", image: null },
     ]);
   });
 
@@ -305,7 +305,7 @@ describe("cover placeholder", () => {
     expect({
       imageCount: cover?.querySelectorAll("img").length,
       lqip: cover?.style.getPropertyValue("--lqip"),
-    }).toEqual({ imageCount: 0, lqip: "272748" });
+    }).toEqual({ imageCount: 0, lqip: "796972" });
   });
 });
 
