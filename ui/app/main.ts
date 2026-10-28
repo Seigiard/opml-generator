@@ -1,7 +1,7 @@
 import { boot } from "./boot.ts";
 
 function start(): void {
-  void boot({ document, fetch, location, history, setTimeout });
+  void boot({ document, fetch, location, history, setTimeout, navigation: window.navigation });
 }
 
 if (document.readyState === "loading") {
