@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Node } from "happy-dom";
+import type { HTMLElement, Node } from "happy-dom";
 import { createUiWindow } from "../../helpers/ui-document.ts";
 
 const RENDER_MODULE = "../../../ui/app/render.ts";
@@ -42,8 +42,8 @@ describe("renderPodcastList", () => {
       list: root.querySelector("ul")?.className,
       itemCount: items.length,
       cover: {
-        src: first.querySelector("img.podcast__cover")?.getAttribute("src"),
-        alt: first.querySelector("img.podcast__cover")?.getAttribute("alt"),
+        src: first.querySelector(".podcast__cover img")?.getAttribute("src"),
+        alt: first.querySelector(".podcast__cover img")?.getAttribute("alt"),
       },
       body: first.querySelector("div.podcast__body")?.tagName,
       titleLinks: [first, second].map((item) => ({
@@ -63,7 +63,7 @@ describe("renderPodcastList", () => {
         },
       ],
       minimalOptionalElementCount: second.querySelectorAll(
-        ".podcast__cover, .podcast__author, .podcast__desc",
+        ".podcast__cover img, .podcast__author, .podcast__desc",
       ).length,
     }).toEqual({
       root: "MAIN",
@@ -163,7 +163,7 @@ describe("renderPodcast", () => {
         href: root.querySelector("nav a")?.getAttribute("href"),
       },
       header: root.querySelector("header")?.className,
-      cover: root.querySelector("img.feed-header__cover")?.getAttribute("src"),
+      cover: root.querySelector(".feed-header__cover img")?.getAttribute("src"),
       info: root.querySelector("hgroup")?.className,
       title: root.querySelector("h1.feed-header__title")?.textContent,
       author: root.querySelector("p.feed-header__author")?.textContent,
@@ -224,10 +224,88 @@ describe("renderPodcast", () => {
     // #then
     expect({
       optionalMetadataCount: root.querySelectorAll(
-        ".feed-header__cover, .feed-header__author, .feed-header__desc",
+        ".feed-header__cover img, .feed-header__author, .feed-header__desc",
       ).length,
       durationCount: root.querySelectorAll(".episode__duration").length,
     }).toEqual({ optionalMetadataCount: 0, durationCount: 0 });
+  });
+});
+
+describe("cover placeholder", () => {
+  // --lqip values are the hand-packed FNV-1a vectors pinned in cover-placeholder.test.ts.
+  test("sets a title placeholder on every cover, with or without an image", async () => {
+    // #given
+    const document = createUiWindow("https://library.example/").document;
+    const { renderPodcast, renderPodcastList } = await import(RENDER_MODULE);
+
+    // #when
+    const list = renderPodcastList(
+      document,
+      {
+        title: "Library",
+        navigation: true,
+        podcasts: [
+          {
+            title: "a",
+            xmlUrl: "https://library.example/books/a/feed.xml",
+            kind: "podcast",
+            imageUrl: "https://library.example/books/a/cover.jpg",
+          },
+          {
+            title: "foobar",
+            xmlUrl: "https://library.example/books/foobar/feed.xml",
+            kind: "navigation",
+          },
+        ],
+      },
+      "https://library.example",
+    );
+
+    const page = renderPodcast(
+      document,
+      { title: "foobar", episodes: [] },
+      "https://library.example/books/foobar/feed.xml",
+    );
+
+    const covers: (HTMLElement | null)[] = [
+      ...list.querySelectorAll(".podcast__cover"),
+      page.querySelector(".feed-header__cover"),
+    ];
+
+    // #then
+    expect(
+      covers.map((cover) => ({
+        lqip: cover?.style.getPropertyValue("--lqip"),
+        image: cover?.querySelector("img")?.getAttribute("src") ?? null,
+      })),
+    ).toEqual([
+      { lqip: "272748", image: "https://library.example/books/a/cover.jpg" },
+      { lqip: "326056", image: null },
+      { lqip: "326056", image: null },
+    ]);
+  });
+
+  test("removes a cover image that fails to load and keeps the placeholder", async () => {
+    // #given
+    const window = createUiWindow("https://library.example/books/a/");
+    const { renderPodcast } = await import(RENDER_MODULE);
+
+    const root = renderPodcast(
+      window.document,
+      { title: "a", imageUrl: "https://library.example/books/a/cover.jpg", episodes: [] },
+      "https://library.example/books/a/feed.xml",
+    );
+
+    const cover: HTMLElement | null = root.querySelector(".feed-header__cover");
+
+    // #when
+    cover?.querySelector("img")?.dispatchEvent(new window.Event("error"));
+
+    // #then
+    expect({
+      imageCount: cover?.querySelectorAll("img").length,
+      lqip: cover?.style.getPropertyValue("--lqip"),
+    }).toEqual({ imageCount: 0, lqip: "272748" });
   });
 });
 

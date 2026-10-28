@@ -1,3 +1,4 @@
+import { coverPlaceholder } from "./cover-placeholder.ts";
 import { renderCopyOpml, renderSubscribe } from "./subscribe.ts";
 import { cloneTemplate, slot } from "./template.ts";
 import type { Podcast, PodcastList } from "./parse-feed.ts";
@@ -21,9 +22,7 @@ export function renderPodcastList(
   for (const podcast of model.podcasts) {
     const item = cloneTemplate(document, "tpl-podcast-item");
 
-    fillOrRemove(slot(item, "cover"), podcast.imageUrl || undefined, (cover, imageUrl) => {
-      cover.setAttribute("src", imageUrl);
-    });
+    fillCover(slot(item, "cover"), podcast.title, podcast.imageUrl);
 
     const title = slot(item, "title");
     title.setAttribute("href", browserPathFor(podcast.xmlUrl, origin));
@@ -50,9 +49,7 @@ export function renderPodcastList(
 export function renderPodcast(document: Document, model: Podcast, feedUrl: string): HTMLElement {
   const main = cloneTemplate(document, "tpl-podcast-page");
 
-  fillOrRemove(slot(main, "cover"), model.imageUrl || undefined, (cover, imageUrl) => {
-    cover.setAttribute("src", imageUrl);
-  });
+  fillCover(slot(main, "cover"), model.title, model.imageUrl);
 
   slot(main, "title").textContent = model.title;
   fillText(slot(main, "author"), model.author);
@@ -105,6 +102,18 @@ function pad(value: number): string {
 
 function navigatorFor(document: Document): Navigator {
   return document.defaultView?.navigator ?? globalThis.navigator;
+}
+
+// The placeholder is the cover's background, so it shows while the image
+// loads, when there is none, and after a failed load removes the image.
+function fillCover(cover: HTMLElement, title: string, imageUrl: string | undefined): void {
+  // CSSOM, not a style attribute: the shell's CSP is style-src 'self'.
+  cover.style.setProperty("--lqip", String(coverPlaceholder(title)));
+
+  fillOrRemove(slot(cover, "cover-image"), imageUrl || undefined, (image, url) => {
+    image.addEventListener("error", () => image.remove(), { once: true });
+    image.setAttribute("src", url);
+  });
 }
 
 function fillText(element: HTMLElement, text: string | undefined): void {

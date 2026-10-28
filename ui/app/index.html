@@ -17,7 +17,9 @@
     </template>
     <template id="tpl-podcast-item">
       <li class="podcast">
-        <img class="podcast__cover" alt="" data-slot="cover" />
+        <div class="cover podcast__cover" data-slot="cover">
+          <img class="cover__image" alt="" data-slot="cover-image" />
+        </div>
         <div class="podcast__body">
           <a class="podcast__title" data-slot="title"></a>
           <small class="podcast__author" data-slot="author"></small>
@@ -30,7 +32,9 @@
       <main>
         <nav><a href="/">← Back</a></nav>
         <header class="feed-header">
-          <img class="feed-header__cover" alt="" data-slot="cover" />
+          <div class="cover feed-header__cover" data-slot="cover">
+            <img class="cover__image" alt="" data-slot="cover-image" />
+          </div>
           <hgroup class="feed-header__info">
             <h1 class="feed-header__title" data-slot="title"></h1>
             <p class="feed-header__author" data-slot="author"></p>

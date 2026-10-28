@@ -190,10 +190,6 @@ nav a:hover {
 }
 .podcast__cover {
   inline-size: 3.5rem;
-  block-size: 3.5rem;
-  border-radius: 4px;
-  object-fit: cover;
-  flex-shrink: 0;
   margin-inline-start: calc(-3.5rem - 1rem);
 }
 
@@ -242,8 +238,7 @@ nav a:hover {
 }
 
 .feed-header__cover {
-  max-inline-size: 10rem;
-  border-radius: 4px;
+  inline-size: 10rem;
 }
 
 .feed-header__info {
@@ -318,6 +313,101 @@ nav a:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/* --- Cover placeholder --- */
+
+/* Decodes the 20-bit --lqip value set from the podcast title: six greyscale
+   cells in a 3x2 grid, overlaid on an Oklab base colour.
+   https://leanrada.com/notes/css-only-lqip/ */
+.cover {
+  --lqip-ca: mod(round(down, calc((var(--lqip) + pow(2, 19)) / pow(2, 18)), 1), 4);
+  --lqip-cb: mod(round(down, calc((var(--lqip) + pow(2, 19)) / pow(2, 16)), 1), 4);
+  --lqip-cc: mod(round(down, calc((var(--lqip) + pow(2, 19)) / pow(2, 14)), 1), 4);
+  --lqip-cd: mod(round(down, calc((var(--lqip) + pow(2, 19)) / pow(2, 12)), 1), 4);
+  --lqip-ce: mod(round(down, calc((var(--lqip) + pow(2, 19)) / pow(2, 10)), 1), 4);
+  --lqip-cf: mod(round(down, calc((var(--lqip) + pow(2, 19)) / pow(2, 8)), 1), 4);
+  --lqip-ll: mod(round(down, calc((var(--lqip) + pow(2, 19)) / pow(2, 6)), 1), 4);
+  --lqip-aaa: mod(round(down, calc((var(--lqip) + pow(2, 19)) / pow(2, 3)), 1), 8);
+  --lqip-bbb: mod(calc(var(--lqip) + pow(2, 19)), 8);
+  --lqip-ca-l: calc(var(--lqip-ca) / 3 * 60% + 20%);
+  --lqip-cb-l: calc(var(--lqip-cb) / 3 * 60% + 20%);
+  --lqip-cc-l: calc(var(--lqip-cc) / 3 * 60% + 20%);
+  --lqip-cd-l: calc(var(--lqip-cd) / 3 * 60% + 20%);
+  --lqip-ce-l: calc(var(--lqip-ce) / 3 * 60% + 20%);
+  --lqip-cf-l: calc(var(--lqip-cf) / 3 * 60% + 20%);
+  --lqip-base: oklab(
+    calc(var(--lqip-ll) / 3 * 0.6 + 0.2) calc(var(--lqip-aaa) / 8 * 0.7 - 0.35)
+      calc((var(--lqip-bbb) + 1) / 8 * 0.7 - 0.35)
+  );
+  flex-shrink: 0;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 4px;
+  background-color: var(--color-rule);
+  background-image:
+    radial-gradient(
+      50% 75% at 16.67% 25%,
+      hsl(0 0% var(--lqip-ca-l) / 100%),
+      hsl(0 0% var(--lqip-ca-l) / 92%) 20%,
+      hsl(0 0% var(--lqip-ca-l) / 68%) 40%,
+      hsl(0 0% var(--lqip-ca-l) / 32%) 60%,
+      hsl(0 0% var(--lqip-ca-l) / 8%) 80%,
+      transparent
+    ),
+    radial-gradient(
+      50% 75% at 50% 25%,
+      hsl(0 0% var(--lqip-cb-l) / 100%),
+      hsl(0 0% var(--lqip-cb-l) / 92%) 20%,
+      hsl(0 0% var(--lqip-cb-l) / 68%) 40%,
+      hsl(0 0% var(--lqip-cb-l) / 32%) 60%,
+      hsl(0 0% var(--lqip-cb-l) / 8%) 80%,
+      transparent
+    ),
+    radial-gradient(
+      50% 75% at 83.33% 25%,
+      hsl(0 0% var(--lqip-cc-l) / 100%),
+      hsl(0 0% var(--lqip-cc-l) / 92%) 20%,
+      hsl(0 0% var(--lqip-cc-l) / 68%) 40%,
+      hsl(0 0% var(--lqip-cc-l) / 32%) 60%,
+      hsl(0 0% var(--lqip-cc-l) / 8%) 80%,
+      transparent
+    ),
+    radial-gradient(
+      50% 75% at 16.67% 75%,
+      hsl(0 0% var(--lqip-cd-l) / 100%),
+      hsl(0 0% var(--lqip-cd-l) / 92%) 20%,
+      hsl(0 0% var(--lqip-cd-l) / 68%) 40%,
+      hsl(0 0% var(--lqip-cd-l) / 32%) 60%,
+      hsl(0 0% var(--lqip-cd-l) / 8%) 80%,
+      transparent
+    ),
+    radial-gradient(
+      50% 75% at 50% 75%,
+      hsl(0 0% var(--lqip-ce-l) / 100%),
+      hsl(0 0% var(--lqip-ce-l) / 92%) 20%,
+      hsl(0 0% var(--lqip-ce-l) / 68%) 40%,
+      hsl(0 0% var(--lqip-ce-l) / 32%) 60%,
+      hsl(0 0% var(--lqip-ce-l) / 8%) 80%,
+      transparent
+    ),
+    radial-gradient(
+      50% 75% at 83.33% 75%,
+      hsl(0 0% var(--lqip-cf-l) / 100%),
+      hsl(0 0% var(--lqip-cf-l) / 92%) 20%,
+      hsl(0 0% var(--lqip-cf-l) / 68%) 40%,
+      hsl(0 0% var(--lqip-cf-l) / 32%) 60%,
+      hsl(0 0% var(--lqip-cf-l) / 8%) 80%,
+      transparent
+    ),
+    linear-gradient(var(--lqip-base), var(--lqip-base));
+  background-blend-mode: overlay, overlay, overlay, overlay, overlay, overlay, normal;
+}
+
+.cover__image {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
 /* --- Subscribe --- */
 
 .subscribe {
@@ -350,7 +440,7 @@ nav a:hover {
   }
 
   .feed-header__cover {
-    max-inline-size: 8rem;
+    inline-size: 8rem;
   }
 
   .episode,
