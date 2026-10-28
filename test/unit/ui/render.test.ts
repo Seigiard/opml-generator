@@ -81,7 +81,7 @@ describe("renderPodcastList", () => {
       author: "Ada Author",
       description: "A narrated collection",
       subscribe: [
-        { text: "Copy RSS", href: "#" },
+        { text: "Copy RSS", href: "https://library.example/books/first/feed.xml" },
         {
           text: "AntennaPod",
           href: "antennapod-subscribe://library.example/books/first/feed.xml",

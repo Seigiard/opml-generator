@@ -60,7 +60,10 @@ export async function boot(options: BootOptions): Promise<void> {
 
       if (route.kind === "list") {
         const model = parseOpml(text);
-        app.replaceChildren(renderPodcastList(options.document, model, options.location.origin));
+        const opmlUrl = new URL(route.feedUrl, options.location.origin).href;
+        app.replaceChildren(
+          renderPodcastList(options.document, model, options.location.origin, opmlUrl),
+        );
         options.document.title = model.title;
       } else {
         const feed = parseFeed(text);

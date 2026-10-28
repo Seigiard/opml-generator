@@ -1,15 +1,20 @@
-import { renderSubscribe } from "./subscribe.ts";
+import { renderCopyOpml, renderSubscribe } from "./subscribe.ts";
 import type { Podcast, PodcastList } from "./parse-feed.ts";
 
 export function renderPodcastList(
   document: Document,
   model: PodcastList,
   origin: string,
+  opmlUrl?: string,
 ): HTMLElement {
   const main = document.createElement("main");
   const heading = document.createElement("h1");
   heading.textContent = model.title;
   main.appendChild(heading);
+
+  if (opmlUrl !== undefined) {
+    main.appendChild(renderCopyOpml(document, opmlUrl, navigatorFor(document)));
+  }
 
   const list = document.createElement("ul");
   list.className = "podcasts";

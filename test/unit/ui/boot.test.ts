@@ -68,6 +68,7 @@ describe("boot", () => {
       })),
       podcastHeaderCount: window.document.querySelectorAll("header.feed-header").length,
       episodeListCount: window.document.querySelectorAll("ol.episodes").length,
+      libraryLinkCount: window.document.querySelectorAll("main > small.subscribe").length,
     }).toEqual({
       documentTitle: "Parent & Group",
       heading: "Parent & Group",
@@ -90,6 +91,45 @@ describe("boot", () => {
       ],
       podcastHeaderCount: 0,
       episodeListCount: 0,
+      libraryLinkCount: 0,
+    });
+  });
+
+  test("renders the library OPML link under the library heading", async () => {
+    // #given
+    const window = new Window({ url: "https://library.example/" });
+
+    const text = await Bun.file(
+      new URL("../../fixtures/feeds/library.opml", import.meta.url),
+    ).text();
+
+    const { boot } = await import(BOOT_MODULE);
+
+    // #when
+    await boot({
+      document: window.document,
+      location: window.location,
+      history: window.history,
+      fetch: requireGlobalReceiver(async () => new Response(text, { status: 200 })),
+      setTimeout: requireGlobalReceiver(() => 1),
+    });
+
+    const heading = window.document.querySelector("main > h1");
+
+    const libraryLinks = Array.from(
+      window.document.querySelectorAll("main > small.subscribe a"),
+      (link) => ({ text: link.textContent, href: link.getAttribute("href") }),
+    );
+
+    // #then
+    expect({
+      heading: heading?.textContent,
+      followsHeading: heading?.nextElementSibling?.className,
+      libraryLinks,
+    }).toEqual({
+      heading: "Audio Library",
+      followsHeading: "subscribe",
+      libraryLinks: [{ text: "Copy\u00a0OPML", href: "https://library.example/feed.opml" }],
     });
   });
 
