@@ -1,41 +1,50 @@
 import { coverPlaceholder } from "./cover-placeholder.ts";
+import type { Page } from "./page.ts";
 import { renderCopyOpml, renderSubscribe } from "./subscribe.ts";
 import { cloneTemplate, slot } from "./template.ts";
-import type { Podcast, PodcastList } from "./parse-feed.ts";
 
-export function renderPodcastList(
-  document: Document,
-  model: PodcastList,
-  origin: string,
-  opmlUrl?: string,
-): HTMLElement {
+export function renderPage(document: Document, page: Page): HTMLElement {
+  switch (page.kind) {
+    case "building":
+      return renderMessage(document, "library is being built");
+    case "not-found":
+      return renderMessageLink(document, "podcast not found", "Back to library", "/");
+    case "error":
+      return renderMessageLink(document, page.message, "Open raw feed", page.feedUrl);
+    case "list":
+      return renderList(document, page);
+    case "podcast":
+      return renderPodcastPage(document, page);
+  }
+}
+
+function renderList(document: Document, page: Extract<Page, { kind: "list" }>): HTMLElement {
   const main = cloneTemplate(document, "tpl-podcast-list");
   const heading = slot(main, "title");
-  heading.textContent = model.title;
+  heading.textContent = page.title;
 
-  if (opmlUrl !== undefined) {
-    heading.after(renderCopyOpml(document, opmlUrl, navigatorFor(document)));
+  if (page.opmlUrl !== undefined) {
+    heading.after(renderCopyOpml(document, page.opmlUrl, navigatorFor(document)));
   }
 
   const list = slot(main, "podcasts");
 
-  for (const podcast of model.podcasts) {
+  for (const entry of page.entries) {
     const item = cloneTemplate(document, "tpl-podcast-item");
 
-    fillCover(slot(item, "cover"), podcast.title, podcast.imageUrl);
+    fillCover(slot(item, "cover"), entry.title, entry.imageUrl);
 
     const title = slot(item, "title");
-    title.setAttribute("href", browserPathFor(podcast.xmlUrl, origin));
-    title.textContent = podcast.title;
+    title.setAttribute("href", entry.href);
+    title.textContent = entry.title;
 
-    fillText(slot(item, "author"), podcast.author);
-    fillText(slot(item, "description"), podcast.description);
+    fillText(slot(item, "author"), entry.author);
+    fillText(slot(item, "description"), entry.description);
 
     const subscribe = slot(item, "subscribe");
 
-    if (!model.navigation || podcast.kind === "podcast") {
-      const feedUrl = new URL(podcast.xmlUrl, origin).href;
-      subscribe.replaceWith(renderSubscribe(document, feedUrl, navigatorFor(document)));
+    if (entry.subscribeUrl !== undefined) {
+      subscribe.replaceWith(renderSubscribe(document, entry.subscribeUrl, navigatorFor(document)));
     } else {
       subscribe.remove();
     }
@@ -46,23 +55,28 @@ export function renderPodcastList(
   return main;
 }
 
-export function renderPodcast(document: Document, model: Podcast, feedUrl: string): HTMLElement {
+function renderPodcastPage(
+  document: Document,
+  page: Extract<Page, { kind: "podcast" }>,
+): HTMLElement {
   const main = cloneTemplate(document, "tpl-podcast-page");
 
-  fillCover(slot(main, "cover"), model.title, model.imageUrl);
+  fillCover(slot(main, "cover"), page.title, page.imageUrl);
 
-  slot(main, "title").textContent = model.title;
-  fillText(slot(main, "author"), model.author);
-  fillText(slot(main, "description"), model.description);
-  slot(main, "subscribe").replaceWith(renderSubscribe(document, feedUrl, navigatorFor(document)));
+  slot(main, "title").textContent = page.title;
+  fillText(slot(main, "author"), page.author);
+  fillText(slot(main, "description"), page.description);
+  slot(main, "subscribe").replaceWith(
+    renderSubscribe(document, page.subscribeUrl, navigatorFor(document)),
+  );
 
   const episodes = slot(main, "episodes");
 
-  for (const episode of model.episodes) {
+  for (const episode of page.episodes) {
     const item = cloneTemplate(document, "tpl-episode-item");
 
     const episodeTitle = slot(item, "title");
-    episodeTitle.setAttribute("href", episode.enclosureUrl);
+    episodeTitle.setAttribute("href", episode.href);
     episodeTitle.textContent = episode.title;
 
     fillText(
@@ -76,6 +90,28 @@ export function renderPodcast(document: Document, model: Podcast, feedUrl: strin
   return main;
 }
 
+function renderMessage(document: Document, message: string): HTMLElement {
+  const paragraph = cloneTemplate(document, "tpl-message");
+  paragraph.textContent = message;
+
+  return paragraph;
+}
+
+function renderMessageLink(
+  document: Document,
+  message: string,
+  label: string,
+  href: string,
+): HTMLElement {
+  const paragraph = cloneTemplate(document, "tpl-message-link");
+  paragraph.prepend(message, " ");
+  const link = slot(paragraph, "link");
+  link.setAttribute("href", href);
+  link.textContent = label;
+
+  return paragraph;
+}
+
 export function formatDuration(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
@@ -86,14 +122,6 @@ export function formatDuration(seconds: number): string {
   }
 
   return `${minutes}:${pad(remainingSeconds)}`;
-}
-
-function browserPathFor(feedUrl: string, origin: string): string {
-  const path = new URL(feedUrl, origin).pathname;
-  const withoutFeed = path.endsWith("/feed.xml") ? path.slice(0, -"feed.xml".length) : path;
-  const pagePath = withoutFeed.endsWith("/") ? withoutFeed : `${withoutFeed}/`;
-
-  return `/browse${pagePath}`;
 }
 
 function pad(value: number): string {

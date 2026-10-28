@@ -7,7 +7,7 @@ interface PodcastListEntry {
   kind?: "podcast" | "navigation";
 }
 
-export interface PodcastList {
+interface PodcastList {
   title: string;
   podcasts: PodcastListEntry[];
   navigation?: boolean;
@@ -20,7 +20,7 @@ interface PodcastEpisode {
   episodeNumber: number;
 }
 
-export interface Podcast {
+interface Podcast {
   title: string;
   author?: string;
   description?: string;
@@ -47,13 +47,6 @@ export function parseOpml(text: string): PodcastList {
       ...optionalAttribute(outline, "imageUrl"),
     })),
   };
-}
-
-/** @public */
-export function parseRss(text: string): Podcast {
-  const document = parseXml(text);
-
-  return parseRssDocument(document);
 }
 
 export function parseFeed(text: string): ParsedFeed {

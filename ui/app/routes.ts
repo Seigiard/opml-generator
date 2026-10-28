@@ -16,6 +16,14 @@ export function feedUrlFor(pathname: string): FeedRoute | null {
   return { feedUrl: `${normalizedFolderPath}feed.xml`, kind: "podcast" };
 }
 
+export function pagePathFor(feedUrl: string, origin: string): string {
+  const path = new URL(feedUrl, origin).pathname;
+  const withoutFeed = path.endsWith("/feed.xml") ? path.slice(0, -"feed.xml".length) : path;
+  const pagePath = withoutFeed.endsWith("/") ? withoutFeed : `${withoutFeed}/`;
+
+  return `/browse${pagePath}`;
+}
+
 export function normalizePath(pathname: string): string | null {
   if (pathname === "/" || pathname.endsWith("/")) return null;
 

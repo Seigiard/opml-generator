@@ -53,37 +53,40 @@ describe("parseOpml", () => {
   });
 });
 
-describe("parseRss", () => {
-  test("returns podcast metadata and complete and minimal episode entries", async () => {
+describe("parseFeed", () => {
+  test("identifies RSS and returns podcast metadata with complete and minimal episodes", async () => {
     // #given
     const text = await Bun.file(
       new URL("../../fixtures/feeds/podcast.xml", import.meta.url),
     ).text();
 
-    const { parseRss } = await import(PARSER_MODULE);
+    const { parseFeed } = await import(PARSER_MODULE);
 
     // #when
-    const result = parseRss(text);
+    const result = parseFeed(text);
 
     // #then
     expect(result).toEqual({
-      title: "First & Finest",
-      author: "Ada Author",
-      description: "A narrated collection",
-      imageUrl: "https://library.example/covers/first.jpg",
-      episodes: [
-        {
-          title: "Opening <b>Chapter</b>",
-          enclosureUrl: "https://library.example/audio/opening.mp3",
-          duration: 59,
-          episodeNumber: 1,
-        },
-        {
-          title: "Long Chapter",
-          enclosureUrl: "https://library.example/audio/long.mp3",
-          episodeNumber: 2,
-        },
-      ],
+      kind: "podcast",
+      model: {
+        title: "First & Finest",
+        author: "Ada Author",
+        description: "A narrated collection",
+        imageUrl: "https://library.example/covers/first.jpg",
+        episodes: [
+          {
+            title: "Opening <b>Chapter</b>",
+            enclosureUrl: "https://library.example/audio/opening.mp3",
+            duration: 59,
+            episodeNumber: 1,
+          },
+          {
+            title: "Long Chapter",
+            enclosureUrl: "https://library.example/audio/long.mp3",
+            episodeNumber: 2,
+          },
+        ],
+      },
     });
   });
 });

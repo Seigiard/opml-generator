@@ -31,6 +31,53 @@ describe("feedUrlFor", () => {
   });
 });
 
+describe("pagePathFor", () => {
+  test.each([
+    ["https://library.example/books/first/feed.xml", "/browse/books/first/"],
+    ["https://library.example/feed.xml", "/browse/"],
+    ["/Parent/Podcast%20One/feed.xml", "/browse/Parent/Podcast%20One/"],
+  ])("maps %s to %s", async (feedUrl, expected) => {
+    // #given
+    const { pagePathFor } = await import(ROUTES_MODULE);
+
+    // #when
+    const pagePath = pagePathFor(feedUrl, "https://library.example");
+
+    // #then
+    expect(pagePath).toBe(expected);
+  });
+
+  test.each([
+    [
+      "https://library.example/books/first/feed.xml",
+      "/browse/books/first/",
+      "/books/first/feed.xml",
+    ],
+    ["https://library.example/feed.xml", "/browse/", "/feed.xml"],
+    [
+      "/Parent/Podcast%20One/feed.xml",
+      "/browse/Parent/Podcast%20One/",
+      "/Parent/Podcast%20One/feed.xml",
+    ],
+  ])(
+    "round-trips %s through its browser page",
+    async (feedUrl, expectedPagePath, expectedFeedUrl) => {
+      // #given
+      const { feedUrlFor, pagePathFor } = await import(ROUTES_MODULE);
+
+      // #when
+      const pagePath = pagePathFor(feedUrl, "https://library.example");
+      const route = feedUrlFor(pagePath);
+
+      // #then
+      expect({ pagePath, route }).toEqual({
+        pagePath: expectedPagePath,
+        route: { feedUrl: expectedFeedUrl, kind: "podcast" },
+      });
+    },
+  );
+});
+
 describe("normalizePath", () => {
   test.each([
     ["/browse/books/first", "/browse/books/first/"],

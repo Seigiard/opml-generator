@@ -1,7 +1,6 @@
-import { parseFeed, parseOpml } from "./parse-feed.ts";
-import { renderPodcast, renderPodcastList } from "./render.ts";
-import { feedUrlFor, normalizePath } from "./routes.ts";
-import { cloneTemplate, slot } from "./template.ts";
+import { loadPage } from "./page.ts";
+import { renderPage } from "./render.ts";
+import { normalizePath } from "./routes.ts";
 
 export interface BootOptions {
   document: Document;
@@ -19,95 +18,23 @@ export async function boot(options: BootOptions): Promise<void> {
 
   if (normalizedPath) options.history.replaceState(null, "", normalizedPath);
 
-  const route = feedUrlFor(pathname);
+  while (true) {
+    const page = await loadPage(pathname, options.location.origin, fetch);
 
-  if (route === null) {
-    replaceWithLink(app, options.document, "podcast not found", "/");
+    if (page.kind === "building") {
+      app.replaceChildren(renderPage(options.document, page));
+      await new Promise<void>((resolve) => {
+        setTimeout(() => resolve(), page.retryAfterMs);
+      });
+      continue;
+    }
+
+    app.replaceChildren(renderPage(options.document, page));
+
+    if (page.kind === "list" || page.kind === "podcast") {
+      options.document.title = page.title;
+    }
 
     return;
   }
-
-  while (true) {
-    try {
-      const response = await fetch(route.feedUrl);
-
-      if (response.status === 503) {
-        replaceWithMessage(app, options.document, "library is being built");
-        const delay = retryDelay(response);
-        await new Promise<void>((resolve) => {
-          setTimeout(() => resolve(), delay);
-        });
-        continue;
-      }
-
-      if (response.status === 404) {
-        replaceWithLink(app, options.document, "podcast not found", "/");
-
-        return;
-      }
-
-      if (!response.ok) {
-        replaceWithLink(
-          app,
-          options.document,
-          response.statusText || `HTTP ${response.status}`,
-          route.feedUrl,
-        );
-
-        return;
-      }
-
-      const text = await response.text();
-
-      if (route.kind === "list") {
-        const model = parseOpml(text);
-        const opmlUrl = new URL(route.feedUrl, options.location.origin).href;
-        app.replaceChildren(
-          renderPodcastList(options.document, model, options.location.origin, opmlUrl),
-        );
-        options.document.title = model.title;
-      } else {
-        const feed = parseFeed(text);
-
-        if (feed.kind === "navigation") {
-          app.replaceChildren(
-            renderPodcastList(options.document, feed.model, options.location.origin),
-          );
-          options.document.title = feed.model.title;
-        } else {
-          const feedUrl = new URL(route.feedUrl, options.location.origin).href;
-          app.replaceChildren(renderPodcast(options.document, feed.model, feedUrl));
-          options.document.title = feed.model.title;
-        }
-      }
-
-      return;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not load feed";
-      replaceWithLink(app, options.document, message, route.feedUrl);
-
-      return;
-    }
-  }
-}
-
-function retryDelay(response: Response): number {
-  const value = Number.parseInt(response.headers.get("Retry-After") ?? "", 10);
-
-  return Number.isFinite(value) && value >= 0 ? value * 1000 : 5000;
-}
-
-function replaceWithMessage(app: Element, document: Document, message: string): void {
-  const paragraph = cloneTemplate(document, "tpl-message");
-  paragraph.textContent = message;
-  app.replaceChildren(paragraph);
-}
-
-function replaceWithLink(app: Element, document: Document, message: string, href: string): void {
-  const paragraph = cloneTemplate(document, "tpl-message-link");
-  paragraph.prepend(message, " ");
-  const link = slot(paragraph, "link");
-  link.setAttribute("href", href);
-  link.textContent = href === "/" ? "Back to library" : "Open raw feed";
-  app.replaceChildren(paragraph);
 }
