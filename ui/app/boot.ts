@@ -20,6 +20,12 @@ export async function boot(options: BootOptions): Promise<void> {
 
   const route = feedUrlFor(pathname);
 
+  if (route === null) {
+    replaceWithLink(app, options.document, "podcast not found", "/");
+
+    return;
+  }
+
   while (true) {
     try {
       const response = await fetch(route.feedUrl);

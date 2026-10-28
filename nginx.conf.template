@@ -78,6 +78,21 @@ http {
             return 404;
         }
 
+        # Browser pages use a dedicated namespace so source-relative feeds and
+        # audio files never compete with the shell URL.
+        location = /browse {
+            return 301 /browse/;
+        }
+
+        # Keep this as a plain prefix so regex feed and image locations keep
+        # precedence; a source folder named browse keeps its feed.xml and cover.jpg.
+        location /browse/ {
+            root /app/static;
+            try_files /index.html =404;
+            add_header Cache-Control "no-cache";
+            add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+        }
+
         # Admin endpoint: /resync (only if auth configured)
         # AUTH_BLOCK_START
         location = /resync {
@@ -130,13 +145,9 @@ http {
             error_page 404 = @check_initializing;
         }
 
-        # Every other browser path receives the same static shell. The browser
-        # fetches the feed that corresponds to the path.
+        # Every other path is not a published endpoint.
         location / {
-            root /app/static;
-            try_files /index.html =404;
-            add_header Cache-Control "no-cache";
-            add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+            return 404;
         }
 
         location @check_initializing {

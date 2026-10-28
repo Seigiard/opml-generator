@@ -147,9 +147,10 @@ export function formatDuration(seconds: number): string {
 
 function browserPathFor(feedUrl: string, origin: string): string {
   const path = new URL(feedUrl, origin).pathname;
-  const withoutFeed = path.endsWith("feed.xml") ? path.slice(0, -"feed.xml".length) : path;
+  const withoutFeed = path.endsWith("/feed.xml") ? path.slice(0, -"feed.xml".length) : path;
+  const pagePath = withoutFeed.endsWith("/") ? withoutFeed : `${withoutFeed}/`;
 
-  return withoutFeed.endsWith("/") ? withoutFeed : `${withoutFeed}/`;
+  return `/browse${pagePath}`;
 }
 
 function pad(value: number): string {
