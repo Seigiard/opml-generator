@@ -4,54 +4,63 @@ import { createUiWindow } from "../../helpers/ui-document.ts";
 
 const RENDER_MODULE = "../../../ui/app/render.ts";
 
-describe("renderPodcastList", () => {
-  test("builds the podcast list structure and links to the browser page", async () => {
+describe("renderPage", () => {
+  test("renders a list with resolved page, subscription, and OPML links", async () => {
     // #given
     const document = createUiWindow("https://library.example/").document;
+    const { renderPage } = await import(RENDER_MODULE);
 
-    const model = {
+    // #when
+    const root = renderPage(document, {
+      kind: "list",
       title: "Audio Library",
-      podcasts: [
+      opmlUrl: "https://library.example/feed.opml",
+      entries: [
         {
           title: "First & Finest",
-          xmlUrl: "https://library.example/books/first/feed.xml",
+          href: "/browse/books/first/",
           author: "Ada Author",
           description: "A narrated collection",
           imageUrl: "https://library.example/covers/first.jpg",
+          subscribeUrl: "https://library.example/books/first/feed.xml",
         },
         {
           title: "Root Podcast",
-          xmlUrl: "https://library.example/feed.xml",
+          href: "/browse/",
+          subscribeUrl: "https://library.example/feed.xml",
         },
       ],
-    };
+    });
 
-    const { renderPodcastList } = await import(RENDER_MODULE);
-
-    // #when
-    const root = renderPodcastList(document, model, "https://library.example");
     const items = root.querySelectorAll("li.podcast");
-    const first = items[0]!;
-    const second = items[1]!;
-    const subscribeLinks = first.querySelectorAll("small.subscribe a");
+    const first = items[0];
+    const second = items[1];
+    const opmlLinks = root.querySelectorAll("main > small.subscribe a");
+    const subscribeLinks = first?.querySelectorAll("small.subscribe a") ?? [];
 
     // #then
     expect({
       root: root.tagName,
       heading: root.querySelector("h1")?.textContent,
+      opml: [
+        {
+          text: opmlLinks[0]?.textContent,
+          href: opmlLinks[0]?.getAttribute("href"),
+        },
+      ],
       list: root.querySelector("ul")?.className,
       itemCount: items.length,
       cover: {
-        src: first.querySelector(".podcast__cover img")?.getAttribute("src"),
-        alt: first.querySelector(".podcast__cover img")?.getAttribute("alt"),
+        src: first?.querySelector(".podcast__cover img")?.getAttribute("src"),
+        alt: first?.querySelector(".podcast__cover img")?.getAttribute("alt"),
       },
-      body: first.querySelector("div.podcast__body")?.tagName,
+      body: first?.querySelector("div.podcast__body")?.tagName,
       titleLinks: [first, second].map((item) => ({
-        text: item.querySelector("a.podcast__title")?.textContent,
-        href: item.querySelector("a.podcast__title")?.getAttribute("href"),
+        text: item?.querySelector("a.podcast__title")?.textContent,
+        href: item?.querySelector("a.podcast__title")?.getAttribute("href"),
       })),
-      author: first.querySelector("small.podcast__author")?.textContent,
-      description: first.querySelector("p.podcast__desc")?.textContent,
+      author: first?.querySelector("small.podcast__author")?.textContent,
+      description: first?.querySelector("p.podcast__desc")?.textContent,
       subscribe: [
         {
           text: subscribeLinks[0]?.textContent,
@@ -62,12 +71,13 @@ describe("renderPodcastList", () => {
           href: subscribeLinks[1]?.getAttribute("href"),
         },
       ],
-      minimalOptionalElementCount: second.querySelectorAll(
+      minimalOptionalElementCount: second?.querySelectorAll(
         ".podcast__cover img, .podcast__author, .podcast__desc",
       ).length,
     }).toEqual({
       root: "MAIN",
       heading: "Audio Library",
+      opml: [{ text: "Copy OPML", href: "https://library.example/feed.opml" }],
       list: "podcasts",
       itemCount: 2,
       cover: {
@@ -95,22 +105,14 @@ describe("renderPodcastList", () => {
   test("renders feed text as text instead of markup", async () => {
     // #given
     const document = createUiWindow("https://library.example/").document;
-    const { renderPodcastList } = await import(RENDER_MODULE);
+    const { renderPage } = await import(RENDER_MODULE);
 
     // #when
-    const root = renderPodcastList(
-      document,
-      {
-        title: "Library",
-        podcasts: [
-          {
-            title: "<b>x</b>",
-            xmlUrl: "https://library.example/books/unsafe/feed.xml",
-          },
-        ],
-      },
-      "https://library.example",
-    );
+    const root = renderPage(document, {
+      kind: "list",
+      title: "Library",
+      entries: [{ title: "<b>x</b>", href: "/browse/books/unsafe/" }],
+    });
 
     const title = root.querySelector("a.podcast__title");
 
@@ -120,41 +122,37 @@ describe("renderPodcastList", () => {
       childCount: 0,
     });
   });
-});
 
-describe("renderPodcast", () => {
-  test("builds the podcast header, navigation, subscription, and episode list", async () => {
+  test("renders a podcast header, navigation, subscription, and episode list", async () => {
     // #given
     const document = createUiWindow("https://library.example/books/first/").document;
+    const { renderPage } = await import(RENDER_MODULE);
 
-    const model = {
+    // #when
+    const root = renderPage(document, {
+      kind: "podcast",
       title: "First & Finest",
       author: "Ada Author",
       description: "A narrated collection",
       imageUrl: "https://library.example/covers/first.jpg",
+      subscribeUrl: "https://library.example/books/first/feed.xml",
       episodes: [
         {
           title: "Opening Chapter",
-          enclosureUrl: "https://library.example/audio/opening.mp3",
+          href: "https://library.example/audio/opening.mp3",
           duration: 59,
-          episodeNumber: 1,
         },
         {
           title: "Long Chapter",
-          enclosureUrl: "https://library.example/audio/long.mp3",
+          href: "https://library.example/audio/long.mp3",
           duration: 3661,
-          episodeNumber: 2,
         },
       ],
-    };
+    });
 
-    const { renderPodcast } = await import(RENDER_MODULE);
-
-    // #when
-    const root = renderPodcast(document, model, "https://library.example/books/first/feed.xml");
     const episodes = root.querySelectorAll("ol.episodes > li.episode");
-    const firstEpisode = episodes[0]!;
-    const secondEpisode = episodes[1]!;
+    const firstEpisode = episodes[0];
+    const secondEpisode = episodes[1];
 
     // #then
     expect({
@@ -171,9 +169,9 @@ describe("renderPodcast", () => {
       subscribe: root.querySelector("small.subscribe a:last-child")?.getAttribute("href"),
       episodeCount: episodes.length,
       episodes: [firstEpisode, secondEpisode].map((episode) => ({
-        title: episode.querySelector("a.episode__title")?.textContent,
-        href: episode.querySelector("a.episode__title")?.getAttribute("href"),
-        duration: episode.querySelector("small.episode__duration")?.textContent,
+        title: episode?.querySelector("a.episode__title")?.textContent,
+        href: episode?.querySelector("a.episode__title")?.getAttribute("href"),
+        duration: episode?.querySelector("small.episode__duration")?.textContent,
       })),
     }).toEqual({
       back: { text: "← Back", href: "/" },
@@ -203,73 +201,98 @@ describe("renderPodcast", () => {
   test("omits optional podcast metadata and an absent episode duration", async () => {
     // #given
     const document = createUiWindow("https://library.example/books/minimal/").document;
-    const { renderPodcast } = await import(RENDER_MODULE);
+    const { renderPage } = await import(RENDER_MODULE);
 
     // #when
-    const root = renderPodcast(
-      document,
-      {
-        title: "Minimal Podcast",
-        episodes: [
-          {
-            title: "Only Chapter",
-            enclosureUrl: "https://library.example/audio/only.mp3",
-            episodeNumber: 1,
-          },
-        ],
-      },
-      "https://library.example/books/minimal/feed.xml",
-    );
+    const root = renderPage(document, {
+      kind: "podcast",
+      title: "Minimal Podcast",
+      subscribeUrl: "https://library.example/books/minimal/feed.xml",
+      episodes: [{ title: "Only Chapter", href: "https://library.example/audio/only.mp3" }],
+    });
 
     // #then
     expect({
+      title: root.querySelector("h1.feed-header__title")?.textContent,
+      episode: root.querySelector("a.episode__title")?.textContent,
       optionalMetadataCount: root.querySelectorAll(
         ".feed-header__cover img, .feed-header__author, .feed-header__desc",
       ).length,
       durationCount: root.querySelectorAll(".episode__duration").length,
-    }).toEqual({ optionalMetadataCount: 0, durationCount: 0 });
+    }).toEqual({
+      title: "Minimal Podcast",
+      episode: "Only Chapter",
+      optionalMetadataCount: 0,
+      durationCount: 0,
+    });
   });
-});
 
-describe("cover placeholder", () => {
-  // --lqip values are the FNV-1a vectors pinned in cover-placeholder.test.ts.
+  test.each([
+    [
+      "building",
+      { kind: "building" as const, retryAfterMs: 5000 },
+      { text: "library is being built", href: null, link: null },
+    ],
+    [
+      "not found",
+      { kind: "not-found" as const },
+      { text: "podcast not found Back to library", href: "/", link: "Back to library" },
+    ],
+    [
+      "error",
+      { kind: "error" as const, message: "Upstream failed", feedUrl: "/broken/feed.xml" },
+      {
+        text: "Upstream failed Open raw feed",
+        href: "/broken/feed.xml",
+        link: "Open raw feed",
+      },
+    ],
+  ])("renders the %s page with its message and link", async (_label, page, expected) => {
+    // #given
+    const document = createUiWindow("https://library.example/").document;
+    const { renderPage } = await import(RENDER_MODULE);
+
+    // #when
+    const root = renderPage(document, page);
+
+    // #then
+    expect({
+      text: root.textContent?.trim(),
+      href: root.querySelector("a")?.getAttribute("href") ?? null,
+      link: root.querySelector("a")?.textContent ?? null,
+    }).toEqual(expected);
+  });
+
   test("sets a title placeholder on every cover, with or without an image", async () => {
     // #given
     const document = createUiWindow("https://library.example/").document;
-    const { renderPodcast, renderPodcastList } = await import(RENDER_MODULE);
+    const { renderPage } = await import(RENDER_MODULE);
 
     // #when
-    const list = renderPodcastList(
-      document,
-      {
-        title: "Library",
-        navigation: true,
-        podcasts: [
-          {
-            title: "a",
-            xmlUrl: "https://library.example/books/a/feed.xml",
-            kind: "podcast",
-            imageUrl: "https://library.example/books/a/cover.jpg",
-          },
-          {
-            title: "foobar",
-            xmlUrl: "https://library.example/books/foobar/feed.xml",
-            kind: "navigation",
-          },
-        ],
-      },
-      "https://library.example",
-    );
+    const list = renderPage(document, {
+      kind: "list",
+      title: "Library",
+      entries: [
+        {
+          title: "a",
+          href: "/browse/books/a/",
+          imageUrl: "https://library.example/books/a/cover.jpg",
+          subscribeUrl: "https://library.example/books/a/feed.xml",
+        },
+        { title: "foobar", href: "/browse/books/foobar/" },
+      ],
+    });
 
-    const page = renderPodcast(
-      document,
-      { title: "foobar", episodes: [] },
-      "https://library.example/books/foobar/feed.xml",
-    );
+    const podcast = renderPage(document, {
+      kind: "podcast",
+      title: "foobar",
+      subscribeUrl: "https://library.example/books/foobar/feed.xml",
+      episodes: [],
+    });
 
     const covers: (HTMLElement | null)[] = [
       ...list.querySelectorAll(".podcast__cover"),
-      page.querySelector(".feed-header__cover"),
+      podcast.querySelector(".feed-header__cover"),
     ];
 
     // #then
@@ -277,24 +300,31 @@ describe("cover placeholder", () => {
       covers.map((cover) => ({
         lqip: cover?.style.getPropertyValue("--lqip"),
         image: cover?.querySelector("img")?.getAttribute("src") ?? null,
+        subscribeCount: cover?.closest("li")?.querySelectorAll("small.subscribe").length,
       })),
     ).toEqual([
-      { lqip: "796972", image: "https://library.example/books/a/cover.jpg" },
-      { lqip: "850280", image: null },
-      { lqip: "850280", image: null },
+      {
+        lqip: "796972",
+        image: "https://library.example/books/a/cover.jpg",
+        subscribeCount: 1,
+      },
+      { lqip: "850280", image: null, subscribeCount: 0 },
+      { lqip: "850280", image: null, subscribeCount: undefined },
     ]);
   });
 
   test("removes a cover image that fails to load and keeps the placeholder", async () => {
     // #given
     const window = createUiWindow("https://library.example/books/a/");
-    const { renderPodcast } = await import(RENDER_MODULE);
+    const { renderPage } = await import(RENDER_MODULE);
 
-    const root = renderPodcast(
-      window.document,
-      { title: "a", imageUrl: "https://library.example/books/a/cover.jpg", episodes: [] },
-      "https://library.example/books/a/feed.xml",
-    );
+    const root = renderPage(window.document, {
+      kind: "podcast",
+      title: "a",
+      imageUrl: "https://library.example/books/a/cover.jpg",
+      subscribeUrl: "https://library.example/books/a/feed.xml",
+      episodes: [],
+    });
 
     const cover: HTMLElement | null = root.querySelector(".feed-header__cover");
 
@@ -307,65 +337,50 @@ describe("cover placeholder", () => {
       lqip: cover?.style.getPropertyValue("--lqip"),
     }).toEqual({ imageCount: 0, lqip: "796972" });
   });
-});
 
-describe("template rendering", () => {
   test("leaves no formatter indentation in rendered list and podcast pages", async () => {
     // #given
     const document = createUiWindow("https://library.example/").document;
-    const { renderPodcast, renderPodcastList } = await import(RENDER_MODULE);
+    const { renderPage } = await import(RENDER_MODULE);
 
     // #when
     const roots = [
-      renderPodcastList(
-        document,
-        {
-          title: "Library",
-          podcasts: [
-            {
-              title: "First",
-              xmlUrl: "https://library.example/books/first/feed.xml",
-              author: "Ada Author",
-              description: "A narrated collection",
-              imageUrl: "https://library.example/covers/first.jpg",
-            },
-          ],
-        },
-        "https://library.example",
-        "https://library.example/feed.opml",
-      ),
-      renderPodcast(
-        document,
-        {
-          title: "First",
-          author: "Ada Author",
-          description: "A narrated collection",
-          imageUrl: "https://library.example/covers/first.jpg",
-          episodes: [
-            {
-              title: "Opening Chapter",
-              enclosureUrl: "https://library.example/audio/opening.mp3",
-              duration: 59,
-              episodeNumber: 1,
-            },
-          ],
-        },
-        "https://library.example/books/first/feed.xml",
-      ),
+      renderPage(document, {
+        kind: "list",
+        title: "Library",
+        opmlUrl: "https://library.example/feed.opml",
+        entries: [
+          {
+            title: "First",
+            href: "/browse/books/first/",
+            author: "Ada Author",
+            description: "A narrated collection",
+            imageUrl: "https://library.example/covers/first.jpg",
+            subscribeUrl: "https://library.example/books/first/feed.xml",
+          },
+        ],
+      }),
+      renderPage(document, {
+        kind: "podcast",
+        title: "First",
+        author: "Ada Author",
+        description: "A narrated collection",
+        imageUrl: "https://library.example/covers/first.jpg",
+        subscribeUrl: "https://library.example/books/first/feed.xml",
+        episodes: [
+          {
+            title: "Opening Chapter",
+            href: "https://library.example/audio/opening.mp3",
+            duration: 59,
+          },
+        ],
+      }),
     ];
 
     // #then
     expect(roots.flatMap((root) => blankTextNodes(root))).toEqual([]);
   });
 });
-
-function blankTextNodes(node: Node): string[] {
-  return Array.from(node.childNodes).flatMap((child) =>
-    child.nodeType === 3 && child.textContent?.trim() === ""
-      ? [child.textContent]
-      : blankTextNodes(child),
-  );
-}
 
 describe("formatDuration", () => {
   test.each([
@@ -383,3 +398,11 @@ describe("formatDuration", () => {
     expect(result).toBe(expected);
   });
 });
+
+function blankTextNodes(node: Node): string[] {
+  return Array.from(node.childNodes).flatMap((child) =>
+    child.nodeType === 3 && child.textContent?.trim() === ""
+      ? [child.textContent]
+      : blankTextNodes(child),
+  );
+}
