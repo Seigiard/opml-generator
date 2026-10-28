@@ -396,62 +396,63 @@ nav a:hover {
   --lqip-aaa: mod(round(down, calc(var(--lqip) / 8)), 8);
   --lqip-bbb: mod(var(--lqip), 8);
 
-  --lqip-ca-l: calc(var(--lqip-ca) / 3 * 60% + 20%);
-  --lqip-cb-l: calc(var(--lqip-cb) / 3 * 60% + 20%);
-  --lqip-cc-l: calc(var(--lqip-cc) / 3 * 60% + 20%);
-  --lqip-cd-l: calc(var(--lqip-cd) / 3 * 60% + 20%);
-  --lqip-ce-l: calc(var(--lqip-ce) / 3 * 60% + 20%);
-  --lqip-cf-l: calc(var(--lqip-cf) / 3 * 60% + 20%);
-  --lqip-base: oklab(
-    calc(round(down, var(--lqip-ll) / 2) * 0.2 + 0.6) calc(var(--lqip-aaa) / 8 * 0.28 - 0.14)
-      calc((var(--lqip-bbb) + 1) / 8 * 0.28 - 0.14)
-  );
+  --lqip-l: calc(0.78 + var(--lqip-ll) / 3 * 0.1);
+  --lqip-h: calc((var(--lqip-aaa) * 8 + var(--lqip-bbb)) * 5.625deg);
+  --lqip-base: oklch(var(--lqip-l) 0.08 var(--lqip-h));
+  --lqip-ca-l: calc(15% + var(--lqip-ca) / 3 * 80%);
+  --lqip-cb-l: calc(15% + var(--lqip-cb) / 3 * 80%);
+  --lqip-cc-l: calc(15% + var(--lqip-cc) / 3 * 80%);
+  --lqip-cd-l: calc(15% + var(--lqip-cd) / 3 * 80%);
+  --lqip-ce-l: calc(15% + var(--lqip-ce) / 3 * 80%);
+  --lqip-cf-l: calc(15% + var(--lqip-cf) / 3 * 80%);
 
   background-color: #dde0f0;
   background-image:
     radial-gradient(
       50% 75% at 16.67% 25%,
-      hsl(0 0% var(--lqip-ca-l) / 40%),
-      hsl(0 0% var(--lqip-ca-l) / 32.8%) 30%,
-      hsl(0 0% var(--lqip-ca-l) / 7.2%) 70%,
+      hsl(0 0% var(--lqip-ca-l) / 70%),
+      hsl(0 0% var(--lqip-ca-l) / 57.4%) 30%,
+      hsl(0 0% var(--lqip-ca-l) / 12.6%) 70%,
       transparent
     ),
     radial-gradient(
       50% 75% at 50% 25%,
-      hsl(0 0% var(--lqip-cb-l) / 40%),
-      hsl(0 0% var(--lqip-cb-l) / 32.8%) 30%,
-      hsl(0 0% var(--lqip-cb-l) / 7.2%) 70%,
+      hsl(0 0% var(--lqip-cb-l) / 70%),
+      hsl(0 0% var(--lqip-cb-l) / 57.4%) 30%,
+      hsl(0 0% var(--lqip-cb-l) / 12.6%) 70%,
       transparent
     ),
     radial-gradient(
       50% 75% at 83.33% 25%,
-      hsl(0 0% var(--lqip-cc-l) / 40%),
-      hsl(0 0% var(--lqip-cc-l) / 32.8%) 30%,
-      hsl(0 0% var(--lqip-cc-l) / 7.2%) 70%,
+      hsl(0 0% var(--lqip-cc-l) / 70%),
+      hsl(0 0% var(--lqip-cc-l) / 57.4%) 30%,
+      hsl(0 0% var(--lqip-cc-l) / 12.6%) 70%,
       transparent
     ),
     radial-gradient(
       50% 75% at 16.67% 75%,
-      hsl(0 0% var(--lqip-cd-l) / 40%),
-      hsl(0 0% var(--lqip-cd-l) / 32.8%) 30%,
-      hsl(0 0% var(--lqip-cd-l) / 7.2%) 70%,
+      hsl(0 0% var(--lqip-cd-l) / 70%),
+      hsl(0 0% var(--lqip-cd-l) / 57.4%) 30%,
+      hsl(0 0% var(--lqip-cd-l) / 12.6%) 70%,
       transparent
     ),
     radial-gradient(
       50% 75% at 50% 75%,
-      hsl(0 0% var(--lqip-ce-l) / 40%),
-      hsl(0 0% var(--lqip-ce-l) / 32.8%) 30%,
-      hsl(0 0% var(--lqip-ce-l) / 7.2%) 70%,
+      hsl(0 0% var(--lqip-ce-l) / 70%),
+      hsl(0 0% var(--lqip-ce-l) / 57.4%) 30%,
+      hsl(0 0% var(--lqip-ce-l) / 12.6%) 70%,
       transparent
     ),
     radial-gradient(
       50% 75% at 83.33% 75%,
-      hsl(0 0% var(--lqip-cf-l) / 40%),
-      hsl(0 0% var(--lqip-cf-l) / 32.8%) 30%,
-      hsl(0 0% var(--lqip-cf-l) / 7.2%) 70%,
+      hsl(0 0% var(--lqip-cf-l) / 70%),
+      hsl(0 0% var(--lqip-cf-l) / 57.4%) 30%,
+      hsl(0 0% var(--lqip-cf-l) / 12.6%) 70%,
       transparent
     ),
     linear-gradient(var(--lqip-base), var(--lqip-base));
+  background-blend-mode:
+    soft-light, soft-light, soft-light, soft-light, soft-light, soft-light, normal;
 }
 
 .cover__image {
