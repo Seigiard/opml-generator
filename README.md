@@ -104,16 +104,17 @@ docker compose up -d --build
 
 ## API
 
-| Endpoint                 | Description                                            |
-| ------------------------ | ------------------------------------------------------ |
-| `GET /`                  | Browser shell over /feed.opml                          |
-| `GET /feed.opml`         | Root OPML (aggregates all podcast feeds)               |
-| `GET /{path}/feed.xml`   | Individual podcast RSS feed                            |
-| `GET /audiobooks/{path}` | Stream audio file (supports Range requests)            |
-| `GET /_app/*`            | Browser shell assets                                   |
-| `POST /resync`           | Queue a freshness-gated resync (requires Basic Auth)   |
-| `POST /resync?force=1`   | Force a rebuild of declared work (requires Basic Auth) |
-| `GET /ready`             | Publication readiness (`200` or `503`)                 |
+| Endpoint                 | Description                                                                                                                                                 |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /`                  | Browser shell over /feed.opml                                                                                                                               |
+| `GET /browse/{path}/`    | Browser page for a podcast folder; `/browse/` is the root podcast; `/browse/<missing>/` shows "podcast not found"; paths outside `/` and `/browse/` are 404 |
+| `GET /feed.opml`         | Root OPML (aggregates all podcast feeds)                                                                                                                    |
+| `GET /{path}/feed.xml`   | Individual podcast RSS feed                                                                                                                                 |
+| `GET /audiobooks/{path}` | Stream audio file (supports Range requests)                                                                                                                 |
+| `GET /_app/*`            | Browser shell assets                                                                                                                                        |
+| `POST /resync`           | Queue a freshness-gated resync (requires Basic Auth)                                                                                                        |
+| `POST /resync?force=1`   | Force a rebuild of declared work (requires Basic Auth)                                                                                                      |
+| `GET /ready`             | Publication readiness (`200` or `503`)                                                                                                                      |
 
 `/resync` returns `202` when the shared sync engine accepts or queues a pass. This
 response does not mean that publication is complete. During startup it can queue

@@ -35,7 +35,7 @@ test/                # unit/, engine/, integration/ (needs Docker), e2e/, helper
 docs/adr/            # Architecture decisions
 ```
 
-nginx on port 80 exposes the browser shell, `/feed.opml`, source-relative public metadata paths, audio streaming, and `/ready`. Shell assets are under `/_app/`. It proxies `/resync` behind Basic Auth. Bun on port 3000 (localhost only) handles `GET /ready`, `POST /events/books`, and `POST /resync`.
+nginx on port 80 exposes the browser shell at `/` and `/browse/`, `/feed.opml`, source-relative public metadata paths, audio streaming, and `/ready`. Shell assets are under `/_app/`. It proxies `/resync` behind Basic Auth. Bun on port 3000 (localhost only) handles `GET /ready`, `POST /events/books`, and `POST /resync`.
 
 `/data` is a generated cache with a reversible private projection of `/audiobooks`. Source files and folders are authoritative, and RSS reflects the current Library. An audio file maps to an episode mirror with `entry.xml`. A folder with episodes gets `feed.xml`, `cover.jpg`, and `_entry.xml`. The root gets `feed.opml`. Public metadata paths and Episode identity remain source-relative. The shared engine owns synchronization, freshness state, and the output lease under `DATA/~/.sync-engine`; that path is outside every supported cache projection.
 
