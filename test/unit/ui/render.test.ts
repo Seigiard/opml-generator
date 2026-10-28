@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { Window } from "happy-dom";
+import type { Node } from "happy-dom";
+import { createUiWindow } from "../../helpers/ui-document.ts";
 
 const RENDER_MODULE = "../../../ui/app/render.ts";
 
 describe("renderPodcastList", () => {
   test("builds the podcast list structure and links to the browser page", async () => {
     // #given
-    const document = new Window({ url: "https://library.example/" }).document;
+    const document = createUiWindow("https://library.example/").document;
 
     const model = {
       title: "Audio Library",
@@ -93,7 +94,7 @@ describe("renderPodcastList", () => {
 
   test("renders feed text as text instead of markup", async () => {
     // #given
-    const document = new Window({ url: "https://library.example/" }).document;
+    const document = createUiWindow("https://library.example/").document;
     const { renderPodcastList } = await import(RENDER_MODULE);
 
     // #when
@@ -124,7 +125,7 @@ describe("renderPodcastList", () => {
 describe("renderPodcast", () => {
   test("builds the podcast header, navigation, subscription, and episode list", async () => {
     // #given
-    const document = new Window({ url: "https://library.example/books/first/" }).document;
+    const document = createUiWindow("https://library.example/books/first/").document;
 
     const model = {
       title: "First & Finest",
@@ -201,7 +202,7 @@ describe("renderPodcast", () => {
 
   test("omits optional podcast metadata and an absent episode duration", async () => {
     // #given
-    const document = new Window({ url: "https://library.example/books/minimal/" }).document;
+    const document = createUiWindow("https://library.example/books/minimal/").document;
     const { renderPodcast } = await import(RENDER_MODULE);
 
     // #when
@@ -229,6 +230,64 @@ describe("renderPodcast", () => {
     }).toEqual({ optionalMetadataCount: 0, durationCount: 0 });
   });
 });
+
+describe("template rendering", () => {
+  test("leaves no formatter indentation in rendered list and podcast pages", async () => {
+    // #given
+    const document = createUiWindow("https://library.example/").document;
+    const { renderPodcast, renderPodcastList } = await import(RENDER_MODULE);
+
+    // #when
+    const roots = [
+      renderPodcastList(
+        document,
+        {
+          title: "Library",
+          podcasts: [
+            {
+              title: "First",
+              xmlUrl: "https://library.example/books/first/feed.xml",
+              author: "Ada Author",
+              description: "A narrated collection",
+              imageUrl: "https://library.example/covers/first.jpg",
+            },
+          ],
+        },
+        "https://library.example",
+        "https://library.example/feed.opml",
+      ),
+      renderPodcast(
+        document,
+        {
+          title: "First",
+          author: "Ada Author",
+          description: "A narrated collection",
+          imageUrl: "https://library.example/covers/first.jpg",
+          episodes: [
+            {
+              title: "Opening Chapter",
+              enclosureUrl: "https://library.example/audio/opening.mp3",
+              duration: 59,
+              episodeNumber: 1,
+            },
+          ],
+        },
+        "https://library.example/books/first/feed.xml",
+      ),
+    ];
+
+    // #then
+    expect(roots.flatMap((root) => blankTextNodes(root))).toEqual([]);
+  });
+});
+
+function blankTextNodes(node: Node): string[] {
+  return Array.from(node.childNodes).flatMap((child) =>
+    child.nodeType === 3 && child.textContent?.trim() === ""
+      ? [child.textContent]
+      : blankTextNodes(child),
+  );
+}
 
 describe("formatDuration", () => {
   test.each([

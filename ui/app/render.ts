@@ -1,4 +1,5 @@
 import { renderCopyOpml, renderSubscribe } from "./subscribe.ts";
+import { cloneTemplate, slot } from "./template.ts";
 import type { Podcast, PodcastList } from "./parse-feed.ts";
 
 export function renderPodcastList(
@@ -7,137 +8,73 @@ export function renderPodcastList(
   origin: string,
   opmlUrl?: string,
 ): HTMLElement {
-  const main = document.createElement("main");
-  const heading = document.createElement("h1");
+  const main = cloneTemplate(document, "tpl-podcast-list");
+  const heading = slot(main, "title");
   heading.textContent = model.title;
-  main.appendChild(heading);
 
   if (opmlUrl !== undefined) {
-    main.appendChild(renderCopyOpml(document, opmlUrl, navigatorFor(document)));
+    heading.after(renderCopyOpml(document, opmlUrl, navigatorFor(document)));
   }
 
-  const list = document.createElement("ul");
-  list.className = "podcasts";
+  const list = slot(main, "podcasts");
 
   for (const podcast of model.podcasts) {
-    const item = document.createElement("li");
-    item.className = "podcast";
+    const item = cloneTemplate(document, "tpl-podcast-item");
 
-    if (podcast.imageUrl) {
-      const cover = document.createElement("img");
-      cover.className = "podcast__cover";
-      cover.src = podcast.imageUrl;
-      cover.alt = "";
-      item.appendChild(cover);
-    }
+    fillOrRemove(slot(item, "cover"), podcast.imageUrl || undefined, (cover, imageUrl) => {
+      cover.setAttribute("src", imageUrl);
+    });
 
-    const body = document.createElement("div");
-    body.className = "podcast__body";
-
-    const title = document.createElement("a");
-    title.className = "podcast__title";
-    title.href = browserPathFor(podcast.xmlUrl, origin);
+    const title = slot(item, "title");
+    title.setAttribute("href", browserPathFor(podcast.xmlUrl, origin));
     title.textContent = podcast.title;
-    body.appendChild(title);
 
-    if (podcast.author !== undefined) {
-      const author = document.createElement("small");
-      author.className = "podcast__author";
-      author.textContent = podcast.author;
-      body.appendChild(author);
-    }
+    fillText(slot(item, "author"), podcast.author);
+    fillText(slot(item, "description"), podcast.description);
 
-    if (podcast.description !== undefined) {
-      const description = document.createElement("p");
-      description.className = "podcast__desc";
-      description.textContent = podcast.description;
-      body.appendChild(description);
-    }
+    const subscribe = slot(item, "subscribe");
 
     if (!model.navigation || podcast.kind === "podcast") {
       const feedUrl = new URL(podcast.xmlUrl, origin).href;
-      body.appendChild(renderSubscribe(document, feedUrl, navigatorFor(document)));
+      subscribe.replaceWith(renderSubscribe(document, feedUrl, navigatorFor(document)));
+    } else {
+      subscribe.remove();
     }
 
-    item.appendChild(body);
     list.appendChild(item);
   }
-
-  main.appendChild(list);
 
   return main;
 }
 
 export function renderPodcast(document: Document, model: Podcast, feedUrl: string): HTMLElement {
-  const main = document.createElement("main");
-  const nav = document.createElement("nav");
-  const back = document.createElement("a");
-  back.href = "/";
-  back.textContent = "← Back";
-  nav.appendChild(back);
-  main.appendChild(nav);
+  const main = cloneTemplate(document, "tpl-podcast-page");
 
-  const header = document.createElement("header");
-  header.className = "feed-header";
+  fillOrRemove(slot(main, "cover"), model.imageUrl || undefined, (cover, imageUrl) => {
+    cover.setAttribute("src", imageUrl);
+  });
 
-  if (model.imageUrl) {
-    const cover = document.createElement("img");
-    cover.className = "feed-header__cover";
-    cover.src = model.imageUrl;
-    cover.alt = "";
-    header.appendChild(cover);
-  }
+  slot(main, "title").textContent = model.title;
+  fillText(slot(main, "author"), model.author);
+  fillText(slot(main, "description"), model.description);
+  slot(main, "subscribe").replaceWith(renderSubscribe(document, feedUrl, navigatorFor(document)));
 
-  const info = document.createElement("hgroup");
-  info.className = "feed-header__info";
-
-  const title = document.createElement("h1");
-  title.className = "feed-header__title";
-  title.textContent = model.title;
-  info.appendChild(title);
-
-  if (model.author !== undefined) {
-    const author = document.createElement("p");
-    author.className = "feed-header__author";
-    author.textContent = model.author;
-    info.appendChild(author);
-  }
-
-  if (model.description !== undefined) {
-    const description = document.createElement("p");
-    description.className = "feed-header__desc";
-    description.textContent = model.description;
-    info.appendChild(description);
-  }
-
-  info.appendChild(renderSubscribe(document, feedUrl, navigatorFor(document)));
-  header.appendChild(info);
-  main.appendChild(header);
-
-  const episodes = document.createElement("ol");
-  episodes.className = "episodes";
+  const episodes = slot(main, "episodes");
 
   for (const episode of model.episodes) {
-    const item = document.createElement("li");
-    item.className = "episode";
+    const item = cloneTemplate(document, "tpl-episode-item");
 
-    const episodeTitle = document.createElement("a");
-    episodeTitle.className = "episode__title";
-    episodeTitle.href = episode.enclosureUrl;
+    const episodeTitle = slot(item, "title");
+    episodeTitle.setAttribute("href", episode.enclosureUrl);
     episodeTitle.textContent = episode.title;
-    item.appendChild(episodeTitle);
 
-    if (episode.duration !== undefined) {
-      const duration = document.createElement("small");
-      duration.className = "episode__duration";
-      duration.textContent = formatDuration(episode.duration);
-      item.appendChild(duration);
-    }
+    fillText(
+      slot(item, "duration"),
+      episode.duration === undefined ? undefined : formatDuration(episode.duration),
+    );
 
     episodes.appendChild(item);
   }
-
-  main.appendChild(episodes);
 
   return main;
 }
@@ -168,4 +105,22 @@ function pad(value: number): string {
 
 function navigatorFor(document: Document): Navigator {
   return document.defaultView?.navigator ?? globalThis.navigator;
+}
+
+function fillText(element: HTMLElement, text: string | undefined): void {
+  fillOrRemove(element, text, (target, value) => {
+    target.textContent = value;
+  });
+}
+
+function fillOrRemove(
+  element: HTMLElement,
+  value: string | undefined,
+  fill: (element: HTMLElement, value: string) => void,
+): void {
+  if (value === undefined) {
+    element.remove();
+  } else {
+    fill(element, value);
+  }
 }

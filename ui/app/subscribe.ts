@@ -1,3 +1,5 @@
+import { cloneTemplate, slot } from "./template.ts";
+
 const FEEDBACK_MS = 1500;
 
 export interface SubscribeNavigator {
@@ -11,14 +13,12 @@ export function renderSubscribe(
   feedUrl: string,
   navigator: SubscribeNavigator,
 ): HTMLElement {
-  const small = renderCopyLink(document, feedUrl, "Copy RSS", navigator);
-
-  small.appendChild(document.createTextNode(" · "));
-
-  const antennaPod = document.createElement("a");
-  antennaPod.href = `antennapod-subscribe://${feedUrl.replace(/^https?:\/\//, "")}`;
-  antennaPod.textContent = "AntennaPod";
-  small.appendChild(antennaPod);
+  const small = cloneTemplate(document, "tpl-subscribe");
+  bindCopyLink(slot(small, "copy"), feedUrl, "Copy\u00a0RSS", navigator);
+  slot(small, "antennapod").setAttribute(
+    "href",
+    `antennapod-subscribe://${feedUrl.replace(/^https?:\/\//, "")}`,
+  );
 
   return small;
 }
@@ -28,20 +28,19 @@ export function renderCopyOpml(
   opmlUrl: string,
   navigator: SubscribeNavigator,
 ): HTMLElement {
-  return renderCopyLink(document, opmlUrl, "Copy OPML", navigator);
+  const small = cloneTemplate(document, "tpl-copy-link");
+  bindCopyLink(slot(small, "copy"), opmlUrl, "Copy\u00a0OPML", navigator);
+
+  return small;
 }
 
-function renderCopyLink(
-  document: Document,
+function bindCopyLink(
+  copy: HTMLElement,
   url: string,
   label: string,
   navigator: SubscribeNavigator,
-): HTMLElement {
-  const small = document.createElement("small");
-  small.className = "subscribe";
-
-  const copy = document.createElement("a");
-  copy.href = url;
+): void {
+  copy.setAttribute("href", url);
   copy.textContent = label;
   copy.addEventListener("click", (event) => {
     const clipboard = navigator.clipboard;
@@ -54,16 +53,13 @@ function renderCopyLink(
       () => showFeedback(copy, "Copy failed", label),
     );
   });
-  small.appendChild(copy);
-
-  return small;
 }
 
 function isModifiedClick(event: MouseEvent): boolean {
   return event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
 }
 
-function showFeedback(link: HTMLAnchorElement, message: string, label: string): void {
+function showFeedback(link: HTMLElement, message: string, label: string): void {
   link.textContent = message;
   setTimeout(() => {
     link.textContent = label;

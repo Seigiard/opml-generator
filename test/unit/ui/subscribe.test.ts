@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Window } from "happy-dom";
+import { createUiWindow } from "../../helpers/ui-document.ts";
 
 const SUBSCRIBE_MODULE = "../../../ui/app/subscribe.ts";
 
@@ -42,7 +42,7 @@ async function withStubbedTimeout(body: (timeout: StubbedTimeout) => Promise<voi
 describe("renderSubscribe", () => {
   test("renders Copy RSS as a real feed link next to AntennaPod", async () => {
     // #given
-    const document = new Window().document;
+    const document = createUiWindow().document;
     const feedUrl = "https://opml.1218217.xyz/audiobooks/feed.xml";
     const navigator = { clipboard: { writeText: async () => undefined } };
     const { renderSubscribe } = await import(SUBSCRIBE_MODULE);
@@ -81,7 +81,7 @@ describe("renderSubscribe", () => {
     ],
   ])("strips the HTTP scheme from %s", async (feedUrl, expected) => {
     // #given
-    const document = new Window().document;
+    const document = createUiWindow().document;
     const navigator = { clipboard: { writeText: async () => undefined } };
     const { renderSubscribe } = await import(SUBSCRIBE_MODULE);
 
@@ -95,7 +95,7 @@ describe("renderSubscribe", () => {
   test("a plain click copies the feed URL instead of navigating, then restores the label after 1500 ms", async () => {
     await withStubbedTimeout(async (timeout) => {
       // #given
-      const window = new Window();
+      const window = createUiWindow();
       const feedUrl = "https://opml.1218217.xyz/audiobooks/feed.xml";
       let copied = "";
 
@@ -146,7 +146,7 @@ describe("renderSubscribe", () => {
     ["middle button", { button: 1 }],
   ])("a click with %s follows the link without copying", async (_name, modifier) => {
     // #given
-    const window = new Window();
+    const window = createUiWindow();
     let copied = "";
 
     const navigator = {
@@ -184,7 +184,7 @@ describe("renderSubscribe", () => {
 
   test("a plain click follows the link when the clipboard API is unavailable", async () => {
     // #given
-    const window = new Window();
+    const window = createUiWindow();
     const { renderSubscribe } = await import(SUBSCRIBE_MODULE);
 
     const copy = renderSubscribe(
@@ -208,7 +208,7 @@ describe("renderSubscribe", () => {
   test("a rejected clipboard write shows Copy failed, then restores the label after 1500 ms", async () => {
     await withStubbedTimeout(async (timeout) => {
       // #given
-      const window = new Window();
+      const window = createUiWindow();
 
       const navigator = {
         clipboard: {
@@ -246,7 +246,7 @@ describe("renderSubscribe", () => {
 describe("renderCopyOpml", () => {
   test("renders a single Copy OPML link to the library OPML", async () => {
     // #given
-    const document = new Window().document;
+    const document = createUiWindow().document;
     const navigator = { clipboard: { writeText: async () => undefined } };
     const { renderCopyOpml } = await import(SUBSCRIBE_MODULE);
 
@@ -271,7 +271,7 @@ describe("renderCopyOpml", () => {
   test("a plain click copies the OPML URL", async () => {
     await withStubbedTimeout(async () => {
       // #given
-      const window = new Window();
+      const window = createUiWindow();
       let copied = "";
 
       const navigator = {
