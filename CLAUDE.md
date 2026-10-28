@@ -44,7 +44,7 @@ nginx on port 80 exposes the browser shell at `/` and `/browse/`, `/feed.opml`, 
 Docker dev runs at http://localhost:8080. Run the app and unit/integration tests in Docker. The E2E runner tests production containers. Stop containers gracefully after tests.
 
 Use `package.json` for scripts and `lefthook.yml` for pre-commit (staged files) and pre-push hooks. Rebuild Docker test images after dependency changes; the test compose file does not mount local dependencies. Local typechecking is allowed. The committed `static/` output is built from `ui/`; after a `ui/` change, run `bun run build:ui` and commit `static/` because pre-push and CI run `bun run build:ui:check`.
-The UI build must run on the Bun version in `.bun-version`.
+The UI build must run on the Bun version in `.bun-version`. UI markup lives in `<template>` elements in `ui/app/index.html`; `ui/app/template.ts` clones them and fills `data-slot` nodes, and UI tests load the shell through `test/helpers/ui-document.ts`.
 
 To run one test file in Docker:
 

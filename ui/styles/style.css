@@ -190,10 +190,6 @@ nav a:hover {
 }
 .podcast__cover {
   inline-size: 3.5rem;
-  block-size: 3.5rem;
-  border-radius: 4px;
-  object-fit: cover;
-  flex-shrink: 0;
   margin-inline-start: calc(-3.5rem - 1rem);
 }
 
@@ -242,8 +238,7 @@ nav a:hover {
 }
 
 .feed-header__cover {
-  max-inline-size: 10rem;
-  border-radius: 4px;
+  inline-size: 10rem;
 }
 
 .feed-header__info {
@@ -318,6 +313,92 @@ nav a:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/* --- Cover placeholder --- */
+
+/* Title-derived cover placeholder; ui/app/cover-placeholder.ts documents the
+   --lqip code. The decoder and renderer match Seigiard/opds-generator's
+   ui/styles/lqip.css so one title gets one picture in both viewers. */
+.cover {
+  flex-shrink: 0;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 4px;
+
+  --lqip-ca: mod(round(down, calc(var(--lqip) / 262144)), 4);
+  --lqip-cb: mod(round(down, calc(var(--lqip) / 65536)), 4);
+  --lqip-cc: mod(round(down, calc(var(--lqip) / 16384)), 4);
+  --lqip-cd: mod(round(down, calc(var(--lqip) / 4096)), 4);
+  --lqip-ce: mod(round(down, calc(var(--lqip) / 1024)), 4);
+  --lqip-cf: mod(round(down, calc(var(--lqip) / 256)), 4);
+  --lqip-ll: mod(round(down, calc(var(--lqip) / 64)), 4);
+  --lqip-aaa: mod(round(down, calc(var(--lqip) / 8)), 8);
+  --lqip-bbb: mod(var(--lqip), 8);
+
+  --lqip-l: calc(0.78 + var(--lqip-ll) / 3 * 0.1);
+  --lqip-h: calc((var(--lqip-aaa) * 8 + var(--lqip-bbb)) * 5.625deg);
+  --lqip-base: oklch(var(--lqip-l) 0.08 var(--lqip-h));
+  --lqip-ca-l: calc(15% + var(--lqip-ca) / 3 * 80%);
+  --lqip-cb-l: calc(15% + var(--lqip-cb) / 3 * 80%);
+  --lqip-cc-l: calc(15% + var(--lqip-cc) / 3 * 80%);
+  --lqip-cd-l: calc(15% + var(--lqip-cd) / 3 * 80%);
+  --lqip-ce-l: calc(15% + var(--lqip-ce) / 3 * 80%);
+  --lqip-cf-l: calc(15% + var(--lqip-cf) / 3 * 80%);
+
+  background-color: #dde0f0;
+  background-image:
+    radial-gradient(
+      50% 75% at 16.67% 25%,
+      hsl(0 0% var(--lqip-ca-l) / 70%),
+      hsl(0 0% var(--lqip-ca-l) / 57.4%) 30%,
+      hsl(0 0% var(--lqip-ca-l) / 12.6%) 70%,
+      transparent
+    ),
+    radial-gradient(
+      50% 75% at 50% 25%,
+      hsl(0 0% var(--lqip-cb-l) / 70%),
+      hsl(0 0% var(--lqip-cb-l) / 57.4%) 30%,
+      hsl(0 0% var(--lqip-cb-l) / 12.6%) 70%,
+      transparent
+    ),
+    radial-gradient(
+      50% 75% at 83.33% 25%,
+      hsl(0 0% var(--lqip-cc-l) / 70%),
+      hsl(0 0% var(--lqip-cc-l) / 57.4%) 30%,
+      hsl(0 0% var(--lqip-cc-l) / 12.6%) 70%,
+      transparent
+    ),
+    radial-gradient(
+      50% 75% at 16.67% 75%,
+      hsl(0 0% var(--lqip-cd-l) / 70%),
+      hsl(0 0% var(--lqip-cd-l) / 57.4%) 30%,
+      hsl(0 0% var(--lqip-cd-l) / 12.6%) 70%,
+      transparent
+    ),
+    radial-gradient(
+      50% 75% at 50% 75%,
+      hsl(0 0% var(--lqip-ce-l) / 70%),
+      hsl(0 0% var(--lqip-ce-l) / 57.4%) 30%,
+      hsl(0 0% var(--lqip-ce-l) / 12.6%) 70%,
+      transparent
+    ),
+    radial-gradient(
+      50% 75% at 83.33% 75%,
+      hsl(0 0% var(--lqip-cf-l) / 70%),
+      hsl(0 0% var(--lqip-cf-l) / 57.4%) 30%,
+      hsl(0 0% var(--lqip-cf-l) / 12.6%) 70%,
+      transparent
+    ),
+    linear-gradient(var(--lqip-base), var(--lqip-base));
+  background-blend-mode:
+    soft-light, soft-light, soft-light, soft-light, soft-light, soft-light, normal;
+}
+
+.cover__image {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
 /* --- Subscribe --- */
 
 .subscribe {
@@ -350,7 +431,7 @@ nav a:hover {
   }
 
   .feed-header__cover {
-    max-inline-size: 8rem;
+    inline-size: 8rem;
   }
 
   .episode,

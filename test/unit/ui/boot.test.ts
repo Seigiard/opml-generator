@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
+import { createUiWindow } from "../../helpers/ui-document.ts";
 
 const BOOT_MODULE = "../../../ui/app/boot.ts";
 
@@ -38,7 +39,7 @@ afterAll(() => {
 describe("boot", () => {
   test("renders a navigation feed as an ordered child list with podcast-only subscriptions", async () => {
     // #given
-    const window = new Window({ url: "https://library.example/browse/Parent/" });
+    const window = createUiWindow("https://library.example/browse/Parent/");
 
     const text = await Bun.file(
       new URL("../../fixtures/feeds/navigation.xml", import.meta.url),
@@ -68,6 +69,7 @@ describe("boot", () => {
       })),
       podcastHeaderCount: window.document.querySelectorAll("header.feed-header").length,
       episodeListCount: window.document.querySelectorAll("ol.episodes").length,
+      libraryLinkCount: window.document.querySelectorAll("main > small.subscribe").length,
     }).toEqual({
       documentTitle: "Parent & Group",
       heading: "Parent & Group",
@@ -90,12 +92,51 @@ describe("boot", () => {
       ],
       podcastHeaderCount: 0,
       episodeListCount: 0,
+      libraryLinkCount: 0,
+    });
+  });
+
+  test("renders the library OPML link under the library heading", async () => {
+    // #given
+    const window = createUiWindow("https://library.example/");
+
+    const text = await Bun.file(
+      new URL("../../fixtures/feeds/library.opml", import.meta.url),
+    ).text();
+
+    const { boot } = await import(BOOT_MODULE);
+
+    // #when
+    await boot({
+      document: window.document,
+      location: window.location,
+      history: window.history,
+      fetch: requireGlobalReceiver(async () => new Response(text, { status: 200 })),
+      setTimeout: requireGlobalReceiver(() => 1),
+    });
+
+    const heading = window.document.querySelector("main > h1");
+
+    const libraryLinks = Array.from(
+      window.document.querySelectorAll("main > small.subscribe a"),
+      (link) => ({ text: link.textContent, href: link.getAttribute("href") }),
+    );
+
+    // #then
+    expect({
+      heading: heading?.textContent,
+      followsHeading: heading?.nextElementSibling?.className,
+      libraryLinks,
+    }).toEqual({
+      heading: "Audio Library",
+      followsHeading: "subscribe",
+      libraryLinks: [{ text: "Copy\u00a0OPML", href: "https://library.example/feed.opml" }],
     });
   });
 
   test("keeps rendering podcast RSS as a podcast page", async () => {
     // #given
-    const window = new Window({ url: "https://library.example/browse/books/first/" });
+    const window = createUiWindow("https://library.example/browse/books/first/");
 
     const text = await Bun.file(
       new URL("../../fixtures/feeds/podcast.xml", import.meta.url),
@@ -131,7 +172,7 @@ describe("boot", () => {
 
   test("normalizes a browser path before fetching its RSS feed", async () => {
     // #given
-    const window = new Window({ url: "https://library.example/browse/books/first" });
+    const window = createUiWindow("https://library.example/browse/books/first");
 
     const text = await Bun.file(
       new URL("../../fixtures/feeds/podcast.xml", import.meta.url),
@@ -163,7 +204,7 @@ describe("boot", () => {
 
   test("shows the building message and retries after Retry-After seconds", async () => {
     // #given
-    const window = new Window({ url: "https://library.example/browse/books/first/" });
+    const window = createUiWindow("https://library.example/browse/books/first/");
 
     const text = await Bun.file(
       new URL("../../fixtures/feeds/podcast.xml", import.meta.url),
@@ -207,7 +248,7 @@ describe("boot", () => {
 
   test("renders a not-found message with a link to the library", async () => {
     // #given
-    const window = new Window({ url: "https://library.example/browse/books/missing/" });
+    const window = createUiWindow("https://library.example/browse/books/missing/");
     const { boot } = await import(BOOT_MODULE);
 
     // #when
@@ -228,7 +269,7 @@ describe("boot", () => {
 
   test("renders an HTTP failure with a link to the raw feed", async () => {
     // #given
-    const window = new Window({ url: "https://library.example/browse/books/broken/" });
+    const window = createUiWindow("https://library.example/browse/books/broken/");
     const { boot } = await import(BOOT_MODULE);
 
     // #when
@@ -251,7 +292,7 @@ describe("boot", () => {
 
   test("renders not found without fetching outside the browser URL contract", async () => {
     // #given
-    const window = new Window({ url: "https://library.example/books/first/" });
+    const window = createUiWindow("https://library.example/books/first/");
     const events: string[] = [];
     const { boot } = await import(BOOT_MODULE);
 
@@ -278,7 +319,7 @@ describe("boot", () => {
 
   test("renders not found without fetching a protocol-relative browse path", async () => {
     // #given
-    const window = new Window({ url: "https://library.example/browse//evil.example/x/" });
+    const window = createUiWindow("https://library.example/browse//evil.example/x/");
     const events: string[] = [];
     const { boot } = await import(BOOT_MODULE);
 

@@ -1,6 +1,7 @@
 import { parseFeed, parseOpml } from "./parse-feed.ts";
 import { renderPodcast, renderPodcastList } from "./render.ts";
 import { feedUrlFor, normalizePath } from "./routes.ts";
+import { cloneTemplate, slot } from "./template.ts";
 
 export interface BootOptions {
   document: Document;
@@ -60,7 +61,10 @@ export async function boot(options: BootOptions): Promise<void> {
 
       if (route.kind === "list") {
         const model = parseOpml(text);
-        app.replaceChildren(renderPodcastList(options.document, model, options.location.origin));
+        const opmlUrl = new URL(route.feedUrl, options.location.origin).href;
+        app.replaceChildren(
+          renderPodcastList(options.document, model, options.location.origin, opmlUrl),
+        );
         options.document.title = model.title;
       } else {
         const feed = parseFeed(text);
@@ -94,18 +98,16 @@ function retryDelay(response: Response): number {
 }
 
 function replaceWithMessage(app: Element, document: Document, message: string): void {
-  const paragraph = document.createElement("p");
+  const paragraph = cloneTemplate(document, "tpl-message");
   paragraph.textContent = message;
   app.replaceChildren(paragraph);
 }
 
 function replaceWithLink(app: Element, document: Document, message: string, href: string): void {
-  const paragraph = document.createElement("p");
-  paragraph.textContent = message;
-  const link = document.createElement("a");
-  link.href = href;
+  const paragraph = cloneTemplate(document, "tpl-message-link");
+  paragraph.prepend(message, " ");
+  const link = slot(paragraph, "link");
+  link.setAttribute("href", href);
   link.textContent = href === "/" ? "Back to library" : "Open raw feed";
-  paragraph.appendChild(document.createTextNode(" "));
-  paragraph.appendChild(link);
   app.replaceChildren(paragraph);
 }

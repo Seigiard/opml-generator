@@ -9,6 +9,62 @@
   </head>
   <body>
     <div id="app"></div>
+    <template id="tpl-podcast-list">
+      <main>
+        <h1 data-slot="title"></h1>
+        <ul class="podcasts" data-slot="podcasts"></ul>
+      </main>
+    </template>
+    <template id="tpl-podcast-item">
+      <li class="podcast">
+        <div class="cover podcast__cover" data-slot="cover">
+          <img class="cover__image" alt="" data-slot="cover-image" />
+        </div>
+        <div class="podcast__body">
+          <a class="podcast__title" data-slot="title"></a>
+          <small class="podcast__author" data-slot="author"></small>
+          <p class="podcast__desc" data-slot="description"></p>
+          <small data-slot="subscribe"></small>
+        </div>
+      </li>
+    </template>
+    <template id="tpl-podcast-page">
+      <main>
+        <nav><a href="/">← Back</a></nav>
+        <header class="feed-header">
+          <div class="cover feed-header__cover" data-slot="cover">
+            <img class="cover__image" alt="" data-slot="cover-image" />
+          </div>
+          <hgroup class="feed-header__info">
+            <h1 class="feed-header__title" data-slot="title"></h1>
+            <p class="feed-header__author" data-slot="author"></p>
+            <p class="feed-header__desc" data-slot="description"></p>
+            <small data-slot="subscribe"></small>
+          </hgroup>
+        </header>
+        <ol class="episodes" data-slot="episodes"></ol>
+      </main>
+    </template>
+    <template id="tpl-episode-item">
+      <li class="episode">
+        <a class="episode__title" data-slot="title"></a>
+        <small class="episode__duration" data-slot="duration"></small>
+      </li>
+    </template>
+    <template id="tpl-copy-link">
+      <small class="subscribe"><a data-slot="copy"></a></small>
+    </template>
+    <template id="tpl-subscribe">
+      <small class="subscribe"
+        ><a data-slot="copy"></a> · <a data-slot="antennapod">AntennaPod</a></small
+      >
+    </template>
+    <template id="tpl-message">
+      <p></p>
+    </template>
+    <template id="tpl-message-link">
+      <p><a data-slot="link"></a></p>
+    </template>
     <noscript><a href="/feed.opml">OPML feed</a></noscript>
     <script type="module" src="/_app/main.js"></script>
   </body>
