@@ -128,6 +128,8 @@ test("nginx retains resync Basic auth and proxies authenticated GET as an accept
       { guid: "test/Test Author/Test Audiobook/03 - Chapter Three.m4a", number: 3 },
     ],
     opmlUrls: [
+      `${baseUrl}/audiobooks/Collision%20Book/feed.xml`,
+      `${baseUrl}/browse/Browse%20Book/feed.xml`,
       `${baseUrl}/test/Test%20Author/Test%20Audiobook/feed.xml`,
       `${baseUrl}/test/Untagged%20Podcast/feed.xml`,
     ].sort(),

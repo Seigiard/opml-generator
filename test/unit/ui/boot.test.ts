@@ -36,9 +36,9 @@ afterAll(() => {
 });
 
 describe("boot", () => {
-  test("normalizes a folder path before fetching its RSS feed", async () => {
+  test("normalizes a browser path before fetching its RSS feed", async () => {
     // #given
-    const window = new Window({ url: "https://library.example/books/first" });
+    const window = new Window({ url: "https://library.example/browse/books/first" });
 
     const text = await Bun.file(
       new URL("../../fixtures/feeds/podcast.xml", import.meta.url),
@@ -65,12 +65,12 @@ describe("boot", () => {
     });
 
     // #then
-    expect(events).toEqual(["replaceState:/books/first/", "fetch:/books/first/feed.xml"]);
+    expect(events).toEqual(["replaceState:/browse/books/first/", "fetch:/books/first/feed.xml"]);
   });
 
   test("shows the building message and retries after Retry-After seconds", async () => {
     // #given
-    const window = new Window({ url: "https://library.example/books/first/" });
+    const window = new Window({ url: "https://library.example/browse/books/first/" });
 
     const text = await Bun.file(
       new URL("../../fixtures/feeds/podcast.xml", import.meta.url),
@@ -114,7 +114,7 @@ describe("boot", () => {
 
   test("renders a not-found message with a link to the library", async () => {
     // #given
-    const window = new Window({ url: "https://library.example/books/missing/" });
+    const window = new Window({ url: "https://library.example/browse/books/missing/" });
     const { boot } = await import(BOOT_MODULE);
 
     // #when
@@ -135,7 +135,7 @@ describe("boot", () => {
 
   test("renders an HTTP failure with a link to the raw feed", async () => {
     // #given
-    const window = new Window({ url: "https://library.example/books/broken/" });
+    const window = new Window({ url: "https://library.example/browse/books/broken/" });
     const { boot } = await import(BOOT_MODULE);
 
     // #when
@@ -154,5 +154,59 @@ describe("boot", () => {
       hasMessage: window.document.body.textContent?.includes("Internal Server Error"),
       href: window.document.body.querySelector("a")?.getAttribute("href"),
     }).toEqual({ hasMessage: true, href: "/books/broken/feed.xml" });
+  });
+
+  test("renders not found without fetching outside the browser URL contract", async () => {
+    // #given
+    const window = new Window({ url: "https://library.example/books/first/" });
+    const events: string[] = [];
+    const { boot } = await import(BOOT_MODULE);
+
+    // #when
+    await boot({
+      document: window.document,
+      location: window.location,
+      history: window.history,
+      fetch: requireGlobalReceiver(async (input: string | URL | Request) => {
+        events.push(`fetch:${String(input)}`);
+
+        return new Response(null, { status: 200 });
+      }),
+      setTimeout: requireGlobalReceiver(() => 1),
+    });
+
+    // #then
+    expect({
+      message: window.document.body.textContent?.trim(),
+      href: window.document.body.querySelector("a")?.getAttribute("href"),
+      events,
+    }).toEqual({ message: "podcast not found Back to library", href: "/", events: [] });
+  });
+
+  test("renders not found without fetching a protocol-relative browse path", async () => {
+    // #given
+    const window = new Window({ url: "https://library.example/browse//evil.example/x/" });
+    const events: string[] = [];
+    const { boot } = await import(BOOT_MODULE);
+
+    // #when
+    await boot({
+      document: window.document,
+      location: window.location,
+      history: window.history,
+      fetch: requireGlobalReceiver(async (input: string | URL | Request) => {
+        events.push(`fetch:${String(input)}`);
+
+        return new Response(null, { status: 200 });
+      }),
+      setTimeout: requireGlobalReceiver(() => 1),
+    });
+
+    // #then
+    expect({
+      message: window.document.body.textContent?.trim(),
+      href: window.document.body.querySelector("a")?.getAttribute("href"),
+      events,
+    }).toEqual({ message: "podcast not found Back to library", href: "/", events: [] });
   });
 });
