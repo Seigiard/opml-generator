@@ -184,6 +184,12 @@ a:visited {
 
 /* Layout */
 
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition {
+    navigation: auto;
+  }
+}
+
 body {
   margin: 0 auto;
   padding: 2rem;
