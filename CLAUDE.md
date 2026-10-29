@@ -63,7 +63,7 @@ For concurrent E2E worktrees, use a distinct `COMPOSE_PROJECT_NAME` and port. Se
 <important if="you are finishing a task or about to commit">
 
 1. Run `bun run test` and confirm 0 failures. Commit only after a green run. No git hook runs tests.
-2. Let Lefthook run the other checks: pre-commit formats, lints, and typechecks staged files; pre-push runs Knip and the `static/` check against `HEAD`. When a hook fails, fix the cause and rerun it.
+2. Let Lefthook run the other checks: pre-commit formats and lints staged files and, when TypeScript is staged, typechecks the whole project; pre-push runs Knip and the `static/` check against `HEAD`. When a hook fails, fix the cause and rerun it.
 3. Update agent instructions only when the change alters a required action, project constraint, or non-obvious gotcha. Put detailed contracts in their referenced documents; keep versions, script inventories, and configuration defaults in their source files.
 
 </important>
@@ -115,13 +115,12 @@ Read "Work adapters and handlers" in `docs/agents/synchronization.md` before add
 
 <important if="you are changing watchers, data-watcher event handling, or debugging an infinite event loop">
 
-Read "Source watcher" in `docs/agents/synchronization.md` before changing watcher transport or diagnosing event loops. There is no data watcher; generated-file changes do not post back to Bun.
+Read "Source watcher" in `docs/agents/synchronization.md` before changing watcher transport or diagnosing event loops. Only the source watcher posts events to Bun; writes under `/data` never trigger one.
 
 </important>
 
 <important if="you are reading audio metadata or changing ID3 extraction">
 
-- `music-metadata` `parseFile()` hangs in Bun. Always use `parseBuffer()`.
 - Use `src/types.ts` for supported audio extensions and MIME types.
 - An M4B file is one episode. There is no chapter extraction; users split files beforehand.
 
@@ -149,7 +148,7 @@ Read `src/config.ts` for Bun settings and validation, `entrypoint.sh` for nginx/
 
 <important if="you are working on /resync or its authentication">
 
-- `/resync` needs both `ADMIN_USER` and `ADMIN_TOKEN`. Without them, nginx drops the auth block.
+- nginx exposes `/resync` only when both `ADMIN_USER` and `ADMIN_TOKEN` are set, and always behind Basic Auth. Without them, `entrypoint.sh` deletes the whole `location = /resync` block and nginx answers 404. The watcher's overflow resync calls Bun on `127.0.0.1` directly and works either way.
 - The `AUTH_ENABLED` logic lives in `entrypoint.sh`.
 
 </important>

@@ -16,7 +16,7 @@ there. Everything below is here because it changes a verdict.
 - A changed public metadata path or Episode identity. Podcast apps key playback position and downloads on the episode URL; a renamed path resets every listener.
 - An event loop or infinite reprocessing: a generated-file write that reaches the source watcher, or a freshness check that never settles. Costs CPU forever and masks real changes.
 - A shutdown that leaves inotify or wget children alive, or a container that reports ready before `feed.opml` exists.
-- A hidden Bun or Alpine gotcha: `music-metadata` `parseFile()` hangs in Bun (use `parseBuffer()`), the image has no `curl`, the output lease needs Linux `flock`.
+- A hidden Alpine gotcha: the image has no `curl`, the output lease needs Linux `flock`.
 - A green test that cannot fail: expected values re-derived from the code under test, a mock answering its own assertion, a fixture-count gate. The repository's tdd chain locks tests before implementation; a test that was never red is not coverage.
 - A link, URL, or XML that a real client parses differently from a string comparison: WHATWG URL serialization of custom schemes, percent-encoding of non-ASCII folder names, iTunes namespace fields. Check against the consumer's actual rules, not the author's intent.
 
@@ -39,7 +39,7 @@ there. Everything below is here because it changes a verdict.
 - Cache paths go through the shared Bun/njs codec `src/cache-layout.js`; nginx resolves public metadata URLs through the same projection. Audio streams from the original source path.
 - Episode numbers are recomputed from 1 on every feed update, sorted by `(disc, track, filename)`. The cached `episodeNumber` in `entry.xml` is ignored on purpose.
 - An M4B file is one episode; chapters are not extracted.
-- `/resync` requires Basic Auth only when both `ADMIN_USER` and `ADMIN_TOKEN` are set; otherwise nginx drops the auth block.
+- nginx exposes `/resync` behind Basic Auth only when both `ADMIN_USER` and `ADMIN_TOKEN` are set; otherwise it answers 404. The watcher reaches Bun's `/resync` on `127.0.0.1` either way.
 - Unit and engine tests run in Docker (`bun run test`); `test/e2e/` needs the production container; `smoke:engine` is a manual gate and is not in CI.
 - The browser view is a static shell built from `ui/` into `static/`, served from `/_app/`, tested with happy-dom in Docker and through the production container in e2e.
-- `main` is the deployed branch and has no PR gate; lefthook pre-commit (format, lint, typecheck on staged files) and pre-push (knip) are the gates.
+- `main` is the deployed branch and has no PR gate; the Lefthook pre-commit and pre-push jobs in `lefthook.yml` are the gates.
