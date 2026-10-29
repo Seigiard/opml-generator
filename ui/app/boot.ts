@@ -88,6 +88,8 @@ async function showPage(
     if (signal.aborted) return;
 
     await swap(() => {
+      if (signal.aborted) return;
+
       shell.app.replaceChildren(renderPage(document, page));
       document.title = titleFor(page) ?? shell.defaultTitle;
 
