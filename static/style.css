@@ -184,12 +184,6 @@ a:visited {
 
 /* Layout */
 
-@media (prefers-reduced-motion: no-preference) {
-  @view-transition {
-    navigation: auto;
-  }
-}
-
 body {
   margin: 0 auto;
   padding: 2rem;
@@ -485,6 +479,25 @@ nav a:hover {
 .subscribe a:hover {
   text-decoration: underline;
   text-decoration-color: var(--color-rule);
+}
+
+/* --- Page transitions --- */
+
+@view-transition {
+  navigation: auto;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 150ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none;
+  }
 }
 
 /* Mobile */
