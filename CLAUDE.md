@@ -62,10 +62,9 @@ For concurrent E2E worktrees, use a distinct `COMPOSE_PROJECT_NAME` and port. Se
 
 <important if="you are finishing a task or about to commit">
 
-1. Run `bun run fix`. The policy is zero warnings and zero errors.
-2. Run `bun run test` and confirm 0 failures. Commit only after a green run.
-3. Run `npx knip` and resolve every new finding.
-4. Update agent instructions only when the change alters a required action, project constraint, or non-obvious gotcha. Put detailed contracts in their referenced documents; keep versions, script inventories, and configuration defaults in their source files.
+1. Run `bun run test` and confirm 0 failures. Commit only after a green run. No git hook runs tests.
+2. Let Lefthook run the other checks: pre-commit formats, lints, and typechecks staged files; pre-push runs Knip and `build:ui:check`. When a hook fails, fix the cause and rerun it.
+3. Update agent instructions only when the change alters a required action, project constraint, or non-obvious gotcha. Put detailed contracts in their referenced documents; keep versions, script inventories, and configuration defaults in their source files.
 
 </important>
 
