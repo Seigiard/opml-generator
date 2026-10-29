@@ -43,7 +43,7 @@ nginx on port 80 exposes the browser shell at `/` and `/browse/`, `/feed.opml`, 
 
 Docker dev runs at http://localhost:8080. Run the app and unit/integration tests in Docker. The E2E runner tests production containers. Stop containers gracefully after tests.
 
-Use `package.json` for scripts and `lefthook.yml` for pre-commit (staged files) and pre-push hooks. Rebuild Docker test images after dependency changes; the test compose file does not mount local dependencies. Local typechecking is allowed. The committed `static/` output is built from `ui/`; after a `ui/` change, run `bun run build:ui` and commit `static/` because pre-push and CI run `bun run build:ui:check`.
+Use `package.json` for scripts and `lefthook.yml` for pre-commit (staged files) and pre-push hooks. Rebuild Docker test images after dependency changes; the test compose file does not mount local dependencies. Local typechecking is allowed. The committed `static/` output is built from `ui/`. Commit it with the `ui/` change; the pre-commit hook rejects a commit whose staged `static/` is stale and names the fix.
 The UI build must run on the Bun version in `.bun-version`. UI markup lives in `<template>` elements in `ui/app/index.html`; `ui/app/template.ts` clones them and fills `data-slot` nodes, and UI tests load the shell through `test/helpers/ui-document.ts`.
 
 To run one test file in Docker:
@@ -63,7 +63,7 @@ For concurrent E2E worktrees, use a distinct `COMPOSE_PROJECT_NAME` and port. Se
 <important if="you are finishing a task or about to commit">
 
 1. Run `bun run test` and confirm 0 failures. Commit only after a green run. No git hook runs tests.
-2. Let Lefthook run the other checks: pre-commit formats, lints, and typechecks staged files; pre-push runs Knip and `build:ui:check`. When a hook fails, fix the cause and rerun it.
+2. Let Lefthook run the other checks: pre-commit formats, lints, and typechecks staged files; pre-push runs Knip and the `static/` check against `HEAD`. When a hook fails, fix the cause and rerun it.
 3. Update agent instructions only when the change alters a required action, project constraint, or non-obvious gotcha. Put detailed contracts in their referenced documents; keep versions, script inventories, and configuration defaults in their source files.
 
 </important>

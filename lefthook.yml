@@ -16,10 +16,13 @@ pre-commit:
       glob: "**/*.{ts,tsx}"
       exclude: "tools/oxlint/anti-slop/**"
       run: bun --bun tsc --noEmit && bun --bun tsc --noEmit -p ui/tsconfig.json
+    - name: static
+      glob: ["ui/**", "static/**", ".bun-version"]
+      run: sh tools/check-static.sh staged
 
 pre-push:
   jobs:
-    - name: build-ui
-      run: bun run build:ui:check
+    - name: static
+      run: sh tools/check-static.sh head
     - name: knip
       run: npx --no-install knip
