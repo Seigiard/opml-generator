@@ -6,6 +6,16 @@
     <title>Podcast Library</title>
     <link rel="icon" type="image/svg+xml" href="/_app/favicon/favicon.svg" />
     <link rel="stylesheet" href="/_app/style.css" />
+    <script type="speculationrules">
+      {
+        "prerender": [
+          {
+            "where": { "or": [{ "href_matches": "/" }, { "href_matches": "/browse/*" }] },
+            "eagerness": "moderate"
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <div id="app"></div>

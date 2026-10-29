@@ -35,14 +35,13 @@ export async function loadPage(
   pathname: string,
   origin: string,
   fetch: (input: string, init?: RequestInit) => Promise<Response>,
-  signal?: AbortSignal,
 ): Promise<Page> {
   const route = feedUrlFor(pathname);
 
   if (route === null) return { kind: "not-found" };
 
   try {
-    const response = await fetch(route.feedUrl, { signal });
+    const response = await fetch(route.feedUrl);
 
     if (response.status === 503) {
       return { kind: "building", retryAfterMs: retryDelay(response) };
