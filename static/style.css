@@ -184,12 +184,6 @@ a:visited {
 
 /* Layout */
 
-@media (prefers-reduced-motion: no-preference) {
-  @view-transition {
-    navigation: auto;
-  }
-}
-
 body {
   margin: 0 auto;
   padding: 2rem;
@@ -488,6 +482,10 @@ nav a:hover {
 }
 
 /* --- Page transitions --- */
+
+@view-transition {
+  navigation: auto;
+}
 
 ::view-transition-old(root),
 ::view-transition-new(root) {
