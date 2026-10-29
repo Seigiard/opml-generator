@@ -5,9 +5,9 @@
     "test/**/*.ts",
     "ui/app/main.ts",
     "ui/app/render.ts",
-    "ui/scripts/build-ui.ts",
     "tools/oxlint/anti-slop/effect/index.ts"
   ],
   "project": ["src/**/*.ts", "test/**/*.ts", "ui/**/*.ts", "tools/oxlint/anti-slop/**/*.ts"],
-  "ignore": ["tools/oxlint/anti-slop/**"]
+  "ignore": ["tools/oxlint/anti-slop/**"],
+  "treatConfigHintsAsErrors": true
 }
