@@ -35,7 +35,7 @@ test/                # unit/, engine/, integration/ (needs Docker), e2e/, helper
 docs/adr/            # Architecture decisions
 ```
 
-nginx on port 80 exposes the browser shell at `/` and `/browse/`, `/feed.opml`, source-relative public metadata paths, audio streaming, and `/ready`. Shell assets are under `/_app/`. It proxies `/resync` behind Basic Auth. Bun on port 3000 (localhost only) handles `GET /ready`, `POST /events/books`, and `POST /resync`.
+nginx on port 80 exposes the browser shell at `/` and `/browse/`, `/feed.opml`, source-relative public metadata paths, audio streaming, and `/ready`. Shell assets are under `/_app/`. It proxies `/resync` to Bun when admin credentials are set (see the `/resync` block below). Bun on port 3000 (localhost only) handles `GET /ready`, `POST /events/books`, and `POST /resync`.
 
 `/data` is a generated cache with a reversible private projection of `/audiobooks`. Source files and folders are authoritative, and RSS reflects the current Library. An audio file maps to an episode mirror with `entry.xml`. A folder with episodes gets `feed.xml`, `cover.jpg`, and `_entry.xml`. The root gets `feed.opml`. Public metadata paths and Episode identity remain source-relative. The shared engine owns synchronization, freshness state, and the output lease under `DATA/~/.sync-engine`; that path is outside every supported cache projection.
 
@@ -43,7 +43,7 @@ nginx on port 80 exposes the browser shell at `/` and `/browse/`, `/feed.opml`, 
 
 Docker dev runs at http://localhost:8080. Run the app and unit/integration tests in Docker. The E2E runner tests production containers. Stop containers gracefully after tests.
 
-Use `package.json` for scripts and `lefthook.yml` for pre-commit (staged files) and pre-push hooks. Rebuild Docker test images after dependency changes; the test compose file does not mount local dependencies. Local typechecking is allowed. The committed `static/` output is built from `ui/`. Commit it with the `ui/` change; the pre-commit hook rejects a commit whose staged `static/` is stale and names the fix.
+Use `package.json` for scripts. Rebuild Docker test images after dependency changes; the test compose file does not mount local dependencies. Local typechecking is allowed. The committed `static/` output is built from `ui/`. Commit it with the `ui/` change; the pre-commit hook rejects a commit whose staged `static/` is stale and names the fix.
 The UI build must run on the Bun version in `.bun-version`. UI markup lives in `<template>` elements in `ui/app/index.html`; `ui/app/template.ts` clones them and fills `data-slot` nodes, and UI tests load the shell through `test/helpers/ui-document.ts`.
 
 To run one test file in Docker:
@@ -63,7 +63,7 @@ For concurrent E2E worktrees, use a distinct `COMPOSE_PROJECT_NAME` and port. Se
 <important if="you are finishing a task or about to commit">
 
 1. Run `bun run test` and confirm 0 failures. Commit only after a green run. No git hook runs tests.
-2. Let Lefthook run the other checks: pre-commit formats and lints staged files and, when TypeScript is staged, typechecks the whole project; pre-push runs Knip and the `static/` check against `HEAD`. When a hook fails, fix the cause and rerun it.
+2. Let Lefthook run the other checks from `lefthook.yml`. The pre-commit typecheck covers the whole project, so an unstaged type error also blocks the commit. When a hook fails, fix the cause and rerun it.
 3. Update agent instructions only when the change alters a required action, project constraint, or non-obvious gotcha. Put detailed contracts in their referenced documents; keep versions, script inventories, and configuration defaults in their source files.
 
 </important>
@@ -85,19 +85,19 @@ For concurrent E2E worktrees, use a distinct `COMPOSE_PROJECT_NAME` and port. Se
 
 <important if="you are changing synchronization passes, the reconcile loop, resync, or the engine lifecycle">
 
-Read `docs/agents/synchronization.md`, especially "Passes and publication", before changing engine behavior. It holds the current contract. ADR `0001` records the filesystem-authoritative decision; its old lifecycle rules are superseded.
+Read `docs/agents/synchronization.md`, especially "Passes and publication", first. It holds the current contract. ADR `0001` records the filesystem-authoritative decision; its old lifecycle rules are superseded.
 
 </important>
 
 <important if="you are changing shutdown, bootstrap, the entrypoint, or process ownership">
 
-Read "Shutdown and process ownership" in `docs/agents/synchronization.md` before changing signal handling, bootstrap, or child cleanup.
+Read "Shutdown and process ownership" in `docs/agents/synchronization.md` first.
 
 </important>
 
 <important if="you are changing source-path reconciliation, source traversal, or cache mutation guards">
 
-Read "Source reconciliation and cache safety" in `docs/agents/synchronization.md` before changing traversal or cache mutations.
+Read "Source reconciliation and cache safety" in `docs/agents/synchronization.md` first.
 
 </important>
 
@@ -109,26 +109,26 @@ Read `docs/adr/0002-unrestricted-source-names-private-cache.md` first for the pr
 
 <important if="you are adding or modifying event handlers or engine work">
 
-Read "Work adapters and handlers" in `docs/agents/synchronization.md` before adding event handlers or engine work.
+Read "Work adapters and handlers" in `docs/agents/synchronization.md` first.
 
 </important>
 
-<important if="you are changing watchers, data-watcher event handling, or debugging an infinite event loop">
+<important if="you are changing the source watcher or its event transport, or debugging an infinite event loop">
 
-Read "Source watcher" in `docs/agents/synchronization.md` before changing watcher transport or diagnosing event loops. Only the source watcher posts events to Bun; writes under `/data` never trigger one.
+Read "Source watcher" in `docs/agents/synchronization.md` first. The source watcher on `/audiobooks` is the only event source; `/data` is outside its scope.
 
 </important>
 
 <important if="you are reading audio metadata or changing ID3 extraction">
 
 - Use `src/types.ts` for supported audio extensions and MIME types.
-- An M4B file is one episode. There is no chapter extraction; users split files beforehand.
+- An M4B file is one episode; users split chapters into separate files beforehand.
 
 </important>
 
 <important if="you are changing RSS or OPML generation, episode ordering, or episode numbering">
 
-Read "RSS and OPML" in `docs/agents/synchronization.md` before changing feed generation, ordering, or numbering.
+Read "RSS and OPML" in `docs/agents/synchronization.md` first.
 
 </important>
 
@@ -148,8 +148,7 @@ Read `src/config.ts` for Bun settings and validation, `entrypoint.sh` for nginx/
 
 <important if="you are working on /resync or its authentication">
 
-- nginx exposes `/resync` only when both `ADMIN_USER` and `ADMIN_TOKEN` are set, and always behind Basic Auth. Without them, `entrypoint.sh` deletes the whole `location = /resync` block and nginx answers 404. The watcher's overflow resync calls Bun on `127.0.0.1` directly and works either way.
-- The `AUTH_ENABLED` logic lives in `entrypoint.sh`.
+- `entrypoint.sh` keeps nginx's `location = /resync` block (Basic Auth, proxied to Bun) only when both `ADMIN_USER` and `ADMIN_TOKEN` are set; otherwise it deletes the block and nginx answers 404. The watcher's overflow resync posts to Bun on `127.0.0.1` and bypasses nginx.
 
 </important>
 

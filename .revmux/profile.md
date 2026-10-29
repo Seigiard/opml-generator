@@ -29,17 +29,17 @@ there. Everything below is here because it changes a verdict.
 
 - Report defects that make a published feed, a cache mutation, readiness, or shutdown wrong on the real container, or that break the contracts named above.
 - Report a test only when it is a false green, has no independent oracle, or contradicts a documented contract. Report a missing test only where a real oracle exists; "add a unit test" without naming its consumer and observable failure is not a finding.
-- Do not report style, formatting, or naming: `bun run fix` (oxfmt + oxlint with the vendored anti-slop rules), `tsc`, and `knip` gate every commit and push.
-- Do not report Node-vs-Bun API choices, Effect idioms, or missing abstractions in single-use handlers. The CLAUDE.md table (Bun.file, Bun.serve, Bun.$, Bun.hash) is deliberate.
-- Do not report performance of a pass over a few thousand files unless it is unbounded.
+- Style, formatting, naming, and type errors are out of scope: the Lefthook jobs in `lefthook.yml` catch them before code reaches `main`.
+- Treat Node-vs-Bun API choices (the CLAUDE.md table is deliberate), Effect idioms, and single-use handlers without extra abstraction as accepted conventions.
+- Report pass performance only when the work is unbounded; a few thousand files is the expected scale.
 
 ## Deliberate conventions (not defects)
 
-- Filesystem is authoritative; there is no database and no data watcher. Generated files never post events back to Bun.
+- The source watcher on `/audiobooks` is the only event source, by design.
 - Cache paths go through the shared Bun/njs codec `src/cache-layout.js`; nginx resolves public metadata URLs through the same projection. Audio streams from the original source path.
 - Episode numbers are recomputed from 1 on every feed update, sorted by `(disc, track, filename)`. The cached `episodeNumber` in `entry.xml` is ignored on purpose.
 - An M4B file is one episode; chapters are not extracted.
 - nginx exposes `/resync` behind Basic Auth only when both `ADMIN_USER` and `ADMIN_TOKEN` are set; otherwise it answers 404. The watcher reaches Bun's `/resync` on `127.0.0.1` either way.
 - Unit and engine tests run in Docker (`bun run test`); `test/e2e/` needs the production container; `smoke:engine` is a manual gate and is not in CI.
 - The browser view is a static shell built from `ui/` into `static/`, served from `/_app/`, tested with happy-dom in Docker and through the production container in e2e.
-- `main` is the deployed branch and has no PR gate; the Lefthook pre-commit and pre-push jobs in `lefthook.yml` are the gates.
+- `main` is the deployed branch and has no PR gate.
