@@ -69,6 +69,18 @@
         ><a data-slot="copy"></a> · <a data-slot="antennapod">AntennaPod</a></small
       >
     </template>
+    <template id="tpl-skeleton">
+      <main class="skeleton" aria-busy="true" aria-label="Loading">
+        <span class="skeleton__bar skeleton__title"></span>
+        <ul class="podcasts" aria-hidden="true" data-slot="podcasts"></ul>
+      </main>
+    </template>
+    <template id="tpl-skeleton-item">
+      <li class="podcast">
+        <div class="podcast__cover skeleton__bar skeleton__cover"></div>
+        <div class="podcast__body"><span class="skeleton__bar skeleton__label"></span></div>
+      </li>
+    </template>
     <template id="tpl-message">
       <p></p>
     </template>

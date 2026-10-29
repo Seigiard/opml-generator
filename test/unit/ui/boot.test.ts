@@ -344,3 +344,139 @@ describe("boot", () => {
     }).toEqual({ message: "podcast not found Back to library", href: "/", events: [] });
   });
 });
+
+async function libraryOpml(): Promise<string> {
+  return Bun.file(new URL("../../fixtures/feeds/library.opml", import.meta.url)).text();
+}
+
+function flush(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+describe("loading skeleton", () => {
+  test("a feed slower than 300 ms shows the skeleton, then the page", async () => {
+    // #given
+    const window = createUiWindow("https://library.example/");
+    const text = await libraryOpml();
+    const response = Promise.withResolvers<Response>();
+    const timers: Array<{ timeout: number | undefined; callback: () => void }> = [];
+    const { boot } = await import(BOOT_MODULE);
+
+    // #when
+    const booted = boot({
+      document: window.document,
+      location: window.location,
+      history: window.history,
+      fetch: requireGlobalReceiver(() => response.promise),
+      setTimeout: requireGlobalReceiver((callback: () => void, timeout?: number) => {
+        timers.push({ timeout, callback });
+
+        return timers.length;
+      }),
+    });
+
+    await flush();
+    timers.find((timer) => timer.timeout === 300)?.callback();
+    await flush();
+
+    const whileLoading = {
+      busy: window.document.querySelector("main")?.getAttribute("aria-busy"),
+      items: window.document.querySelectorAll("main li").length,
+    };
+
+    response.resolve(new Response(text, { status: 200 }));
+    await booted;
+
+    // #then
+    expect({
+      whileLoading,
+      loaded: {
+        busy: window.document.querySelector("main")?.getAttribute("aria-busy") ?? null,
+        heading: window.document.querySelector("main > h1")?.textContent,
+      },
+    }).toEqual({
+      whileLoading: { busy: "true", items: 6 },
+      loaded: { busy: null, heading: "Audio Library" },
+    });
+  });
+
+  test("a feed faster than 300 ms renders the page without the skeleton", async () => {
+    // #given
+    const window = createUiWindow("https://library.example/");
+    const text = await libraryOpml();
+    const timers: Array<() => void> = [];
+    const { boot } = await import(BOOT_MODULE);
+
+    // #when
+    await boot({
+      document: window.document,
+      location: window.location,
+      history: window.history,
+      fetch: requireGlobalReceiver(async () => new Response(text, { status: 200 })),
+      setTimeout: requireGlobalReceiver((callback: () => void) => {
+        timers.push(callback);
+
+        return timers.length;
+      }),
+    });
+
+    for (const callback of timers) callback();
+    await flush();
+
+    // #then
+    expect({
+      busy: window.document.querySelector("main")?.getAttribute("aria-busy") ?? null,
+      heading: window.document.querySelector("main > h1")?.textContent,
+    }).toEqual({ busy: null, heading: "Audio Library" });
+  });
+});
+
+describe("child feed prefetch", () => {
+  async function bootLibrary(saveData: boolean): Promise<Array<[string, string | undefined]>> {
+    const window = createUiWindow("https://library.example/");
+    const text = await libraryOpml();
+    const requests: Array<[string, string | undefined]> = [];
+    const { boot } = await import(BOOT_MODULE);
+
+    await boot({
+      document: window.document,
+      location: window.location,
+      history: window.history,
+      fetch: requireGlobalReceiver(async (input: string, init?: { priority?: string }) => {
+        requests.push([input, init?.priority]);
+
+        return new Response(text, { status: 200 });
+      }),
+      setTimeout: requireGlobalReceiver(() => 1),
+      saveData,
+    });
+
+    return requests;
+  }
+
+  test("a list page warms each child feed at low priority", async () => {
+    // #given
+    const saveData = false;
+
+    // #when
+    const requests = await bootLibrary(saveData);
+
+    // #then
+    expect(requests).toEqual([
+      ["/feed.opml", undefined],
+      ["/books/first/feed.xml", "low"],
+      ["/books/minimal/feed.xml", "low"],
+    ]);
+  });
+
+  test("Save-Data turns child feed prefetch off", async () => {
+    // #given
+    const saveData = true;
+
+    // #when
+    const requests = await bootLibrary(saveData);
+
+    // #then
+    expect(requests).toEqual([["/feed.opml", undefined]]);
+  });
+});

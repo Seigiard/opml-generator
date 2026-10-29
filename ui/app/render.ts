@@ -5,6 +5,8 @@ import { cloneTemplate, slot } from "./template.ts";
 
 export function renderPage(document: Document, page: Page): HTMLElement {
   switch (page.kind) {
+    case "skeleton":
+      return renderSkeleton(document);
     case "building":
       return renderMessage(document, "library is being built");
     case "not-found":
@@ -50,6 +52,19 @@ function renderList(document: Document, page: Extract<Page, { kind: "list" }>): 
     }
 
     list.appendChild(item);
+  }
+
+  return main;
+}
+
+const SKELETON_ITEM_COUNT = 6;
+
+function renderSkeleton(document: Document): HTMLElement {
+  const main = cloneTemplate(document, "tpl-skeleton");
+  const list = slot(main, "podcasts");
+
+  for (let index = 0; index < SKELETON_ITEM_COUNT; index++) {
+    list.appendChild(cloneTemplate(document, "tpl-skeleton-item"));
   }
 
   return main;
