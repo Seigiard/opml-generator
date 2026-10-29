@@ -1,7 +1,8 @@
-import { type ShellNavigateEvent, type ShellNavigation, shellPathFor } from "./navigation.ts";
-import { loadPage, type Page } from "./page.ts";
+import { feedsToPrefetch, loadPage, type Page } from "./page.ts";
 import { renderPage } from "./render.ts";
 import { normalizePath } from "./routes.ts";
+
+const LOADING_DELAY_MS = 300;
 
 export interface BootOptions {
   document: Document;
@@ -9,141 +10,60 @@ export interface BootOptions {
   location: Pick<Location, "origin" | "pathname">;
   history: Pick<History, "replaceState">;
   setTimeout: (callback: () => void, timeout?: number) => number;
-  navigation?: ShellNavigation;
+  saveData?: boolean;
 }
 
-interface Shell {
-  options: BootOptions;
-  app: HTMLElement;
-  defaultTitle: string;
-}
-
+// Every shell page is a full document load. The browser owns history, scroll,
+// and focus; speculation rules in index.html prerender the next page on hover,
+// and the CSS cross-document view transition animates the swap.
 export async function boot(options: BootOptions): Promise<void> {
-  const app = options.document.getElementById("app") ?? options.document.body;
-  const shell: Shell = { options, app, defaultTitle: options.document.title };
+  const { document, fetch, setTimeout } = options;
+  const app = document.getElementById("app") ?? document.body;
+  const defaultTitle = document.title;
   const normalizedPath = normalizePath(options.location.pathname);
   const pathname = normalizedPath ?? options.location.pathname;
 
   if (normalizedPath) options.history.replaceState(null, "", normalizedPath);
 
-  const initialLoad = new AbortController();
+  const show = (page: Page): void => {
+    app.replaceChildren(renderPage(document, page));
+    document.title = titleFor(page) ?? defaultTitle;
+  };
 
-  options.navigation?.addEventListener("navigate", (event) => {
-    const destination = shellPathFor(event, options.location.origin);
+  const load = (): Promise<Page> => loadPage(pathname, options.location.origin, fetch);
 
-    if (destination === null) return;
+  // A fast feed renders straight away; a slow one shows the skeleton first.
+  const firstLoad = load();
 
-    initialLoad.abort();
-    event.intercept({
-      focusReset: "manual",
-      scroll: "manual",
-      handler: () =>
-        showPage(
-          shell,
-          destination,
-          event.signal,
-          (update) => transition(options.document, update),
-          () => {
-            restoreScroll(options.document, event);
-            focusHeading(app);
-          },
-        ),
-    });
-  });
+  let page = await Promise.race([
+    firstLoad,
+    wait(setTimeout, LOADING_DELAY_MS).then(() => undefined),
+  ]);
 
-  await showPage(
-    shell,
-    pathname,
-    initialLoad.signal,
-    (update) => {
-      update();
-
-      return Promise.resolve();
-    },
-    () => {},
-  );
-}
-
-// Keeps the current page on screen until the next one is loaded, so the swap
-// (and its view transition) goes from one finished page to the next. `settle`
-// runs inside the swap: in Chromium, Back/Forward scroll restored after a view
-// transition's update lands on a stale position.
-async function showPage(
-  shell: Shell,
-  pathname: string,
-  signal: AbortSignal,
-  swap: (update: () => void) => Promise<void>,
-  settle: () => void,
-): Promise<void> {
-  const { document } = shell.options;
+  if (page === undefined) {
+    show({ kind: "skeleton" });
+    page = await firstLoad;
+  }
 
   while (true) {
-    const page = await loadPage(
-      pathname,
-      shell.options.location.origin,
-      shell.options.fetch,
-      signal,
-    );
+    show(page);
 
-    if (signal.aborted) return;
+    if (page.kind !== "building") break;
 
-    await swap(() => {
-      if (signal.aborted) return;
-
-      shell.app.replaceChildren(renderPage(document, page));
-      document.title = titleFor(page) ?? shell.defaultTitle;
-
-      if (page.kind !== "building") settle();
-    });
-
-    if (page.kind !== "building") return;
-
-    await wait(shell.options.setTimeout, page.retryAfterMs, signal);
-
-    if (signal.aborted) return;
-  }
-}
-
-function transition(document: Document, update: () => void): Promise<void> {
-  if (!("startViewTransition" in document)) {
-    update();
-
-    return Promise.resolve();
+    await wait(setTimeout, page.retryAfterMs);
+    page = await load();
   }
 
-  return document.startViewTransition(update).updateCallbackDone;
+  for (const feedUrl of feedsToPrefetch(page, options.saveData === true)) {
+    // SAFETY: browsers accept `priority`; the RequestInit type omits it.
+    void fetch(feedUrl, { priority: "low" } as RequestInit).catch(() => undefined);
+  }
 }
 
 function titleFor(page: Page): string | undefined {
   return page.kind === "list" || page.kind === "podcast" ? page.title : undefined;
 }
 
-// The browser restores Back/Forward positions and scrolls to a fragment, but
-// without a fragment it leaves a push or replace where the old page was.
-function restoreScroll(document: Document, event: ShellNavigateEvent): void {
-  if (event.navigationType === "traverse" || new URL(event.destination.url).hash !== "") {
-    event.scroll();
-  } else {
-    document.scrollingElement?.scrollTo(0, 0);
-  }
-}
-
-function focusHeading(app: HTMLElement): void {
-  const heading = app.querySelector("h1");
-
-  if (heading === null) return;
-
-  heading.setAttribute("tabindex", "-1");
-  heading.focus({ preventScroll: true });
-}
-
-function wait(
-  setTimeout: BootOptions["setTimeout"],
-  timeout: number,
-  signal: AbortSignal,
-): Promise<void> {
-  return new Promise<void>((resolve) => {
-    setTimeout(() => resolve(), timeout);
-    signal.addEventListener("abort", () => resolve(), { once: true });
-  });
+function wait(setTimeout: BootOptions["setTimeout"], timeout: number): Promise<void> {
+  return new Promise<void>((resolve) => setTimeout(resolve, timeout));
 }

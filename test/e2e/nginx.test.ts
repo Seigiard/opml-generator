@@ -4,7 +4,7 @@ import { Window } from "happy-dom";
 const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:8080";
 
 const SHELL_CSP =
-  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+  "default-src 'none'; script-src 'self' 'inline-speculation-rules'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 
 const PODCAST_PATH = "/test/Test%20Author/Test%20Audiobook/";
 

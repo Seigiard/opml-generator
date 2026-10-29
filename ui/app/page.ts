@@ -2,6 +2,7 @@ import { parseFeed, parseOpml } from "./parse-feed.ts";
 import { feedUrlFor, pagePathFor } from "./routes.ts";
 
 export type Page =
+  | { kind: "skeleton" }
   | { kind: "building"; retryAfterMs: number }
   | { kind: "not-found" }
   | { kind: "error"; message: string; feedUrl: string }
@@ -31,18 +32,30 @@ interface Episode {
   duration?: number;
 }
 
+const PREFETCH_LIMIT = 20;
+
+// Child feeds a list page links to, warmed at low priority so the next page's
+// feed comes from the browser cache. Nothing under Save-Data.
+export function feedsToPrefetch(page: Page, saveData: boolean): string[] {
+  if (saveData || page.kind !== "list") return [];
+
+  return page.entries
+    .map((entry) => feedUrlFor(entry.href)?.feedUrl)
+    .filter((feedUrl) => feedUrl !== undefined)
+    .slice(0, PREFETCH_LIMIT);
+}
+
 export async function loadPage(
   pathname: string,
   origin: string,
   fetch: (input: string, init?: RequestInit) => Promise<Response>,
-  signal?: AbortSignal,
 ): Promise<Page> {
   const route = feedUrlFor(pathname);
 
   if (route === null) return { kind: "not-found" };
 
   try {
-    const response = await fetch(route.feedUrl, { signal });
+    const response = await fetch(route.feedUrl);
 
     if (response.status === 503) {
       return { kind: "building", retryAfterMs: retryDelay(response) };
