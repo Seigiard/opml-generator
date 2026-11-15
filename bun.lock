@@ -5,7 +5,7 @@
     "": {
       "name": "opds-generator",
       "dependencies": {
-        "@seigiard/sync-engine": "0.5.6",
+        "@seigiard/sync-engine": "0.6.0",
         "effect": "4.0.1",
         "fast-xml-parser": "^5.11.2",
         "music-metadata": "^12.2.3",
@@ -262,7 +262,7 @@
 
     "@oxlint/plugins": ["@oxlint/plugins@1.87.0", "", {}, "sha512-OtSZ6NxNkS7bkVy7zk9zGnajz2hVIu0uRPP/dJvJesGRaXtimpA4lpxap7FaIJndG2UIoKhnBU4DxyDQIWv6yg=="],
 
-    "@seigiard/sync-engine": ["@seigiard/sync-engine@0.5.6", "", { "peerDependencies": { "effect": "4.0.1" } }, "sha512-jwoxuE+01kT1v0selO9NbSnXNnp+eIsWxN/1tDVoFXlWneMSjHWdwDe+tcNUx921eAJv9Dk8zBi48GMM3snerQ=="],
+    "@seigiard/sync-engine": ["@seigiard/sync-engine@0.6.0", "", { "peerDependencies": { "effect": "4.0.1" } }, "sha512-ixNSNLJ3GuLnW7LVo3t1UEfo4kMsvqJwmC8O7gq1FjfjtWq8GG8H641F+yBJi/v0U5RaXyD0nTountDIIiyCGA=="],
 
     "@tokenizer/inflate": ["@tokenizer/inflate@0.5.1", "", { "dependencies": { "debug": "^4.4.3", "token-types": "^6.1.2" } }, "sha512-56U2O6fDLFtqokwWh597IdeUgtM7j+TT9tb1soybhgA6cy163gAcVmoQr8H4Ud/CkgCkViwcuLyqtn6wYqw59Q=="],
 
