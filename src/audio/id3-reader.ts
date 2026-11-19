@@ -1,10 +1,9 @@
-import { parseBuffer } from "music-metadata";
+import { parseFile } from "music-metadata";
 import { basename, extname } from "node:path";
 import type { AudioMetadata, CoverArt } from "./types.ts";
 
 export async function readAudioMetadata(filePath: string): Promise<AudioMetadata> {
-  const buf = new Uint8Array(await Bun.file(filePath).arrayBuffer());
-  const metadata = await parseBuffer(buf, { path: filePath });
+  const metadata = await parseFile(filePath, { skipCovers: true });
 
   const { common, format } = metadata;
 
@@ -21,8 +20,7 @@ export async function readAudioMetadata(filePath: string): Promise<AudioMetadata
 }
 
 export async function extractEmbeddedCover(filePath: string): Promise<CoverArt | null> {
-  const buf = new Uint8Array(await Bun.file(filePath).arrayBuffer());
-  const metadata = await parseBuffer(buf, { path: filePath });
+  const metadata = await parseFile(filePath);
 
   const picture = metadata.common.picture?.[0];
 
